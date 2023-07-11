@@ -1,6 +1,8 @@
 # xbridge_trading_bots
 Trading bots for Blocknet Xbridge.
 
+Should works with python3.X
+Python3.10 actually.
 
 ```
 git clone https://github.com/tryiou/xbridge_pingpong_bot
