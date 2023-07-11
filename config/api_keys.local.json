@@ -1,0 +1,14 @@
+{
+  "api_info": [
+    {
+      "exchange": "add_as_many_as_wanted",
+      "api_key": "AAA",
+      "api_secret": "BBB"
+    },
+        {
+      "exchange": "bittrex",
+      "api_key": "AAA",
+      "api_secret": "BBB"
+    }
+  ]
+}

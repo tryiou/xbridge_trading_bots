@@ -1,0 +1,12 @@
+ccxt
+#numpy
+#matplotlib
+#flask
+#python-dateutil
+requests
+jsonrpclib
+#web3
+#pycallgraph
+#packaging
+#pandas
+#matplotlib
