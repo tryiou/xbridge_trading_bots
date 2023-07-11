@@ -39,7 +39,7 @@ python3 basic_seller.py -tts BLOCK -ttb PIVX -atts 200 -mup 0.33 -spu 0.015
 # -ttb  : Token to buy
 # -atts : Amount TokenToSell
 # -mup  : Min Usd Price TokenToSell
-# -spu  : SellPriceUpscale
+# -spu  : Sell Price Upscale over ccxt price calcs
   
 ```
  
