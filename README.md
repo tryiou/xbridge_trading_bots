@@ -8,6 +8,7 @@ v3.10 actually
 git clone https://github.com/tryiou/xbridge_pingpong_bot
 cd xbridge_pingpong_bot
 # optional step: create and activate python venv
+# pip / pip3, python/python3 depending on OS
 pip install -r requirements.txt
 ```
 # Pingpong
@@ -33,8 +34,8 @@ python main_pingpong.py
 # edit config/blocknet_rpc_cfg.py
 # set your blocknet rpc credentials/port
 # example usage:
-python3 basic_seller.py --help
-python3 basic_seller.py -tts BLOCK -ttb PIVX -atts 200 -mup 0.33 -spu 0.015
+python basic_seller.py --help
+python basic_seller.py -tts BLOCK -ttb PIVX -atts 200 -mup 0.33 -spu 0.015
 # -tts  : Token to sell
 # -ttb  : Token to buy
 # -atts : Amount TokenToSell
