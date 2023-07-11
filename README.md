@@ -10,7 +10,7 @@ pip install -r requirements.txt
 ```
 # Pingpong
 gui version need tkinter package\
-https://www.pythonguis.com/installation/install-tkinter-mac/
+https://www.pythonguis.com/installation/install-tkinter-mac/ \
 https://www.pythonguis.com/installation/install-tkinter-linux/
 ```
 # edit config/blocknet_rpc_cfg.py
