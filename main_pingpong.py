@@ -191,7 +191,7 @@ def main():
             xb.dxflushcancelledorders()
             flush_timer = time.time()
         general.main_loop()
-        time.sleep(4)
+        time.sleep(10)
 
 
 def start():
