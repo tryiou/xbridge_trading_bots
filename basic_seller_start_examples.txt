@@ -1,5 +1,4 @@
-python3 basic_seller.py -tts BLOCK -ttb LTC -atts 5000 -mup 0.33 -spu 0.015
-python3 basic_seller.py -tts BLOCK -ttb PIVX -atts 1000 -mup 0.33 -spu 0.015
-python3 basic_seller.py -tts BLOCK -ttb DOGE -atts 1000 -mup 0.33 -spu 0.015
-python3 basic_seller.py -tts BLOCK -ttb DASH -atts 1000 -mup 0.33 -spu 0.015
-
+python3 basic_seller.py -tts BLOCK -ttb LTC -atts 100 -mup 0.3 -spu 0.015
+# SELL 100 BLOCK TO LTC, minimum price per BLOCK: 0.30USD, upscale calculated price by 1.5%
+python3 basic_seller.py -tts LTC -ttb BLOCK -atts 1 -mup 70 -spu 0.03
+# SELL 1 LTC TO BLOCK, minimum price per LTC 70USD, upscale calculated price by 3%
