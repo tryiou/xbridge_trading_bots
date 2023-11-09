@@ -1,6 +1,7 @@
 # user_pairs = BOT WILL CREATE 1 ORDER PER PAIR
-# first sell token 1 to token2, second buy token2 with token1, loop
-# ex : "BLOCK/LTC" = "token1/token2", "LTC/LTC" = "token1/token2"
+# PING                               PONG
+# first step sell token 1 to token2, second step buy token2 with token1, loop
+# ex : "BLOCK/LTC" = "token1/token2", "LTC/BLOCK" = "token1/token2"
 # each line is one side only
 
 debug_level = 2  # 0=Off, 2=Display RPC calls, 3=Display answers
