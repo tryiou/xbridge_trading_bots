@@ -5,8 +5,8 @@ Should works with python3.X \
 v3.10 actually
 
 ```
-git clone https://github.com/tryiou/xbridge_pingpong_bot
-cd xbridge_pingpong_bot
+git clone https://github.com/tryiou/xbridge_pingpong_bots
+cd xbridge_pingpong_bots
 # optional step: create and activate python venv
 # pip / pip3, python / python3 depending on OS
 pip install -r requirements.txt
