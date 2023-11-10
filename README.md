@@ -20,7 +20,8 @@ https://www.pythonguis.com/installation/install-tkinter-linux/ \
 # edit config/blocknet_rpc_cfg.py
 # set your blocknet rpc credentials/port
 # edit config/config_pingpong.py
-# set desired coins / size / spread
+# set desired user_pairs / usd_amount_default / spread_default
+# optional: customise per pair
 
 # to display little user interface to start/stop/watch orders 
 # run the gui version with :
