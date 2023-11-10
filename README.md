@@ -6,7 +6,7 @@ v3.10 actually
 
 ```
 git clone https://github.com/tryiou/xbridge_trading_bots.git
-cd xbridge_pingpong_bots
+cd xbridge_trading_bots
 # optional step: create and activate python venv
 # pip / pip3, python / python3 depending on OS
 pip install -r requirements.txt
