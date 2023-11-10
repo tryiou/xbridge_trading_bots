@@ -1,4 +1,4 @@
-# user_pairs = BOT WILL CREATE 1 ORDER PER PAIR
+# BOT WILL CREATE 1 ORDER PER PAIR
 # PING                               PONG
 # first step sell token1 to token2, second step buy token2 with token1, loop
 
