@@ -1,5 +1,6 @@
 # xbridge_trading_bots
 Trading bots for Blocknet Xbridge.
+https://docs.blocknet.org/
 
 Should works with python3.X \
 v3.10 actually
