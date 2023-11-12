@@ -5,7 +5,9 @@ import inspect
 import threading
 import time
 import tkinter as tk
+from tkinter import ttk
 
+from ttkbootstrap import Style
 import main_pingpong
 from config import config_pingpong as config
 from definitions import init
@@ -53,80 +55,78 @@ class Thread(threading.Thread):
         self.raise_exc(SystemExit)
 
 
-class My_gui():
+class MyGUI:
     def __init__(self):
         self.root = tk.Tk()
-        # window = Tk()
         self.root.title("PingPong")
-        self.refresh_timer = None
-        self.refresh_delay = 30
-        self.mp = None
         self.started = False
-        self.pairs_dict_gui = None
-        self.btn_start = tk.Button(self.root, text="START", command=self.start)
+
+        # Use ttkbootstrap style
+        self.style = Style(theme="darkly")
+        #self.style.configure('.', font=('Helvetica', 12))
+
+        self.btn_start = ttk.Button(self.root, text="START", command=self.start)
         self.btn_start.grid(column=0, row=0)
-        self.btn_stop = tk.Button(self.root, text="STOP", command=self.stop)
+        self.btn_stop = ttk.Button(self.root, text="STOP", command=self.stop)
         self.btn_stop.grid(column=1, row=0)
-        self.btn_stop.config(state="disabled")
-        lbl_lst = []
-        self.lbl_symbol = tk.Label(self.root, text="SYMBOL:")
-        self.lbl_symbol.grid(column=0, row=1)
-        # self.lbl_price = tk.Label(self.root, text="USD_PRICE:")
-        # self.lbl_price.grid(column=1, row=1)
-        self.lbl_status = tk.Label(self.root, text="STATUS:")
-        self.lbl_status.grid(column=1, row=1)
-        self.lbl_side = tk.Label(self.root, text="SIDE:")
-        self.lbl_side.grid(column=2, row=1)
-        self.lbl_side = tk.Label(self.root, text="VARIATION:")
-        self.lbl_side.grid(column=4, row=1)
-        # x = 0
+        self.btn_stop.state(["disabled"])
         self.lb_orders_lst = []
-        max_row = 1
-        canvas_height = 20
-        canvas_width = 20
+        self.lbl_bal = ttk.Label(self.root, text="BALANCES:")
+
+        self.create_gui()
+        self.init_bals_gui()
+
+    def create_gui(self):
+        labels = ["SYMBOL", "STATUS", "SIDE", "FLAG", "VARIATION"]
+        separator_width = 5  # Set the width of the separator
+        
+        for col, label_text in enumerate(labels):
+            ttk.Label(self.root, text=label_text).grid(column=col, row=1)
+
+        self.root.columnconfigure(len(labels), weight=2)
+
+        canvas_height = 30
+        canvas_width = 30
+        
+        
         for x, pair in enumerate(config.user_pairs):
-            self.lb_orders_lst.append({
-                "symbol_text": pair, "symbol": tk.Label(self.root, text=pair),
-                # "price": tk.Label(self.root, text="None"),
-                "status": tk.Label(self.root, text="None"),
-                "side": tk.Label(self.root, text="None"),
+            order_info = {
+                "symbol_text": pair,
+                "symbol": ttk.Label(self.root, text=pair),
+                "status": ttk.Label(self.root, text="None"),
+                "side": ttk.Label(self.root, text="None"),
                 "canvas": tk.Canvas(self.root, height=canvas_height, width=canvas_width),
                 "oval": None,
-                "variation": tk.Label(self.root, text="None")
+                "variation": ttk.Label(self.root, text="None")
             }
-            )
-            self.lb_orders_lst[-1]['symbol'].grid(column=0, row=x + 2)
-            # self.lb_orders_lst[-1]['price'].grid(column=1, row=x + 2)
-            self.lb_orders_lst[-1]['status'].grid(column=1, row=x + 2)
-            self.lb_orders_lst[-1]['side'].grid(column=2, row=x + 2)
-            self.lb_orders_lst[-1]['canvas'].grid(column=3, row=x + 2)
-            self.lb_orders_lst[-1]['oval'] = self.lb_orders_lst[-1]['canvas'].create_oval(1, 1, canvas_width,
-                                                                                          canvas_height)
-            self.lb_orders_lst[-1]['variation'].grid(column=4, row=x + 2)
-            max_row = x + 2
+            order_info['symbol'].grid(column=0, row=x + 2)
+            order_info['status'].grid(column=1, row=x + 2)
+            order_info['side'].grid(column=2, row=x + 2)
+            order_info['canvas'].grid(column=3, row=x + 2)
+            order_info['oval'] = order_info['canvas'].create_oval(1, 1, canvas_width-1, canvas_height-1)
+            order_info['variation'].grid(column=4, row=x + 2)
+            self.lb_orders_lst.append(order_info)
 
-        self.lbl_bal = tk.Label(self.root, text="BALANCES:")
-        self.lbl_bal.grid(column=0, row=max_row + 1)
-        max_row += 1
+        self.lbl_bal.grid(column=0, row=len(config.user_pairs) + 3)
         self.initialise()
-        self.lb_bals_lst = []
-        # print(init.t)
-        for x, token in enumerate(init.t):
-            bal = init.t[token].dex_total_balance
-            if bal:
-                bal = float("{:.4f}".format(bal))
-            else:
-                bal = 0
 
-            # usd_bal = init.t[token].usd_price * bal
-            self.lb_bals_lst.append({"symbol_text": token, "symbol": tk.Label(self.root, text=token),
-                                     "balance": tk.Label(self.root, text=str(bal)),
-                                     "usd_bal": tk.Label(self.root, text=str(None))})
-            self.lb_bals_lst[-1]['symbol'].grid(column=x, row=max_row + 1)
-            self.lb_bals_lst[-1]['balance'].grid(column=x, row=max_row + 2)
-            self.lb_bals_lst[-1]['usd_bal'].grid(column=x, row=max_row + 3)
-            # print(x, token, init.t[token].total_balance)
-        # exit()
+    def init_bals_gui(self):
+        self.lb_bals_lst = []
+        for x, token in enumerate(init.t):
+            bal = float("{:.4f}".format(init.t[token].dex_total_balance)) if init.t[token].dex_total_balance else 0
+
+            bal_info = {
+                "symbol_text": token,
+                "symbol": ttk.Label(self.root, text=token),
+                "balance": ttk.Label(self.root, text=str(bal)),
+                "usd_bal": ttk.Label(self.root, text=str(None))
+            }
+
+            bal_info['symbol'].grid(column=x, row=len(config.user_pairs) + 4)
+            bal_info['balance'].grid(column=x, row=len(config.user_pairs) + 5)
+            bal_info['usd_bal'].grid(column=x, row=len(config.user_pairs) + 6)
+            self.lb_bals_lst.append(bal_info)
+
 
     def initialise(self):
         init.init_pingpong()
@@ -145,20 +145,13 @@ class My_gui():
         while self.send_process.is_alive():
             time.sleep(1)
         xb.cancelallorders()
-        for key, pair in init.p.items():
-            for ppair in self.lb_orders_lst:
-                if ppair['symbol_text'] == key:
-                    # ppair['price'].configure(text="None")
-                    ppair['status'].configure(text="None")
-                    ppair['side'].configure(text="None")
+        self.initialise()
         self.btn_stop.config(state="disabled")
         self.btn_start.config(state="active")
-
-        # self.initialise()
         self.started = False
         print("stop done")
 
-    def refresh(self):
+    def refresh_gui(self):
         if self.started:
             if not self.send_process.is_alive():
                 import definitions.xbridge_def as xb
@@ -166,92 +159,110 @@ class My_gui():
                 xb.cancelallorders()
                 self.btn_stop.config(state="disabled")
                 self.btn_start.config(state="active")
-
-                # self.initialise()
                 self.started = False
-            for key, pair in init.p.items():
-                for ppair in self.lb_orders_lst:
-                    if ppair['symbol_text'] == key:
-                        # if pair.price:
-                        #     ppair['price'].configure(text=float("{:.4f}".format(pair.price * pair.t2.usd_price)))
-                        # else:
-                        #     ppair['price'].configure(text='None')
-                        if pair.dex_order and 'status' in pair.dex_order:
-                            ppair['status'].configure(text=pair.dex_order['status'])
-                            ppair['variation'].configure(text=str(pair.var))
-                            if pair.dex_order['status'] == 'open':
-                                ppair['canvas'].itemconfigure(ppair['oval'], fill="green")
-                            elif pair.dex_order['status'] == 'new' or pair.dex_order['status'] == 'created':
-                                ppair['canvas'].itemconfigure(ppair['oval'], fill="yellow")
-                            elif pair.dex_order['status'] == 'accepting' or pair.dex_order['status'] == 'hold' or \
-                                    pair.dex_order['status'] == 'initialized' or pair.dex_order[
-                                'status'] == 'commited' or pair.dex_order['status'] == 'finished':
-                                ppair['canvas'].itemconfigure(ppair['oval'], fill="dark orchid")
-                        else:
-                            ppair['canvas'].itemconfigure(ppair['oval'], fill="red")
-                            ppair['status'].configure(text='None')
-                        if pair.current_order and 'side' in pair.current_order:
-                            ppair['side'].configure(text=pair.current_order['side'])
-                        else:
-                            if pair.disabled:
-                                ppair['status'].configure(text='Disabled')
-                                ppair['side'].configure(text='Disabled')
-                                ppair['canvas'].itemconfigure(ppair['oval'], fill="red")
-                            else:
-                                ppair['status'].configure(text='None')
-                                ppair['side'].configure(text='None')
-                                ppair['canvas'].itemconfigure(ppair['oval'], fill="red")
-                    # print(self.lb_bals_lst)
-        else:
-            for ppair in self.lb_orders_lst:
-                ppair['status'].configure(text='None')
-                ppair['side'].configure(text='None')
-                ppair['canvas'].itemconfigure(ppair['oval'], fill="red")
+
         for key, pair in init.p.items():
+            for ppair in self.lb_orders_lst:
+                if ppair['symbol_text'] == key:
+                    #print(pair.__dict__)
+                    self.update_order_display(ppair, pair)
             for token in self.lb_bals_lst:
-                if token['symbol_text'] == pair.t1.symbol:
-                    if pair.t1.usd_price:
-                        token['symbol'].configure(text=pair.t1.symbol + str(["{:.2f}".format(pair.t1.usd_price)]))
-                    if pair.t1.dex_total_balance:
-                        if float(pair.t1.dex_total_balance) >= 1:
-                            token['balance'].configure(text="{:.2f}".format(pair.t1.dex_total_balance))
-                        else:
-                            token['balance'].configure(text="{:.6f}".format(pair.t1.dex_total_balance))
-                        if init.t[pair.t1.symbol].usd_price:
-                            usd_bal = init.t[pair.t1.symbol].usd_price * pair.t1.dex_total_balance
-                            token['usd_bal'].configure(text="{:.2f}".format(usd_bal) + "$")
-                elif token['symbol_text'] == pair.t2.symbol:
-                    if pair.t2.usd_price:
-                        token['symbol'].configure(text=pair.t2.symbol + str(["{:.2f}".format(pair.t2.usd_price)]))
-                    if pair.t2.dex_total_balance:
-                        if float(pair.t2.dex_total_balance) >= 1:
-                            token['balance'].configure(text="{:.2f}".format(pair.t2.dex_total_balance))
-                        else:
-                            token['balance'].configure(text="{:.6f}".format(pair.t2.dex_total_balance))
-                        if init.t[pair.t2.symbol].usd_price:
-                            usd_bal = init.t[pair.t2.symbol].usd_price * pair.t2.dex_total_balance
-                            token['usd_bal'].configure(text="{:.2f}".format(usd_bal) + "$")
-                elif token['symbol_text'] == 'BTC':
-                    if init.t['BTC'].dex_total_balance:
-                        if init.t['BTC'].usd_price:
-                            token['symbol'].configure(text='BTC' + str(["{:.2f}".format(init.t['BTC'].usd_price)]))
-                        if init.t['BTC'].dex_total_balance >= 1:
-                            token['balance'].configure(text=float("{:.2f}".format(init.t['BTC'].dex_total_balance)))
-                        else:
-                            token['balance'].configure(text=float("{:.8f}".format(init.t['BTC'].dex_total_balance)))
-                        if init.t['BTC'].usd_price:
-                            usd_bal = init.t['BTC'].usd_price * init.t['BTC'].dex_total_balance
-                            token['usd_bal'].configure(text="{:.2f}".format(usd_bal) + "$")
+                self.update_balance_display(token, pair)
 
-                    # print("BLA BLA", token["balance"].cget("text"))
-                    # exit()
+        self.root.after(1500, self.refresh_gui)
 
-            # self.refresh_timer = time.time()
-        self.root.after(1500, self.refresh)
+    def update_order_display(self, ppair, pair):
+        if self.started and pair.dex_order and 'status' in pair.dex_order:
+            ppair['status'].configure(text=pair.dex_order['status'])
+            ppair['variation'].configure(text=str(pair.var))
+            color = self.get_oval_color(pair.dex_order['status'])
+            ppair['canvas'].itemconfigure(ppair['oval'], fill=color)
+        self.update_current_order_display(ppair, pair)
+
+    def get_oval_color(self, status):
+        if status == 'open':
+            return "green"
+        elif status in {'new', 'created'}:
+            return "yellow"
+        elif status in {'accepting', 'hold', 'initialized', 'commited', 'finished'}:
+            return "dark orchid"
+        else:
+            return "red"
+
+    def update_current_order_display(self, ppair, pair):
+        if pair.current_order and 'side' in pair.current_order:
+            ppair['side'].configure(text=pair.current_order['side'])
+        else:
+            ppair['status'].configure(text='Disabled' if pair.disabled else 'None')
+            ppair['side'].configure(text='Disabled' if pair.disabled else 'None')
+            ppair['variation'].configure(text='None')
+            self.reset_oval_representation(ppair)
+
+    def reset_oval_representation(self, ppair):
+        ppair['canvas'].itemconfigure(ppair['oval'], fill="red")
+
+    def update_balance_display(self, token, pair):
+        if token['symbol_text'] == pair.t1.symbol or token['symbol_text'] == pair.t2.symbol:
+            self.update_token_balance_display(token, pair)
+        elif token['symbol_text'] == 'BTC':
+            self.update_btc_balance_display(token)
+
+    def update_token_balance_display(self, token, pair):
+        symbol = pair.t1.symbol if token['symbol_text'] == pair.t1.symbol else pair.t2.symbol
+        usd_price = init.t[symbol].usd_price
+        dex_total_balance = pair.t1.dex_total_balance if token['symbol_text'] == pair.t1.symbol else pair.t2.dex_total_balance
+
+        if usd_price is not None:
+            token['symbol'].configure(text="{}['{:.2f}']".format(symbol, usd_price))
+        else:
+            token['symbol'].configure(text=symbol)
+
+        if dex_total_balance is not None:
+            if dex_total_balance >= 1:
+                balance_text = '{:.2f}'.format(dex_total_balance)
+            else:
+                balance_text = '{:.6f}'.format(dex_total_balance)
+            token['balance'].configure(text=balance_text)
+
+            if usd_price is not None:
+                usd_bal = usd_price * dex_total_balance
+                token['usd_bal'].configure(text='{:.2f}$'.format(usd_bal))
+        else:
+            token['balance'].configure(text='0')
+            token['usd_bal'].configure(text='None')
+
+
+    def update_btc_balance_display(self, token):
+        btc_balance = init.t['BTC'].dex_total_balance
+        usd_price = init.t['BTC'].usd_price
+        token['symbol'].configure(text='BTC')
+
+        if btc_balance is not None:
+            if btc_balance >= 0.01:
+                balance_text = '{:.2f}'.format(btc_balance)
+            elif btc_balance > 0:
+                balance_text = '{:.8f}'.format(btc_balance)
+            else:
+                balance_text = '0'
+            token['balance'].configure(text=balance_text)
+
+            if usd_price is not None:
+                usd_bal = usd_price * btc_balance
+                token['usd_bal'].configure(text='{:.2f}$'.format(usd_bal))
+        else:
+            token['balance'].configure(text='0')
+            token['usd_bal'].configure(text='None')
+
+    def disable_stop_button(self):
+        self.btn_stop.config(state="disabled")
+
+    def enable_start_button(self):
+        self.btn_start.config(state="active")
+
 
 
 if __name__ == '__main__':
-    app = My_gui()
+    app = MyGUI()
     # app.init()
-    app.refresh()
+    app.refresh_gui()
     app.root.mainloop()

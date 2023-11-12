@@ -10,3 +10,4 @@ jsonrpclib
 #packaging
 #pandas
 #matplotlib
+ttkbootstrap==1.10.1 
