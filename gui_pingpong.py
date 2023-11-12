@@ -85,8 +85,8 @@ class MyGUI:
 
         self.root.columnconfigure(len(labels), weight=2)
 
-        canvas_height = 30
-        canvas_width = 30
+        canvas_height = 20
+        canvas_width = 20
         
         
         for x, pair in enumerate(config.user_pairs):
