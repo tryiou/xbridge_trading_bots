@@ -3,6 +3,7 @@
 # first step sell token1 to token2, second step buy token2 with token1, loop
 
 debug_level = 2  # 0=Off, 2=Display RPC calls, 3=Display answers
+ttk_theme = "darkly"
 
 # "BLOCK/LTC" = "token1/token2", "LTC/BLOCK" = "token1/token2"
 # each line is one active order
