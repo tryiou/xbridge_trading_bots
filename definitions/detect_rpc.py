@@ -4,6 +4,7 @@ import json
 import logging
 import time
 
+debug_level = 2
 
 
 def load_config_path_from_json(json_path):
@@ -40,7 +41,7 @@ def prompt_user_for_config_path():
 
     try:
         from tkinter import filedialog, Tk
-        #from ttkbootstrap import Style
+        # from ttkbootstrap import Style
         import ttkbootstrap
         from config import config_pingpong as config
 
@@ -74,11 +75,6 @@ def save_config_path_to_json(json_path, config_path):
 
 
 def read_config_file(config_path):
-    rpc_user = None
-    rpc_password = None
-    rpc_port = None
-    debug_level = None
-
     if config_path:  # Only try to open the file if the path is not an empty string
         if os.path.exists(config_path):
             logging.info(f'Reading config file: {config_path}')
@@ -94,14 +90,11 @@ def read_config_file(config_path):
                         rpc_password = value
                     elif key == 'rpcport':
                         rpc_port = int(value)
-                    elif key == 'debug_level':
-                        debug_level = int(value)
-                        # Assuming debug_level is an integer, change to the appropriate type
             logging.info(f'Read config successfully')
         else:
             logging.warning(f'Config file not found: {config_path}')
 
-    return rpc_user, rpc_password, rpc_port, debug_level
+    return rpc_user, rpc_password, rpc_port
 
 
 def detect_rpc():
@@ -128,12 +121,11 @@ def detect_rpc():
         logging.error("No valid Blocknet Core Config path found.")
         return
 
-    rpc_user, rpc_password, rpc_port, debug_level = read_config_file(config_path)
+    rpc_user, rpc_password, rpc_port = read_config_file(config_path)
 
     print(f'Blocknet Core Config path: {config_path}')
     print(f'RPC User: {rpc_user}')
     print(f'RPC Port: {rpc_port}')
-    print(f'Debug Level: {debug_level}')
     return rpc_user, rpc_port, rpc_password
 
 

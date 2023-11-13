@@ -1,7 +1,8 @@
 import time
 
-import requests
-
+#import requests
+from requests.auth import HTTPBasicAuth
+from requests import Session
 import config.blocknet_rpc_cfg as config
 import definitions.bcolors as bcolors
 from definitions.detect_rpc import detect_rpc
@@ -20,33 +21,33 @@ def test_rpc(rpc_user, rpc_port, rpc_password):
 
 
 def rpc_call(method, params=[], url="http://127.0.0.1", rpc_user=user_rpc, rpc_password=password_rpc, rpc_port=port_rpc,
-             debug=config.debug_level, timeout=120, display=True, prefix='xbridge', max_err_count=None):
-    if rpc_port != 80 and rpc_port != 443:
-        url = url + ':' + str(rpc_port)
+             debug=2, timeout=120, display=True, prefix='xbridge', max_err_count=None):
+    if rpc_port not in {80, 443}:
+        url = f"{url}:{rpc_port}"
+
     payload = {"jsonrpc": "2.0",
                "method": method,
                "params": params,
                "id": 0}
+
     headers = {'Content-type': 'application/json'}
-    if rpc_user and rpc_password:
-        auth = (config.rpc_user, config.rpc_password)
-    else:
-        auth = None
+    auth = HTTPBasicAuth(rpc_user, rpc_password) if rpc_user and rpc_password else None
+
     done = False
     error = False
     err_count = 0
+
     while not done:
         try:
-            response = requests.Session().post(url, json=payload, headers=headers, auth=auth, timeout=timeout)
-            responsejson = response.json()
-            # if method == "ccxt_call_fetch_tickers":
-            #     print(response, '\n', responsejson)
-            result = responsejson['result']
+            with Session() as session:
+                response = session.post(url, json=payload, headers=headers, auth=auth, timeout=timeout)
+                responsejson = response.json()
+                result = responsejson.get('result')
         except Exception as e:
             err_count += 1
-            msg = prefix + "_rpc_call( " + str(method) + ', ' + str(params) + " )"
+            msg = f"{prefix}_rpc_call( {method}, {params} )"
             print(f"{bcolors.mycolor.WARNING}{msg}{bcolors.mycolor.ENDC}")
-            print(f"{bcolors.mycolor.WARNING}{str(type(e)) + ', ' + str(e)}{bcolors.mycolor.ENDC}")
+            print(f"{bcolors.mycolor.WARNING}{type(e)}, {e}{bcolors.mycolor.ENDC}")
             result = None
             error = True
             if max_err_count and err_count >= max_err_count:
@@ -55,11 +56,13 @@ def rpc_call(method, params=[], url="http://127.0.0.1", rpc_user=user_rpc, rpc_p
         else:
             done = True
             error = False
+
     if debug >= 2 and display and not error:
-        msg = prefix + "_rpc_call( " + str(method) + ', ' + str(params) + " )"
+        msg = f"{prefix}_rpc_call( {method}, {params} )"
         print(f"{bcolors.mycolor.OKGREEN}{msg}{bcolors.mycolor.ENDC}")
         if debug >= 3:
             print(str(responsejson))
+
     return result
 
 
