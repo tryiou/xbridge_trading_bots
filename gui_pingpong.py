@@ -63,7 +63,7 @@ class MyGUI:
         self.started = False
 
         # Use ttkbootstrap style
-        self.style = Style(theme="darkly")
+        self.style = Style(config.ttk_theme)
 
         self.btn_start = ttk.Button(self.root, text="START", command=self.start)
         self.btn_start.grid(column=0, row=0)
