@@ -20,8 +20,6 @@ symbols_list = ['BTC/USDT', 'PIVX/BTC', 'ETH/BTC', 'SYS/BTC', 'DASH/BTC', 'DOGE/
 ccxt_i = ccxt_def.init_ccxt_instance(ccxt_cfg.ccxt_exchange, ccxt_cfg.ccxt_hostname)
 result2 = ccxt_def.ccxt_call_fetch_tickers(ccxt_i, symbols_list, proxy=False)
 print('direct', type(result2), result2)
-result = rpc_call("ccxt_call_fetch_tickers",
-                  [symbols_list],
-                  port=2233, debug=0)
+result = rpc_call("ccxt_call_fetch_tickers", [symbols_list], rpc_port=2233, debug=0)
 print('proxy', type(result), result)
 print(isOpen("127.0.0.1", 2233))

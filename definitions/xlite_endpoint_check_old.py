@@ -60,7 +60,7 @@ def get_cc_height(coin):
         result = None
         try:
             result = xb.rpc_call(method="getblockcount", params=[coin],
-                                 url="https://plugin-api.core.cloudchainsinc.com", port=443, rpc_user=None,
+                                 url="https://plugin-api.core.cloudchainsinc.com", rpc_port=443, rpc_user=None,
                                  rpc_password=None)
             cc_blockcount = int(result)
         except Exception as e:

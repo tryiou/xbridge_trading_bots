@@ -7,12 +7,13 @@
 import time
 from threading import Thread
 
-import definitions.xlite_endpoint_check as xlite_endpoint_check
+# import definitions.xlite_endpoint_check as xlite_endpoint_check
 import definitions.ccxt_def as ccxt_def
 import definitions.init as init
 import definitions.xbridge_def as xb
-from config.config_pingpong import cc_coins
+# from config.config_pingpong import cc_coins
 import concurrent.futures
+
 
 # from pycallgraph import PyCallGraph
 # from pycallgraph.output import GraphvizOutput
@@ -135,7 +136,7 @@ class General:
                             if 'orderid' in utxo:
                                 if utxo['orderid'] == '':
                                     bal_free += float(utxo['amount'])
-                                #else:
+                                # else:
                                 #    print('no orderid in utxo:\n', utxo)
                             else:
                                 print(token, 'no amount in utxo:\n', utxo, '**', utxos)
@@ -176,17 +177,17 @@ def main():
     flush_timer = time.time()
     cc_check_timer = time.time()
     flush_delay = 15 * 60
-    cc_timer = 5 * 60
-    general.disabled_coins = xlite_endpoint_check.xlite_endpoint_height_check(cc_coins, display=True)
+    # cc_timer = 5 * 60
+    # general.disabled_coins = xlite_endpoint_check.xlite_endpoint_height_check(cc_coins, display=True)
     general.main_init_loop()
     # test_counter=0
     while 1:
         # test_counter+=1
         # if test_counter >= 3:
         #     break
-        if time.time() - cc_check_timer > cc_timer:
-            general.disabled_coins = xlite_endpoint_check.xlite_endpoint_height_check(cc_coins)
-            cc_check_timer = time.time()
+        # if time.time() - cc_check_timer > cc_timer:
+        # general.disabled_coins = xlite_endpoint_check.xlite_endpoint_height_check(cc_coins)
+        #    cc_check_timer = time.time()
         if time.time() - flush_timer > flush_delay:
             xb.dxflushcancelledorders()
             flush_timer = time.time()

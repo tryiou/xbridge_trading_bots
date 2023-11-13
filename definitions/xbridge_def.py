@@ -4,13 +4,25 @@ import requests
 
 import config.blocknet_rpc_cfg as config
 import definitions.bcolors as bcolors
+from definitions.detect_rpc import detect_rpc
+import logging
+
+user_rpc, port_rpc, password_rpc = detect_rpc()
 
 
-def rpc_call(method, params=[], url="http://127.0.0.1", port=config.rpc_port, debug=config.debug_level, timeout=120,
-             rpc_user=config.rpc_user, rpc_password=config.rpc_password, display=True, prefix='xbridge',
-             max_err_count=None):
-    if port != 80 and port != 443:
-        url = url + ':' + str(port)
+def test_rpc(rpc_user, rpc_port, rpc_password):
+    result = rpc_call("getwalletinfo", rpc_user=rpc_user, rpc_port=rpc_port, rpc_password=rpc_password)
+    logging.debug(f'rpc call getwalletinfo: {result}')
+    if result:
+        return True
+    else:
+        return False
+
+
+def rpc_call(method, params=[], url="http://127.0.0.1", rpc_user=user_rpc, rpc_password=password_rpc, rpc_port=port_rpc,
+             debug=config.debug_level, timeout=120, display=True, prefix='xbridge', max_err_count=None):
+    if rpc_port != 80 and rpc_port != 443:
+        url = url + ':' + str(rpc_port)
     payload = {"jsonrpc": "2.0",
                "method": method,
                "params": params,
@@ -49,6 +61,11 @@ def rpc_call(method, params=[], url="http://127.0.0.1", port=config.rpc_port, de
         if debug >= 3:
             print(str(responsejson))
     return result
+
+
+if not test_rpc(user_rpc, port_rpc, password_rpc):
+    logging.error(f'Blocknet core rpc server not responding ?')
+    exit()
 
 
 def xrgetblockcount(token, nodecount=1, timeout=120, max_err_count=None):
