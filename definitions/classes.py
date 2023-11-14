@@ -337,10 +337,10 @@ class Pair:
 
         # Debug log: Log the calculated var
         general_log.debug(f"Calculated Var: {var}")
-
-        # Truncate var to 3 decimal places
-        self.variation = float("{:.3f}".format(var))
-
+        if isinstance(var, float):
+            self.variation = float("{:.3f}".format(var))
+        else:
+            self.variation = [float("{:.3f}".format(self.price / self.current_order['org_pprice']))]
         # Debug log: Log the variation
         general_log.debug(f"Variation: {self.variation}")
 
