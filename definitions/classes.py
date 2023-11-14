@@ -147,7 +147,7 @@ class Pair:
         self.dex_enabled = dex_enabled
         self.read_pair_dex_last_order_history()
         self.disabled = False
-        self.var = None
+        self.variation = None
         self.amount_token_to_sell = amount_token_to_sell
         self.min_sell_price_usd = min_sell_price_usd
         self.ccxt_sell_price_upscale = ccxt_sell_price_upscale
@@ -172,7 +172,7 @@ class Pair:
             self.t2.update_ccxt_price()
         self.price = self.t1.ccxt_price / self.t2.ccxt_price
         if display:
-            general_log.info("%s btc_p: %s, %s btc_p: %s, %s/%s price: %s" % (
+            general_log.info("update_pricing: %s btc_p: %s, %s btc_p: %s, %s/%s price: %s" % (
                 self.t1.symbol, self.t1.ccxt_price,
                 self.t2.symbol, self.t2.ccxt_price,
                 self.t1.symbol, self.t2.symbol, self.price
@@ -291,45 +291,74 @@ class Pair:
                 f"Bot strategy is {self.strategy}, no rule for this strat on create_dex_virtual_buy_order")
 
     def check_price_in_range(self, display=False):
-        self.var = None
-        if self.strategy == 'pingpong':
-            price_variation_tolerance = config_pp.price_variation_tolerance
-        elif self.strategy == 'basic_seller':
-            price_variation_tolerance = 0.01  # TODO ADD PARAMETERS INPUT
-        if 'side' in self.current_order:
-            if self.current_order['manual_dex_price'] is True:
-                if self.current_order['side'] == 'BUY':
-                    if (
-                            self.strategy == 'pingpong' and self.symbol in config_pp.arb_team_pairs and config_pp.arb_team) is False and self.price < \
-                            self.order_history['org_pprice']:
-                        var = float(self.price / self.current_order['org_pprice'])
-                    else:
-                        var = 1
-                elif self.current_order['side'] == 'SELL':
-                    if self.price > self.order_history['org_pprice']:
-                        var = float(self.price / self.current_order['org_pprice'])
-                    else:
-                        var = 1
+        self.variation = None
+
+        # Debug log: Log entering the function
+        general_log.debug("Entering check_price_in_range_ancient")
+
+        # Set the default tolerance
+        price_variation_tolerance = config_pp.price_variation_tolerance if self.strategy == 'pingpong' else 0.01
+
+        # Debug log: Log the strategy and price_variation_tolerance
+        general_log.debug(f"Strategy: {self.strategy}, Price Variation Tolerance: {price_variation_tolerance}")
+
+        if 'side' in self.current_order and self.current_order['manual_dex_price'] is True:
+            # Debug log: Log manual_dex_price is True and 'side' is present
+            general_log.debug("Manual DEX price is True and 'side' is present")
+
+            # Calculate var based on the side
+            if self.current_order['side'] == 'BUY' and (
+                    not (self.strategy == 'pingpong' and self.symbol in config_pp.arb_team_pairs and config_pp.arb_team)
+                    and self.price < self.order_history['org_pprice']):
+                var = float(self.price / self.current_order['org_pprice'])
+                # Debug log: Log that var is calculated based on 'BUY' side
+                general_log.debug("Var calculated based on 'BUY' side")
+            elif self.current_order['side'] == 'SELL' and self.price > self.order_history['org_pprice']:
+                var = float(self.price / self.current_order['org_pprice'])
+                # Debug log: Log that var is calculated based on 'SELL' side
+                general_log.debug("Var calculated based on 'SELL' side")
             else:
-                if self.strategy == 'basic_seller' and self.t1.usd_price < self.min_sell_price_usd:
-                    var = (self.min_sell_price_usd / self.t2.usd_price) / self.current_order['org_pprice']
-                else:
-                    var = float(self.price / self.current_order['org_pprice'])
-        if isinstance(var, float):
-            self.var = float("{:.3f}".format(var))
+                var = 1
+                # Debug log: Log that var is set to 1
+                general_log.debug("Var set to 1")
         else:
-            self.var = [float("{:.3f}".format(self.price / self.current_order['org_pprice']))]
+            # Debug log: Log manual_dex_price is False or 'side' is not present
+            general_log.debug("Manual DEX price is False or 'side' is not present")
+
+            # Calculate var based on strategy and conditions
+            if self.strategy == 'basic_seller' and self.t1.usd_price < self.min_sell_price_usd:
+                var = (self.min_sell_price_usd / self.t2.usd_price) / self.current_order['org_pprice']
+                # Debug log: Log that var is calculated based on 'basic_seller' strategy and condition
+                general_log.debug("Var calculated based on 'basic_seller' strategy and condition")
+            else:
+                var = float(self.price / self.current_order['org_pprice'])
+                # Debug log: Log that var is calculated based on default strategy
+                general_log.debug("Var calculated based on default strategy")
+
+        # Debug log: Log the calculated var
+        general_log.debug(f"Calculated Var: {var}")
+
+        # Truncate var to 3 decimal places
+        self.variation = float("{:.3f}".format(var))
+
+        # Debug log: Log the variation
+        general_log.debug(f"Variation: {self.variation}")
+
         if display:
             general_log.info("%s_%s %s %s %s" % (
-                self.symbol, str(self.var),
+                self.symbol, str(self.variation),
                 self.price, self.current_order['org_pprice'],
                 self.price / self.current_order['org_pprice']
             ))
+
+        # Check if the price is in range
         if 1 - price_variation_tolerance < var < 1 + price_variation_tolerance:
-            # Price in range
+            # Debug log: Log that the price is in range
+            general_log.debug("Price in range")
             return True
         else:
-
+            # Debug log: Log that the price is not in range
+            general_log.debug("Price not in range")
             return False
 
     def init_virtual_order(self, disabled_coins=None, display=True):
@@ -392,69 +421,61 @@ class Pair:
             else:
                 general_log.error(f"dex_create_order, valid=False, bal={bal}, maker_size={maker_size}")
 
-    def dex_check_order_status(self):
-        # RETURN 1 if FINISHED, 0 if OPEN, -1 if ERROR, -2 if CANCELLED WITHOUT CALL , 2 if INPROGRESS
+    def dex_check_order_status(self) -> int:
+        """
+        Return:
+            2: INPROGRESS,
+            1: FINISHED,
+            0: OPEN,
+            -1: ERROR,
+            -2: CANCELLED WITHOUT CALL.
+        """
         done = False
         counter = 0
         max_count = 3
+
         while not done:
-            # self.dex_order \
             try:
                 local_dex_order = xb.getorderstatus(self.dex_order['id'])
             except Exception as e:
-                print("dex_check_order_status", type(e), e, '\n' + str(self.dex_order))
-                # pass
+                general_log.error("Error in dex_check_order_status: %s %s\n%s", type(e), e, self.dex_order)
             if 'status' in local_dex_order:
                 done = True
             else:
                 counter += 1
                 if counter == max_count:
-                    general_log.error("dex_check_order_status, 'status' not in order, ")
-                    general_log.error(self.symbol + ': ' + str(local_dex_order['error']))
-                    general_log.error(self.current_order)
-                    general_log.error(self.dex_order)
-                    # if self.strategy == 'pingpong':
-                    #     xb.cancelallorders()
-
-                    if self.strategy == 'pingpong':
+                    general_log.error("Error in dex_check_order_status: 'status' not in order.")
+                    general_log.error(f"Symbol: {self.symbol}, Error: {local_dex_order.get('error')}")
+                    general_log.error(f"Current Order: {self.current_order}")
+                    general_log.error(f"Dex Order: {self.dex_order}")
+                    if self.strategy in ['pingpong', 'basic_seller']:
                         self.dex_order = None
-                        return -2  # LOST TRACK,CONSIDER IT CANCELLED
-                    elif self.strategy == 'basic_seller':
-                        self.dex_order = None
-                        return -2  # LOST TRACK,CONSIDER IT CANCELLED
+                        return -2  # LOST TRACK, CONSIDER IT CANCELLED
                 else:
-                    general_log.error("dex_check_order_status, 'status' not in order, counter: " + str(counter))
+                    general_log.warning("dex_check_order_status, 'status' not in order, counter: " + str(counter))
                     time.sleep(counter)
+
         self.dex_order = local_dex_order
-        if self.dex_order['status'] == "open":
-            return 0
-        elif self.dex_order['status'] == "new":
-            return 0
-        elif self.dex_order['status'] == "created":
-            return 2
-        elif self.dex_order['status'] == "initialized":
-            return 2
-        elif self.dex_order['status'] == "commited":
-            return 2
-        elif self.dex_order['status'] == "finished":
-            return 1
-        elif self.dex_order['status'] == "expired":
-            return -1
-        elif self.dex_order['status'] == "offline":
-            return -1
-        elif self.dex_order['status'] == "canceled":
-            return -2
-        elif self.dex_order['status'] == "invalid":
-            return -1
-        elif self.dex_order['status'] == "rolled back":
-            return -1
-        elif self.dex_order['status'] == "rollback failed":
-            return -1
+        status_mapping = {
+            "open": 0,
+            "new": 0,
+            "created": 2,
+            "initialized": 2,
+            "committed": 2,
+            "finished": 1,
+            "expired": -1,
+            "offline": -1,
+            "canceled": -2,
+            "invalid": -1,
+            "rolled back": -1,
+            "rollback failed": -1
+        }
+        return status_mapping.get(self.dex_order.get('status'), 0)
 
     def check_price_variation(self, disabled_coins, display=False):
         global star_counter
         if 'side' in self.current_order and self.check_price_in_range(display=display) is False:
-            msg = "check_price_variation, " + self.symbol + ", variation: " + "{:.3f}".format(self.var) + \
+            msg = "check_price_variation, " + self.symbol + ", variation: " + "{:.3f}".format(self.variation) + \
                   ', ' + self.dex_order['status'] + ", live_price: " + "{:.8f}".format(self.price) + \
                   ", order_price: " + "{:.8f}".format(self.current_order['dex_price'])
             print(f"{bcolors.mycolor.WARNING}{msg}{bcolors.mycolor.ENDC}")
@@ -465,7 +486,7 @@ class Pair:
                 self.dex_cancel_myorder()
             if self.strategy == 'pingpong':
                 self.init_virtual_order(disabled_coins)
-                if self.dex_order is None:
+                if not self.dex_order:
                     self.dex_create_order()
 
             elif self.strategy == 'basic_seller':
@@ -487,7 +508,6 @@ class Pair:
             if not self.disabled:
                 # general_log.error(f"Order Missing: {self.dex_order}, {self.current_order}")
                 self.init_virtual_order(disabled_coins)  # Renamed from create_virtual_order
-
                 if self.dex_order and "id" in self.dex_order:
                     status = self.dex_check_order_status()
 
@@ -510,14 +530,13 @@ class Pair:
                 xb.cancelallorders()
                 exit()
         elif status == STATUS_CANCELLED_WITHOUT_CALL:
-            if self.dex_order and 'id' in self.dex_order:
-                order_id = self.dex_order['id']
-            else:
-                order_id = None
+            # if self.dex_order and 'id' in self.dex_order:
+            order_id = self.dex_order['id']
+            # else:
+            #     order_id = None
             general_log.error(f'Order Error: {order_id} CANCELLED WITHOUT CALL')
             general_log.error(self.dex_order)
-            self.init_virtual_order(disabled_coins)  # Renamed from create_virtual_order
-            self.dex_create_order()
+            self.dex_order = None
         else:
             if not self.disabled:
                 general_log.error(
@@ -525,8 +544,8 @@ class Pair:
                 self.dex_create_order()
 
     def dex_order_finished(self, disabled_coins):
-        msg = 'order FINISHED: ' + self.dex_order['id']
-        # general_log.info(msg)
+        msg = f"order FINISHED: {self.dex_order['id']}"
+        general_log.info(msg)
         # general_log.info(self.current_order)
         # general_log.info(self.dex_order)
         trade_log.info(msg)

@@ -190,7 +190,7 @@ class MyGUI:
     def update_order_display(self, ppair, pair):
         if self.started and pair.dex_order and 'status' in pair.dex_order:
             ppair['status'].configure(text=pair.dex_order['status'])
-            ppair['variation'].configure(text=str(pair.var))
+            ppair['variation'].configure(text=str(pair.variation))
             color = get_oval_color(pair.dex_order['status'])
             ppair['canvas'].itemconfigure(ppair['oval'], fill=color)
             if pair.current_order and 'side' in pair.current_order:
