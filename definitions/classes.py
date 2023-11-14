@@ -297,7 +297,11 @@ class Pair:
         general_log.debug("Entering check_price_in_range_ancient")
 
         # Set the default tolerance
-        price_variation_tolerance = config_pp.price_variation_tolerance if self.strategy == 'pingpong' else 0.01
+        if self.strategy == 'pingpong':
+            price_variation_tolerance = config_pp.price_variation_tolerance
+        elif self.strategy == 'basic_seller':
+            price_variation_tolerance = 0.01
+            # TODO: ADD PARAMETERS INPUT for 'basic_seller' if needed
 
         # Debug log: Log the strategy and price_variation_tolerance
         general_log.debug(f"Strategy: {self.strategy}, Price Variation Tolerance: {price_variation_tolerance}")
@@ -530,10 +534,10 @@ class Pair:
                 xb.cancelallorders()
                 exit()
         elif status == STATUS_CANCELLED_WITHOUT_CALL:
-            # if self.dex_order and 'id' in self.dex_order:
-            order_id = self.dex_order['id']
-            # else:
-            #     order_id = None
+            if self.dex_order and 'id' in self.dex_order:
+                order_id = self.dex_order['id']
+            else:
+                order_id = None
             general_log.error(f'Order Error: {order_id} CANCELLED WITHOUT CALL')
             general_log.error(self.dex_order)
             self.dex_order = None
