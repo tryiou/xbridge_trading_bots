@@ -1,19 +1,18 @@
 import time
 
-#import requests
+# import requests
 from requests.auth import HTTPBasicAuth
 from requests import Session
-#import config.blocknet_rpc_cfg as config
+# import config.blocknet_rpc_cfg as config
 import definitions.bcolors as bcolors
 from definitions.detect_rpc import detect_rpc
-import logging
 
 user_rpc, port_rpc, password_rpc = detect_rpc()
 
 
 def test_rpc(rpc_user, rpc_port, rpc_password):
     result = rpc_call("getwalletinfo", rpc_user=rpc_user, rpc_port=rpc_port, rpc_password=rpc_password)
-    logging.debug(f'rpc call getwalletinfo: {result}')
+    print(f'rpc call getwalletinfo: {result}')
     if result:
         return True
     else:
@@ -67,7 +66,7 @@ def rpc_call(method, params=[], url="http://127.0.0.1", rpc_user=user_rpc, rpc_p
 
 
 if not test_rpc(user_rpc, port_rpc, password_rpc):
-    logging.error(f'Blocknet core rpc server not responding ?')
+    print.error(f'Blocknet core rpc server not responding ?')
     exit()
 
 
