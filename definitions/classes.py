@@ -537,7 +537,7 @@ class Pair:
             if self.dex_order and 'id' in self.dex_order:
                 order_id = self.dex_order['id']
             else:
-                 order_id = None
+                order_id = None
             general_log.error(f'Order Error: {order_id} CANCELLED WITHOUT CALL')
             general_log.error(self.dex_order)
             self.dex_order = None
