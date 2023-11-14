@@ -65,11 +65,21 @@ class MyGUI:
         # Use ttkbootstrap style
         self.style = Style(config.ttk_theme)
 
-        self.btn_start = ttk.Button(self.root, text="START", command=self.start)
-        self.btn_start.grid(column=0, row=0)
-        self.btn_stop = ttk.Button(self.root, text="STOP", command=self.stop)
-        self.btn_stop.grid(column=1, row=0)
+        # Set a common width for all buttons
+        btn_width = 10
+
+        self.btn_start = ttk.Button(self.root, text="START", command=self.start, width=btn_width)
+        self.btn_start.grid(column=0, row=0, padx=5, pady=5)
+        self.btn_stop = ttk.Button(self.root, text="STOP", command=self.stop, width=btn_width)
+        self.btn_stop.grid(column=1, row=0, padx=5, pady=5)
         self.btn_stop.state(["disabled"])
+
+        self.btn_cancel_all = ttk.Button(self.root, text="CANCEL ALL", command=self.cancel_all, width=btn_width)
+        # ,                                         bootstyle='info')
+        self.btn_cancel_all.grid(column=2, row=0, padx=5, pady=5)
+        # updating the style here...
+        # self.style.configure('info.TButton', font='-size 10')
+
         self.lb_orders_lst = []
         self.lb_bals_lst = []
         self.lbl_bal = ttk.Label(self.root, text="BALANCES", borderwidth=3, relief="raised")
@@ -151,6 +161,11 @@ class MyGUI:
         self.btn_start.config(state="active")
         self.started = False
         print("stop done")
+
+    def cancel_all(self):
+        import definitions.xbridge_def as xb
+        xb.cancelallorders()
+        print("Cancel All orders done")
 
     def refresh_gui(self):
         if self.started:
