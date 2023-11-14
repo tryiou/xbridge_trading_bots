@@ -128,8 +128,12 @@ class Pair:
         self.symbol = self.t1.symbol + '/' + self.t2.symbol
         self.price = None
         self.order_history = None
+
+        # virtual order >
         self.current_order = None
+        # 'real' order >
         self.dex_order = None
+
         self.dex_orderbook = None
         self.have_dex_orderbook = None
         self.cex_orderbook = None

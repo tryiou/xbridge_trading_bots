@@ -178,6 +178,13 @@ class MyGUI:
             ppair['variation'].configure(text=str(pair.var))
             color = get_oval_color(pair.dex_order['status'])
             ppair['canvas'].itemconfigure(ppair['oval'], fill=color)
+            if pair.current_order and 'side' in pair.current_order:
+                ppair['side'].configure(text=pair.current_order['side'])
+        else:
+            ppair['status'].configure(text='Disabled' if pair.disabled else 'None')
+            ppair['side'].configure(text='Disabled' if pair.disabled else 'None')
+            ppair['variation'].configure(text='None')
+            reset_oval_representation(ppair)
         update_current_order_display(ppair, pair)
 
     def disable_stop_button(self):
