@@ -11,7 +11,7 @@ def setup_logger(name, log_file=None, level=logging.INFO, console=False):
     # Add FileHandler if log_file is provided
     if log_file:
         handler = logging.FileHandler(log_file)
-        handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+        handler.setFormatter(formatter)
         handler.setLevel(level)  # Set handler level to match logger level
         log_handle.addHandler(handler)
 
