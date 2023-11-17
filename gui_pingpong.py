@@ -151,25 +151,6 @@ class MyGUI:
         other_frame = ttk.Frame(self.root)
         other_frame.grid(row=len(config.user_pairs) + 4, columnspan=3, sticky="w")
 
-    # def init_bals_gui(self):
-    #   columns = ("Symbol", "Total Balance", "Free Balance", "USD Balance")
-    #     self.lbl_bal.grid(column=0, row=len(config.user_pairs) + 3, sticky="w")
-    #     self.lb_bals_lst = []
-    #     for x, token in enumerate(init.t):
-    #         bal = float("{:.4f}".format(init.t[token].dex_total_balance)) if init.t[token].dex_total_balance else 0
-    #
-    #         bal_info = {
-    #             "symbol_text": token,
-    #             "symbol": ttk.Label(self.root, text=token),
-    #             "balance": ttk.Label(self.root, text=str(bal)),
-    #             "usd_bal": ttk.Label(self.root, text=str(None))
-    #         }
-    #
-    #         bal_info['symbol'].grid(column=x, row=len(config.user_pairs) + 4, sticky="w")
-    #         bal_info['balance'].grid(column=x, row=len(config.user_pairs) + 5, sticky="w")
-    #         bal_info['usd_bal'].grid(column=x, row=len(config.user_pairs) + 6, sticky="w")
-    #         self.lb_bals_lst.append(bal_info)
-
     def initialise(self):
         init.init_pingpong()
 
@@ -238,79 +219,34 @@ class MyGUI:
     def enable_start_button(self):
         self.btn_start.config(state="active")
 
-    # def update_token_balance_display(self, item_id, pair):
-    #     symbol = pair.t1.symbol if item_id == pair.t1.symbol else pair.t2.symbol
-    #     usd_price = init.t[symbol].usd_price
-    #     dex_total_balance = pair.t1.dex_total_balance if item_id == pair.t1.symbol else pair.t2.dex_total_balance
-    #
-    #     if usd_price is not None:
-    #         self.balances_treeview.item(item_id, values=(symbol, "{}['{:.2f}']".format(symbol, usd_price)))
-    #     else:
-    #         self.balances_treeview.item(item_id, values=(symbol, symbol))
-    #
-    #     if dex_total_balance is not None:
-    #         if dex_total_balance >= 1:
-    #             balance_text = '{:.2f}'.format(dex_total_balance)
-    #         else:
-    #             balance_text = '{:.6f}'.format(dex_total_balance)
-    #         self.balances_treeview.item(item_id, values=(symbol, balance_text))
-    #
-    #         if usd_price is not None:
-    #             usd_bal = usd_price * dex_total_balance
-    #             self.balances_treeview.item(item_id, values=(symbol, balance_text, '{:.2f}$'.format(usd_bal)))
-    #     else:
-    #         self.balances_treeview.item(item_id, values=(symbol, '0', 'None'))
-    #
-    # def update_btc_balance_display(self, item_id):
-    #     btc_balance = init.t['BTC'].dex_total_balance
-    #     usd_price = init.t['BTC'].usd_price
-    #     self.balances_treeview.item(item_id, values=('BTC', 'BTC'))
-    #
-    #     if btc_balance is not None:
-    #         if btc_balance >= 0.01:
-    #             balance_text = '{:.2f}'.format(btc_balance)
-    #         elif btc_balance > 0:
-    #             balance_text = '{:.8f}'.format(btc_balance)
-    #         else:
-    #             balance_text = '0'
-    #         self.balances_treeview.item(item_id, values=('BTC', balance_text))
-    #
-    #         if usd_price is not None:
-    #             usd_bal = usd_price * btc_balance
-    #             self.balances_treeview.item(item_id, values=('BTC', balance_text, '{:.2f}$'.format(usd_bal)))
-    #     else:
-    #         self.balances_treeview.item(item_id, values=('BTC', '0', 'None'))
-
     def update_balance_display(self):
         for item_id in self.balances_treeview.get_children():
             values = self.balances_treeview.item(item_id, 'values')
             token = values[0]
+            usd_price = init.t[token].usd_price
+            dex_total_balance = init.t[token].dex_total_balance
+            dex_free_balance = init.t[token].dex_free_balance
 
-            if token in init.t:
-                usd_price = init.t[token].usd_price
-                dex_total_balance = init.t[token].dex_total_balance
-                dex_free_balance = init.t[token].dex_free_balance
+            new_values = [token]
 
-                new_values = [token]
+            if dex_total_balance is not None:
+                new_values.append("{:.4f}".format(dex_total_balance))
+            else:
+                new_values.append("0.0000")
 
-                if dex_total_balance is not None:
-                    new_values.append("{:.4f}".format(dex_total_balance))
-                else:
-                    new_values.append("0.0000")
+            if dex_free_balance is not None:
+                new_values.append("{:.4f}".format(dex_free_balance))
+            else:
+                new_values.append("0.0000")
 
-                if dex_free_balance is not None:
-                    new_values.append("{:.4f}".format(dex_free_balance))
-                else:
-                    new_values.append("0.0000")
+            if usd_price is not None and dex_total_balance is not None:
+                usd_bal = usd_price * dex_total_balance
+                new_values.append("{:.2f}$".format(usd_bal))
+            else:
+                new_values.append("None")
 
-                if usd_price is not None and dex_total_balance is not None:
-                    usd_bal = usd_price * dex_total_balance
-                    new_values.append("{:.2f}$".format(usd_bal))
-                else:
-                    new_values.append("None")
-
-                # Update the values in the Treeview
-                self.balances_treeview.item(item_id, values=new_values)
+            # Update the values in the Treeview
+            self.balances_treeview.item(item_id, values=new_values)
 
 
 def update_current_order_display(ppair, pair):
@@ -336,61 +272,6 @@ def get_oval_color(status):
 
 def reset_oval_representation(ppair):
     ppair['canvas'].itemconfigure(ppair['oval'], fill="red")
-
-
-# def update_balance_display_old(token, pair):
-#     if token['symbol_text'] == pair.t1.symbol or token['symbol_text'] == pair.t2.symbol:
-#         update_token_balance_display(token, pair)
-#     elif token['symbol_text'] == 'BTC':
-#         update_btc_balance_display(token)
-
-
-def update_token_balance_display_old(token, pair):
-    symbol = pair.t1.symbol if token['symbol_text'] == pair.t1.symbol else pair.t2.symbol
-    usd_price = init.t[symbol].usd_price
-    dex_total_balance = pair.t1.dex_total_balance if token[
-                                                         'symbol_text'] == pair.t1.symbol else pair.t2.dex_total_balance
-
-    if usd_price is not None:
-        token['symbol'].configure(text="{}['{:.2f}']".format(symbol, usd_price))
-    else:
-        token['symbol'].configure(text=symbol)
-
-    if dex_total_balance is not None:
-        if dex_total_balance >= 1:
-            balance_text = '{:.2f}'.format(dex_total_balance)
-        else:
-            balance_text = '{:.6f}'.format(dex_total_balance)
-        token['balance'].configure(text=balance_text)
-
-        if usd_price is not None:
-            usd_bal = usd_price * dex_total_balance
-            token['usd_bal'].configure(text='{:.2f}$'.format(usd_bal))
-    else:
-        token['balance'].configure(text='0')
-        token['usd_bal'].configure(text='None')
-
-
-def update_btc_balance_display_old(token):
-    btc_balance = init.t['BTC'].dex_total_balance
-    usd_price = init.t['BTC'].usd_price
-    token['symbol'].configure(text='BTC')
-
-    if btc_balance is not None:
-        if btc_balance >= 0.01:
-            balance_text = '{:.2f}'.format(btc_balance)
-        elif btc_balance > 0:
-            balance_text = '{:.8f}'.format(btc_balance)
-        else:
-            balance_text = '0'
-        token['balance'].configure(text=balance_text)
-
-        if usd_price is not None:
-            usd_bal = usd_price * btc_balance
-            token['usd_bal'].configure(text='{:.2f}$'.format(usd_bal))
-    else:
-        token['balance'].configure(text='0')
-        token['usd_bal'].configure(text='None')
 
 
 if __name__ == '__main__':
