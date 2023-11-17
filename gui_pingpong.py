@@ -118,11 +118,10 @@ class MyGUI:
             order_info['oval'] = order_info['canvas'].create_oval(oval_coords)
             order_info['variation'].grid(column=4, row=x + 2, sticky="ew")
             self.lb_orders_lst.append(order_info)
-
-        self.lbl_bal.grid(column=0, row=len(config.user_pairs) + 3)
         self.initialise()
 
     def init_bals_gui(self):
+        self.lbl_bal.grid(column=0, row=len(config.user_pairs) + 3, sticky="w")
         self.lb_bals_lst = []
         for x, token in enumerate(init.t):
             bal = float("{:.4f}".format(init.t[token].dex_total_balance)) if init.t[token].dex_total_balance else 0
@@ -134,9 +133,9 @@ class MyGUI:
                 "usd_bal": ttk.Label(self.root, text=str(None))
             }
 
-            bal_info['symbol'].grid(column=x, row=len(config.user_pairs) + 4)
-            bal_info['balance'].grid(column=x, row=len(config.user_pairs) + 5)
-            bal_info['usd_bal'].grid(column=x, row=len(config.user_pairs) + 6)
+            bal_info['symbol'].grid(column=x, row=len(config.user_pairs) + 4, sticky="w")
+            bal_info['balance'].grid(column=x, row=len(config.user_pairs) + 5, sticky="w")
+            bal_info['usd_bal'].grid(column=x, row=len(config.user_pairs) + 6, sticky="w")
             self.lb_bals_lst.append(bal_info)
 
     def initialise(self):
