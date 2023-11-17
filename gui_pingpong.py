@@ -229,24 +229,38 @@ class MyGUI:
 
             new_values = [token]
 
+            # Check if values have changed before updating
             if dex_total_balance is not None:
-                new_values.append("{:.4f}".format(dex_total_balance))
+                new_total_balance = "{:.4f}".format(dex_total_balance)
+                if new_total_balance != values[1]:
+                    new_values.append(new_total_balance)
+                else:
+                    new_values.append(values[1])
             else:
                 new_values.append("0.0000")
 
             if dex_free_balance is not None:
-                new_values.append("{:.4f}".format(dex_free_balance))
+                new_free_balance = "{:.4f}".format(dex_free_balance)
+                if new_free_balance != values[2]:
+                    new_values.append(new_free_balance)
+                else:
+                    new_values.append(values[2])
             else:
                 new_values.append("0.0000")
 
             if usd_price is not None and dex_total_balance is not None:
                 usd_bal = usd_price * dex_total_balance
-                new_values.append("{:.2f}$".format(usd_bal))
+                new_usd_bal = "{:.2f}$".format(usd_bal)
+                if new_usd_bal != values[3]:
+                    new_values.append(new_usd_bal)
+                else:
+                    new_values.append(values[3])
             else:
                 new_values.append("None")
 
-            # Update the values in the Treeview
-            self.balances_treeview.item(item_id, values=new_values)
+            # Update the values in the Treeview if they have changed
+            if new_values[1:] != values[1:]:
+                self.balances_treeview.item(item_id, values=new_values)
 
 
 def update_current_order_display(ppair, pair):
