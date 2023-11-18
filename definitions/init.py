@@ -18,7 +18,7 @@ def init_pingpong():
     # from multiprocessing import shared_memory
     xbridge_def.dxloadxbridgeconf()
     # xbridge_def.proxy_init_storage()
-    my_ccxt = init_ccxt_instance(exchange=ccxt_exchange, hostname=ccxt_hostname)
+    my_ccxt = init_ccxt_instance(exchange=ccxt_exchange, hostname=ccxt_hostname, private_api=False)
     # ACTIVE TOKENS LIST, KEEP BTC INSIDE EVEN IF UNUSED
     tokens = []
     for pair in user_pairs:
@@ -88,7 +88,7 @@ def init_basic_seller(tokens_list, amount_token_to_sell, min_sell_price_usd, ccx
     from definitions.ccxt_def import init_ccxt_instance
     from config.ccxt_cfg import ccxt_hostname, ccxt_exchange
     setup_logger("basic_seller")
-    my_ccxt = init_ccxt_instance(exchange=ccxt_exchange, hostname=ccxt_hostname, private_api=True)
+    my_ccxt = init_ccxt_instance(exchange=ccxt_exchange, hostname=ccxt_hostname, private_api=False)
     t = {}
     # [token_to_sell,token_to_buy]
     if "BTC" not in t.items():
