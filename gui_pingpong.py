@@ -75,7 +75,6 @@ class MyGUI:
         self.btn_stop.state(["disabled"])
 
         self.btn_cancel_all = ttk.Button(self.root, text="CANCEL ALL", command=self.cancel_all, width=btn_width)
-        # ,                                         bootstyle='info')
         self.btn_cancel_all.grid(column=2, row=0, padx=5, pady=5)
         # updating the style here...
         # self.style.configure('info.TButton', font='-size 10')
@@ -92,8 +91,13 @@ class MyGUI:
         labels = ["SYMBOL", "STATUS", "SIDE", "FLAG", "VARIATION"]
         separator_width = 5  # Set the width of the separator
 
+        # Create a frame for the labels and other widgets
+        orders_frame = ttk.Frame(self.root)
+        orders_frame.grid(row=1, sticky="nsew", columnspan=len(labels) + 1)  #
+
         for col, label_text in enumerate(labels):
-            ttk.Label(self.root, text=label_text, borderwidth=3, relief="raised").grid(column=col, row=1, sticky="ew")
+            ttk.Label(orders_frame, text=label_text, borderwidth=3, relief="raised").grid(column=col, row=0,
+                                                                                          sticky="ew")
 
         self.root.columnconfigure(len(labels), weight=2)
 
@@ -104,20 +108,20 @@ class MyGUI:
         for x, pair in enumerate(config.user_pairs):
             order_info = {
                 "symbol_text": pair,
-                "symbol": ttk.Label(self.root, text=pair),
-                "status": ttk.Label(self.root, text="None"),
-                "side": ttk.Label(self.root, text="None"),
-                "canvas": tk.Canvas(self.root, height=canvas_height, width=canvas_width),
+                "symbol": ttk.Label(orders_frame, text=pair),
+                "status": ttk.Label(orders_frame, text="None"),
+                "side": ttk.Label(orders_frame, text="None"),
+                "canvas": tk.Canvas(orders_frame, height=canvas_height, width=canvas_width),
                 "oval": None,
 
-                "variation": ttk.Label(self.root, text="None")
+                "variation": ttk.Label(orders_frame, text="None")
             }
-            order_info['symbol'].grid(column=0, row=x + 2, sticky="ew")
-            order_info['status'].grid(column=1, row=x + 2, sticky="ew")
-            order_info['side'].grid(column=2, row=x + 2, sticky="ew")
-            order_info['canvas'].grid(column=3, row=x + 2, sticky="nsew")
+            order_info['symbol'].grid(column=0, row=x + 1, sticky="ew")
+            order_info['status'].grid(column=1, row=x + 1, sticky="ew")
+            order_info['side'].grid(column=2, row=x + 1, sticky="ew")
+            order_info['canvas'].grid(column=3, row=x + 1, sticky="nsew")
             order_info['oval'] = order_info['canvas'].create_oval(oval_coords)
-            order_info['variation'].grid(column=4, row=x + 2, sticky="ew")
+            order_info['variation'].grid(column=4, row=x + 1, sticky="ew")
             self.lb_orders_lst.append(order_info)
         self.initialise()
 
@@ -126,7 +130,7 @@ class MyGUI:
 
         # Create a frame for the headers
         header_frame = ttk.Frame(self.root)
-        header_frame.grid(row=len(config.user_pairs) + 5, sticky="sw", columnspan=3)
+        header_frame.grid(row=len(config.user_pairs) + 3, sticky="sw", columnspan=3)
 
         # Create Treeview on the header frame
         self.balances_treeview = ttk.Treeview(header_frame, columns=columns, show="headings")
@@ -232,29 +236,20 @@ class MyGUI:
             # Check if values have changed before updating
             if dex_total_balance is not None:
                 new_total_balance = "{:.4f}".format(dex_total_balance)
-                if new_total_balance != values[1]:
-                    new_values.append(new_total_balance)
-                else:
-                    new_values.append(values[1])
+                new_values.append(new_total_balance)
             else:
                 new_values.append("0.0000")
 
             if dex_free_balance is not None:
                 new_free_balance = "{:.4f}".format(dex_free_balance)
-                if new_free_balance != values[2]:
-                    new_values.append(new_free_balance)
-                else:
-                    new_values.append(values[2])
+                new_values.append(new_free_balance)
             else:
                 new_values.append("0.0000")
 
             if usd_price is not None and dex_total_balance is not None:
                 usd_bal = usd_price * dex_total_balance
                 new_usd_bal = "{:.2f}$".format(usd_bal)
-                if new_usd_bal != values[3]:
-                    new_values.append(new_usd_bal)
-                else:
-                    new_values.append(values[3])
+                new_values.append(new_usd_bal)
             else:
                 new_values.append("None")
 
