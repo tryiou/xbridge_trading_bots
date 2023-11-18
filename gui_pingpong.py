@@ -106,8 +106,7 @@ class MyGUI:
         # Adjust the weight of the last column to make it resizable
         self.orders_treeview.column("#4", stretch=tk.YES)
         for x, pair in enumerate(config.user_pairs):
-            print(pair, type(pair))
-            print(self.orders_treeview.insert("", tk.END, values=[pair, "None", "None", "None", "None"]))
+            self.orders_treeview.insert("", tk.END, values=[pair, "None", "None", "None", "None"])
         self.initialize()
 
     def init_bals_gui(self):
