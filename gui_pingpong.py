@@ -76,83 +76,69 @@ class MyGUI:
 
         self.btn_cancel_all = ttk.Button(self.root, text="CANCEL ALL", command=self.cancel_all, width=btn_width)
         self.btn_cancel_all.grid(column=2, row=0, padx=5, pady=5)
-        # updating the style here...
-        # self.style.configure('info.TButton', font='-size 10')
 
         self.lb_orders_lst = []
-        self.lb_bals_lst = []
-        #  self.lbl_bal = ttk.Label(self.root, text="BALANCES", borderwidth=3, relief="raised")
-        self.balances_treeview = ttk.Treeview(self.root, show="headings")
+        self.balances_frame = None
+        self.balances_treeview = None
+
+        self.orders_frame = None
+        self.orders_treeview = None
+
         self.create_gui()
         self.init_bals_gui()
 
     def create_gui(self):
-        labels = ["SYMBOL", "STATUS", "SIDE", "FLAG", "VARIATION"]
+        columns = ("Pair", "Status", "Side", "Flag", "Variation")
         separator_width = 5  # Set the width of the separator
 
         # Create a frame for the labels and other widgets
-        orders_frame = ttk.Frame(self.root)
-        orders_frame.grid(row=1, sticky="nsew", columnspan=len(labels) + 1)  #
+        self.orders_frame = ttk.Frame(self.root)
+        self.orders_frame.grid(row=1, sticky='ew', columnspan=3)  #
 
-        for col, label_text in enumerate(labels):
-            ttk.Label(orders_frame, text=label_text, borderwidth=3, relief="raised").grid(column=col, row=0,
-                                                                                          sticky="ew")
-
-        self.root.columnconfigure(len(labels), weight=2)
-
-        canvas_height = 17
-        canvas_width = 17
-        oval_coords = (11, 1, 29, 18)
-
+        height = len(config.user_pairs) + 1
+        self.orders_treeview = ttk.Treeview(self.orders_frame, columns=columns, height=height, show="headings")
+        # Create Treeview inside the frame
+        self.orders_treeview.grid(row=0, column=0, sticky="nsew", columnspan=len(columns) + 1)
+        # Define column headings
+        for col, label_text in enumerate(columns):
+            self.orders_treeview.heading(label_text, text=label_text, anchor="w")
+            self.orders_treeview.column(label_text, width=100, anchor="w")  # Adjust width as needed
+        # Adjust the weight of the last column to make it resizable
+        self.orders_treeview.column("#4", stretch=tk.YES)
         for x, pair in enumerate(config.user_pairs):
-            order_info = {
-                "symbol_text": pair,
-                "symbol": ttk.Label(orders_frame, text=pair),
-                "status": ttk.Label(orders_frame, text="None"),
-                "side": ttk.Label(orders_frame, text="None"),
-                "canvas": tk.Canvas(orders_frame, height=canvas_height, width=canvas_width),
-                "oval": None,
-
-                "variation": ttk.Label(orders_frame, text="None")
-            }
-            order_info['symbol'].grid(column=0, row=x + 1, sticky="ew")
-            order_info['status'].grid(column=1, row=x + 1, sticky="ew")
-            order_info['side'].grid(column=2, row=x + 1, sticky="ew")
-            order_info['canvas'].grid(column=3, row=x + 1, sticky="nsew")
-            order_info['oval'] = order_info['canvas'].create_oval(oval_coords)
-            order_info['variation'].grid(column=4, row=x + 1, sticky="ew")
-            self.lb_orders_lst.append(order_info)
-        self.initialise()
+            print(pair, type(pair))
+            print(self.orders_treeview.insert("", tk.END, values=[pair, "None", "None", "None", "None"]))
+        self.initialize()
 
     def init_bals_gui(self):
-        columns = ("Symbol", "USD Price", "Total Balances", "Free Balances", "USD Balances")
+        columns = ("Coin", "USD ticker", "Total", "Free", "Total USD")
         # Create a frame for the headers
-        header_frame = ttk.Frame(self.root)
-        header_frame.grid(columnspan=3)
+        self.balances_frame = ttk.Frame(self.root)
+        self.balances_frame.grid(columnspan=3)
 
         # Create Treeview on the header frame
         height = len(init.t.keys())
-        self.balances_treeview = ttk.Treeview(header_frame, columns=columns, show="headings", height=height,
+        self.balances_treeview = ttk.Treeview(self.balances_frame, columns=columns, show="headings", height=height,
                                               selectmode="none")
 
         # Define column headings with anchor set to "s"
-        reduce_first_column = 40
+        # reduce_first_column = 40
+        reduce_first_column = 0
         for col in columns:
-            self.balances_treeview.heading(col, text=col)
-            self.balances_treeview.column(col, width=(110 - reduce_first_column))  # Adjust width as needed
+            self.balances_treeview.heading(col, text=col, anchor="w")
+            self.balances_treeview.column(col, width=(100 - reduce_first_column))  # Adjust width as needed
             reduce_first_column = 0
 
         # Place the Treeview on the window
         self.balances_treeview.grid(column=0, row=0)
 
         # Initialize content for each token
-        self.lb_bals_lst = []
         for x, token in enumerate(init.t):
             # bal = float("{:.4f}".format(init.t[token].dex_total_balance)) if init.t[token].dex_total_balance else 0
             data = (token, str(None), str(None), str(None), str(None))
             self.balances_treeview.insert("", tk.END, values=data)
 
-    def initialise(self):
+    def initialize(self):
         init.init_pingpong()
 
     def start(self):
@@ -169,7 +155,7 @@ class MyGUI:
         while self.send_process.is_alive():
             time.sleep(1)
         xb.cancelallorders()
-        self.initialise()
+        self.initialize()
         self.btn_stop.config(state="disabled")
         self.btn_start.config(state="active")
         self.started = False
@@ -191,28 +177,55 @@ class MyGUI:
                 self.started = False
 
         for key, pair in init.p.items():
-            for ppair in self.lb_orders_lst:
-                if ppair['symbol_text'] == key:
-                    # print(pair.__dict__)
-                    self.update_order_display(ppair, pair)
+            for item_id in self.orders_treeview.get_children():
+                values = self.orders_treeview.item(item_id, 'values')
+                if values[0] == key:
+                    self.update_order_display(item_id, pair)
         self.update_balance_display()
 
         self.root.after(1500, self.refresh_gui)
 
-    def update_order_display(self, ppair, pair):
+    def update_order_display(self, item_id, pair):
+        values_before = self.orders_treeview.item(item_id, 'values')
+
         if self.started and pair.dex_order and 'status' in pair.dex_order:
-            ppair['status'].configure(text=pair.dex_order['status'])
-            ppair['variation'].configure(text=str(pair.variation))
-            color = get_oval_color(pair.dex_order['status'])
-            ppair['canvas'].itemconfigure(ppair['oval'], fill=color)
-            if pair.current_order and 'side' in pair.current_order:
-                ppair['side'].configure(text=pair.current_order['side'])
+            new_values = [
+                pair.symbol,
+                pair.dex_order.get('status', 'None'),
+                pair.current_order.get('side', 'None'),
+                # "",
+                get_flag(pair.dex_order.get('status', 'None')),
+                str(pair.variation)
+            ]
+            # Get the color based on the status
+            # color = get_flag(pair.dex_order.get('status', 'None'))
+            # self.update_color_indicator(item_id, color)
         else:
-            ppair['status'].configure(text='Disabled' if pair.disabled else 'None')
-            ppair['side'].configure(text='Disabled' if pair.disabled else 'None')
-            ppair['variation'].configure(text='None')
-            reset_oval_representation(ppair)
-        update_current_order_display(ppair, pair)
+            new_values = [
+                pair.symbol,
+                'Disabled' if pair.disabled else 'None',
+                'None',
+                'None',
+                'None'
+            ]
+        new = list(new_values)
+        before = list(values_before)
+        condition = (new != before)
+        # print(f"new: {new}, before: {before} if : {condition}")
+        # print(f"type(new): {type(new)}, type(before): {type(before)}")
+        if condition:
+            self.orders_treeview.item(item_id, values=new_values)
+
+    def update_color_indicator(self, item_id, color):
+        # Get the canvas widget from the treeview
+        canvas = self.orders_treeview.item(item_id, 'values')[-1]
+
+        if canvas:
+            # Clear existing drawings
+            canvas.delete("all")
+
+            # Draw a colored circle
+            canvas.create_oval(5, 5, 25, 25, fill=color, outline=color)
 
     def disable_stop_button(self):
         self.btn_stop.config(state="disabled")
@@ -259,29 +272,15 @@ class MyGUI:
                 self.balances_treeview.item(item_id, values=new_values)
 
 
-def update_current_order_display(ppair, pair):
-    if pair.current_order and 'side' in pair.current_order:
-        ppair['side'].configure(text=pair.current_order['side'])
-    else:
-        ppair['status'].configure(text='Disabled' if pair.disabled else 'None')
-        ppair['side'].configure(text='Disabled' if pair.disabled else 'None')
-        ppair['variation'].configure(text='None')
-        reset_oval_representation(ppair)
-
-
-def get_oval_color(status):
+def get_flag(status):
     if status == 'open':
         return "green"
     elif status in {'new'}:
         return "yellow"
     elif status in {'created', 'accepting', 'hold', 'initialized', 'commited', 'finished'}:
-        return "dark orchid"
+        return "purple"
     else:
         return "red"
-
-
-def reset_oval_representation(ppair):
-    ppair['canvas'].itemconfigure(ppair['oval'], fill="red")
 
 
 if __name__ == '__main__':
