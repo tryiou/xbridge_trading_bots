@@ -254,7 +254,7 @@ class MyGUI:
                 new_values.append("None")
 
             # Update the values in the Treeview if they have changed
-            if new_values != values:
+            if new_values != list(values):
                 self.balances_treeview.item(item_id, values=new_values)
 
 
