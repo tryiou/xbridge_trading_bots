@@ -272,9 +272,9 @@ def update_current_order_display(ppair, pair):
 def get_oval_color(status):
     if status == 'open':
         return "green"
-    elif status in {'new', 'created'}:
+    elif status in {'new'}:
         return "yellow"
-    elif status in {'accepting', 'hold', 'initialized', 'commited', 'finished'}:
+    elif status in {'created', 'accepting', 'hold', 'initialized', 'commited', 'finished'}:
         return "dark orchid"
     else:
         return "red"
