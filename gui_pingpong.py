@@ -82,8 +82,7 @@ class MyGUI:
         self.lb_orders_lst = []
         self.lb_bals_lst = []
         #  self.lbl_bal = ttk.Label(self.root, text="BALANCES", borderwidth=3, relief="raised")
-        columns = ("Symbol", "Balance", "USD Balance")
-        self.balances_treeview = ttk.Treeview(self.root, columns=columns, show="headings")
+        self.balances_treeview = ttk.Treeview(self.root, show="headings")
         self.create_gui()
         self.init_bals_gui()
 
@@ -126,33 +125,30 @@ class MyGUI:
         self.initialise()
 
     def init_bals_gui(self):
-        columns = ("Symbol", "USD Price", "Total Balance", "Free Balance", "USD Balance")
-
+        columns = ("Symbol", "USD Price", "Total Balances", "Free Balances", "USD Balances")
         # Create a frame for the headers
         header_frame = ttk.Frame(self.root)
-        header_frame.grid(row=len(config.user_pairs) + 3, sticky="sw", columnspan=3)
+        header_frame.grid(columnspan=3)
 
         # Create Treeview on the header frame
-        self.balances_treeview = ttk.Treeview(header_frame, columns=columns, show="headings")
+        self.balances_treeview = ttk.Treeview(header_frame, columns=columns, show="headings", height=5)
 
         # Define column headings with anchor set to "s"
+        reduce_first_column = 40
         for col in columns:
-            self.balances_treeview.heading(col, text=col, anchor="s")
-            self.balances_treeview.column(col, width=100)  # Adjust width as needed
+            self.balances_treeview.heading(col, text=col)
+            self.balances_treeview.column(col, width=(110 - reduce_first_column))  # Adjust width as needed
+            reduce_first_column = 0
 
         # Place the Treeview on the window
-        self.balances_treeview.grid(column=0, row=0, sticky="n")
+        self.balances_treeview.grid(column=0, row=0)
 
         # Initialize content for each token
         self.lb_bals_lst = []
         for x, token in enumerate(init.t):
-            #bal = float("{:.4f}".format(init.t[token].dex_total_balance)) if init.t[token].dex_total_balance else 0
+            # bal = float("{:.4f}".format(init.t[token].dex_total_balance)) if init.t[token].dex_total_balance else 0
             data = (token, str(None), str(None), str(None), str(None))
             self.balances_treeview.insert("", tk.END, values=data)
-
-        # Create another frame for other widgets
-        other_frame = ttk.Frame(self.root)
-        other_frame.grid(row=len(config.user_pairs) + 4, columnspan=3, sticky="w")
 
     def initialise(self):
         init.init_pingpong()
