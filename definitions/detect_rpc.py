@@ -65,8 +65,9 @@ def prompt_user_for_config_path():
             autoconf_rpc_log.info(f'User selected config path: {config_path}')
         else:
             autoconf_rpc_log.warning('User canceled the file dialog')
+            exit()
     except ImportError:
-        autoconf_rpc_log.error('Tkinter or ttkbootstrap is not available. Asking for config path in terminal.')
+        autoconf_rpc_log.error('Tkinter or ttkbootstrap is not available. Asking for config path on terminal.')
         time.sleep(0.1)
         config_path = input("Enter the path to blocknet.conf: ")
 
