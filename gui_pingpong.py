@@ -126,7 +126,7 @@ class MyGUI:
         self.initialise()
 
     def init_bals_gui(self):
-        columns = ("Symbol", "Total Balance", "Free Balance", "USD Balance")
+        columns = ("Symbol", "USD Price", "Total Balance", "Free Balance", "USD Balance")
 
         # Create a frame for the headers
         header_frame = ttk.Frame(self.root)
@@ -146,9 +146,8 @@ class MyGUI:
         # Initialize content for each token
         self.lb_bals_lst = []
         for x, token in enumerate(init.t):
-            bal = float("{:.4f}".format(init.t[token].dex_total_balance)) if init.t[token].dex_total_balance else 0
-
-            data = (token, str(bal), str(None))
+            #bal = float("{:.4f}".format(init.t[token].dex_total_balance)) if init.t[token].dex_total_balance else 0
+            data = (token, str(None), str(None), str(None), str(None))
             self.balances_treeview.insert("", tk.END, values=data)
 
         # Create another frame for other widgets
@@ -233,25 +232,29 @@ class MyGUI:
 
             new_values = [token]
 
-            # Check if values have changed before updating
-            if dex_total_balance is not None:
+            if usd_price:
+                new_usd_price = "{:.2f}$".format(usd_price)
+                new_values.append(new_usd_price)
+            else:
+                new_values.append("0.00$")
+            if dex_total_balance:
                 new_total_balance = "{:.4f}".format(dex_total_balance)
                 new_values.append(new_total_balance)
             else:
-                new_values.append("0.0000")
+                new_values.append("0.00")
 
-            if dex_free_balance is not None:
+            if dex_free_balance:
                 new_free_balance = "{:.4f}".format(dex_free_balance)
                 new_values.append(new_free_balance)
             else:
-                new_values.append("0.0000")
+                new_values.append("0.00")
 
-            if usd_price is not None and dex_total_balance is not None:
+            if usd_price and dex_total_balance:
                 usd_bal = usd_price * dex_total_balance
                 new_usd_bal = "{:.2f}$".format(usd_bal)
                 new_values.append(new_usd_bal)
             else:
-                new_values.append("None")
+                new_values.append("0.00$")
 
             # Update the values in the Treeview if they have changed
             if new_values != list(values):
