@@ -1,4 +1,3 @@
-
 ## NOT FUNCTIONAL
 def main_dx_get_markets(tokens_dict=None, preferred_token2=None):
     # Prioritize this preferred_token2  list as coin2 if possible
@@ -58,7 +57,7 @@ def main_dx_update_bals(display=False):
             tokens_dict[token].dex_total_balance = 0
             tokens_dict[token].dex_free_balance = 0
         if display:
-            print(token,tokens_dict[token].dex_total_balance,tokens_dict[token].dex_free_balance)
+            print(token, tokens_dict[token].dex_total_balance, tokens_dict[token].dex_free_balance)
 
 
 def main_dx_update_orderbooks(pair_dict):
@@ -315,4 +314,4 @@ def start():
 
 if __name__ == '__main__':
     print("Not ready for usage")
-    #start()
+    # start()

@@ -3,7 +3,6 @@ import time
 import requests
 
 import definitions.xbridge_def as xb
-# from definitions.classes import general_log
 
 
 def xlite_endpoint_height_check(cc_coins, return_data=True, display=True):
