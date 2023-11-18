@@ -57,59 +57,58 @@ class Thread(threading.Thread):
 
 class MyGUI:
     def __init__(self):
-        self.send_process = None
         self.root = tk.Tk()
         self.root.title("PingPong")
+        self.root.resizable(width=False, height=False)
+        self.btn_cancel_all = None
+        self.btn_stop = None
+        self.btn_start = None
+        self.send_process = None
         self.started = False
-
         # Use ttkbootstrap style
         self.style = Style(config.ttk_theme)
 
-        # Set a common width for all buttons
-        btn_width = 10
+        self.balances_frame = None
+        self.balances_treeview = None
+        self.orders_frame = None
+        self.orders_treeview = None
+        self.gui_create_buttons()
+        self.gui_create_orders_treeview()
+        self.gui_create_balances_treeview()
 
+    def gui_create_buttons(self):
+        btn_width = 10
         self.btn_start = ttk.Button(self.root, text="START", command=self.start, width=btn_width)
         self.btn_start.grid(column=0, row=0, padx=5, pady=5)
         self.btn_stop = ttk.Button(self.root, text="STOP", command=self.stop, width=btn_width)
         self.btn_stop.grid(column=1, row=0, padx=5, pady=5)
         self.btn_stop.state(["disabled"])
-
         self.btn_cancel_all = ttk.Button(self.root, text="CANCEL ALL", command=self.cancel_all, width=btn_width)
         self.btn_cancel_all.grid(column=2, row=0, padx=5, pady=5)
 
-        self.lb_orders_lst = []
-        self.balances_frame = None
-        self.balances_treeview = None
-
-        self.orders_frame = None
-        self.orders_treeview = None
-
-        self.create_gui()
-        self.init_bals_gui()
-
-    def create_gui(self):
+    def gui_create_orders_treeview(self):
         columns = ("Pair", "Status", "Side", "Flag", "Variation")
-        separator_width = 5  # Set the width of the separator
-
         # Create a frame for the labels and other widgets
         self.orders_frame = ttk.Frame(self.root)
         self.orders_frame.grid(row=1, sticky='ew', columnspan=3)  #
 
         height = len(config.user_pairs) + 1
         self.orders_treeview = ttk.Treeview(self.orders_frame, columns=columns, height=height, show="headings")
+
         # Create Treeview inside the frame
-        self.orders_treeview.grid(row=0, column=0, sticky="nsew", columnspan=len(columns) + 1)
+        self.orders_treeview.grid()
+
         # Define column headings
         for col, label_text in enumerate(columns):
             self.orders_treeview.heading(label_text, text=label_text, anchor="w")
             self.orders_treeview.column(label_text, width=100, anchor="w")  # Adjust width as needed
         # Adjust the weight of the last column to make it resizable
-        self.orders_treeview.column("#4", stretch=tk.YES)
+        # self.orders_treeview.column("#4", stretch=tk.YES)
         for x, pair in enumerate(config.user_pairs):
             self.orders_treeview.insert("", tk.END, values=[pair, "None", "None", "None", "None"])
         self.initialize()
 
-    def init_bals_gui(self):
+    def gui_create_balances_treeview(self):
         columns = ("Coin", "USD ticker", "Total", "Free", "Total USD")
         # Create a frame for the headers
         self.balances_frame = ttk.Frame(self.root)
@@ -120,16 +119,12 @@ class MyGUI:
         self.balances_treeview = ttk.Treeview(self.balances_frame, columns=columns, show="headings", height=height,
                                               selectmode="none")
 
-        # Define column headings with anchor set to "s"
-        # reduce_first_column = 40
-        reduce_first_column = 0
         for col in columns:
             self.balances_treeview.heading(col, text=col, anchor="w")
-            self.balances_treeview.column(col, width=(100 - reduce_first_column))  # Adjust width as needed
-            reduce_first_column = 0
+            self.balances_treeview.column(col, width=100)  # Adjust width as needed
 
         # Place the Treeview on the window
-        self.balances_treeview.grid(column=0, row=0)
+        self.balances_treeview.grid()
 
         # Initialize content for each token
         for x, token in enumerate(init.t):
