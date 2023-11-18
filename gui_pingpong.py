@@ -131,7 +131,9 @@ class MyGUI:
         header_frame.grid(columnspan=3)
 
         # Create Treeview on the header frame
-        self.balances_treeview = ttk.Treeview(header_frame, columns=columns, show="headings", height=5)
+        height = len(init.t.keys())
+        self.balances_treeview = ttk.Treeview(header_frame, columns=columns, show="headings", height=height,
+                                              selectmode="none")
 
         # Define column headings with anchor set to "s"
         reduce_first_column = 40
