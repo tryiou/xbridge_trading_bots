@@ -10,6 +10,8 @@ debug_level = 2
 
 autoconf_rpc_log = setup_logger(name="autoconf_rpc_log",
                                 level=logging.DEBUG, console=True)
+
+
 def load_config_path_from_json(json_path):
     if os.path.exists(json_path):
         autoconf_rpc_log.info(f'Loading config path from {json_path}')
@@ -63,8 +65,9 @@ def prompt_user_for_config_path():
             autoconf_rpc_log.info(f'User selected config path: {config_path}')
         else:
             autoconf_rpc_log.warning('User canceled the file dialog')
+            exit()
     except ImportError:
-        autoconf_rpc_log.error('Tkinter or ttkbootstrap is not available. Asking for config path in terminal.')
+        autoconf_rpc_log.error('Tkinter or ttkbootstrap is not available. Asking for config path on terminal.')
         time.sleep(0.1)
         config_path = input("Enter the path to blocknet.conf: ")
 
@@ -120,7 +123,7 @@ def detect_rpc():
 
     if not config_path or not os.path.exists(config_path):
         autoconf_rpc_log.error("No valid Blocknet Core Config path found.")
-        return
+        exit()
 
     rpc_user, rpc_password, rpc_port = read_config_file(config_path)
 

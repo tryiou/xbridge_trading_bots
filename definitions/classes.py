@@ -66,7 +66,7 @@ class Token:
                 with open(init.ROOT_DIR + '/data/' + self.strategy + '_' + self.symbol + '_addr.pic', 'rb') as fp:
                     self.xb_address = pickle.load(fp)
             except FileNotFoundError:
-                general_log.error(f"File not found: {self.strategy}_{self.symbol}_addr.pic")
+                general_log.info(f"File not found: {self.strategy}_{self.symbol}_addr.pic")
                 self.dx_request_addr()
             except (pickle.PickleError, Exception) as e:
                 general_log.error(
@@ -186,8 +186,10 @@ class Pair:
                         init.ROOT_DIR + '/data/' + self.strategy + '_' + self.t1.symbol + '_' + self.t2.symbol + '_last_order.pic',
                         'rb') as fp:
                     self.order_history = pickle.load(fp)
+            except FileNotFoundError:
+                general_log.info(f"File not found: {self.strategy}_{self.t1.symbol}_{self.t2.symbol}_last_order.pic")
             except Exception as e:
-                print('error read_pair_last_order_history:', type(e), e)
+                general_log.error(f"read_pair_last_order_history: {type(e)}, {e}")
                 self.order_history = None
                 # pass
 

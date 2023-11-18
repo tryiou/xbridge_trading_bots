@@ -75,15 +75,14 @@ class MyGUI:
         self.btn_stop.state(["disabled"])
 
         self.btn_cancel_all = ttk.Button(self.root, text="CANCEL ALL", command=self.cancel_all, width=btn_width)
-        # ,                                         bootstyle='info')
         self.btn_cancel_all.grid(column=2, row=0, padx=5, pady=5)
         # updating the style here...
         # self.style.configure('info.TButton', font='-size 10')
 
         self.lb_orders_lst = []
         self.lb_bals_lst = []
-        self.lbl_bal = ttk.Label(self.root, text="BALANCES", borderwidth=3, relief="raised")
-
+        #  self.lbl_bal = ttk.Label(self.root, text="BALANCES", borderwidth=3, relief="raised")
+        self.balances_treeview = ttk.Treeview(self.root, show="headings")
         self.create_gui()
         self.init_bals_gui()
 
@@ -91,8 +90,13 @@ class MyGUI:
         labels = ["SYMBOL", "STATUS", "SIDE", "FLAG", "VARIATION"]
         separator_width = 5  # Set the width of the separator
 
+        # Create a frame for the labels and other widgets
+        orders_frame = ttk.Frame(self.root)
+        orders_frame.grid(row=1, sticky="nsew", columnspan=len(labels) + 1)  #
+
         for col, label_text in enumerate(labels):
-            ttk.Label(self.root, text=label_text, borderwidth=3, relief="raised").grid(column=col, row=1, sticky="ew")
+            ttk.Label(orders_frame, text=label_text, borderwidth=3, relief="raised").grid(column=col, row=0,
+                                                                                          sticky="ew")
 
         self.root.columnconfigure(len(labels), weight=2)
 
@@ -103,41 +107,50 @@ class MyGUI:
         for x, pair in enumerate(config.user_pairs):
             order_info = {
                 "symbol_text": pair,
-                "symbol": ttk.Label(self.root, text=pair),
-                "status": ttk.Label(self.root, text="None"),
-                "side": ttk.Label(self.root, text="None"),
-                "canvas": tk.Canvas(self.root, height=canvas_height, width=canvas_width),
+                "symbol": ttk.Label(orders_frame, text=pair),
+                "status": ttk.Label(orders_frame, text="None"),
+                "side": ttk.Label(orders_frame, text="None"),
+                "canvas": tk.Canvas(orders_frame, height=canvas_height, width=canvas_width),
                 "oval": None,
 
-                "variation": ttk.Label(self.root, text="None")
+                "variation": ttk.Label(orders_frame, text="None")
             }
-            order_info['symbol'].grid(column=0, row=x + 2, sticky="ew")
-            order_info['status'].grid(column=1, row=x + 2, sticky="ew")
-            order_info['side'].grid(column=2, row=x + 2, sticky="ew")
-            order_info['canvas'].grid(column=3, row=x + 2, sticky="nsew")
+            order_info['symbol'].grid(column=0, row=x + 1, sticky="ew")
+            order_info['status'].grid(column=1, row=x + 1, sticky="ew")
+            order_info['side'].grid(column=2, row=x + 1, sticky="ew")
+            order_info['canvas'].grid(column=3, row=x + 1, sticky="nsew")
             order_info['oval'] = order_info['canvas'].create_oval(oval_coords)
-            order_info['variation'].grid(column=4, row=x + 2, sticky="ew")
+            order_info['variation'].grid(column=4, row=x + 1, sticky="ew")
             self.lb_orders_lst.append(order_info)
-
-        self.lbl_bal.grid(column=0, row=len(config.user_pairs) + 3)
         self.initialise()
 
     def init_bals_gui(self):
+        columns = ("Symbol", "USD Price", "Total Balances", "Free Balances", "USD Balances")
+        # Create a frame for the headers
+        header_frame = ttk.Frame(self.root)
+        header_frame.grid(columnspan=3)
+
+        # Create Treeview on the header frame
+        height = len(init.t.keys())
+        self.balances_treeview = ttk.Treeview(header_frame, columns=columns, show="headings", height=height,
+                                              selectmode="none")
+
+        # Define column headings with anchor set to "s"
+        reduce_first_column = 40
+        for col in columns:
+            self.balances_treeview.heading(col, text=col)
+            self.balances_treeview.column(col, width=(110 - reduce_first_column))  # Adjust width as needed
+            reduce_first_column = 0
+
+        # Place the Treeview on the window
+        self.balances_treeview.grid(column=0, row=0)
+
+        # Initialize content for each token
         self.lb_bals_lst = []
         for x, token in enumerate(init.t):
-            bal = float("{:.4f}".format(init.t[token].dex_total_balance)) if init.t[token].dex_total_balance else 0
-
-            bal_info = {
-                "symbol_text": token,
-                "symbol": ttk.Label(self.root, text=token),
-                "balance": ttk.Label(self.root, text=str(bal)),
-                "usd_bal": ttk.Label(self.root, text=str(None))
-            }
-
-            bal_info['symbol'].grid(column=x, row=len(config.user_pairs) + 4)
-            bal_info['balance'].grid(column=x, row=len(config.user_pairs) + 5)
-            bal_info['usd_bal'].grid(column=x, row=len(config.user_pairs) + 6)
-            self.lb_bals_lst.append(bal_info)
+            # bal = float("{:.4f}".format(init.t[token].dex_total_balance)) if init.t[token].dex_total_balance else 0
+            data = (token, str(None), str(None), str(None), str(None))
+            self.balances_treeview.insert("", tk.END, values=data)
 
     def initialise(self):
         init.init_pingpong()
@@ -182,8 +195,7 @@ class MyGUI:
                 if ppair['symbol_text'] == key:
                     # print(pair.__dict__)
                     self.update_order_display(ppair, pair)
-            for token in self.lb_bals_lst:
-                update_balance_display(token, pair)
+        self.update_balance_display()
 
         self.root.after(1500, self.refresh_gui)
 
@@ -207,6 +219,44 @@ class MyGUI:
 
     def enable_start_button(self):
         self.btn_start.config(state="active")
+
+    def update_balance_display(self):
+        for item_id in self.balances_treeview.get_children():
+            values = self.balances_treeview.item(item_id, 'values')
+            token = values[0]
+            usd_price = init.t[token].usd_price
+            dex_total_balance = init.t[token].dex_total_balance
+            dex_free_balance = init.t[token].dex_free_balance
+
+            new_values = [token]
+
+            if usd_price:
+                new_usd_price = "{:.2f}$".format(usd_price)
+                new_values.append(new_usd_price)
+            else:
+                new_values.append("0.00$")
+            if dex_total_balance:
+                new_total_balance = "{:.4f}".format(dex_total_balance)
+                new_values.append(new_total_balance)
+            else:
+                new_values.append("0.00")
+
+            if dex_free_balance:
+                new_free_balance = "{:.4f}".format(dex_free_balance)
+                new_values.append(new_free_balance)
+            else:
+                new_values.append("0.00")
+
+            if usd_price and dex_total_balance:
+                usd_bal = usd_price * dex_total_balance
+                new_usd_bal = "{:.2f}$".format(usd_bal)
+                new_values.append(new_usd_bal)
+            else:
+                new_values.append("0.00$")
+
+            # Update the values in the Treeview if they have changed
+            if new_values != list(values):
+                self.balances_treeview.item(item_id, values=new_values)
 
 
 def update_current_order_display(ppair, pair):
@@ -232,61 +282,6 @@ def get_oval_color(status):
 
 def reset_oval_representation(ppair):
     ppair['canvas'].itemconfigure(ppair['oval'], fill="red")
-
-
-def update_balance_display(token, pair):
-    if token['symbol_text'] == pair.t1.symbol or token['symbol_text'] == pair.t2.symbol:
-        update_token_balance_display(token, pair)
-    elif token['symbol_text'] == 'BTC':
-        update_btc_balance_display(token)
-
-
-def update_token_balance_display(token, pair):
-    symbol = pair.t1.symbol if token['symbol_text'] == pair.t1.symbol else pair.t2.symbol
-    usd_price = init.t[symbol].usd_price
-    dex_total_balance = pair.t1.dex_total_balance if token[
-                                                         'symbol_text'] == pair.t1.symbol else pair.t2.dex_total_balance
-
-    if usd_price is not None:
-        token['symbol'].configure(text="{}['{:.2f}']".format(symbol, usd_price))
-    else:
-        token['symbol'].configure(text=symbol)
-
-    if dex_total_balance is not None:
-        if dex_total_balance >= 1:
-            balance_text = '{:.2f}'.format(dex_total_balance)
-        else:
-            balance_text = '{:.6f}'.format(dex_total_balance)
-        token['balance'].configure(text=balance_text)
-
-        if usd_price is not None:
-            usd_bal = usd_price * dex_total_balance
-            token['usd_bal'].configure(text='{:.2f}$'.format(usd_bal))
-    else:
-        token['balance'].configure(text='0')
-        token['usd_bal'].configure(text='None')
-
-
-def update_btc_balance_display(token):
-    btc_balance = init.t['BTC'].dex_total_balance
-    usd_price = init.t['BTC'].usd_price
-    token['symbol'].configure(text='BTC')
-
-    if btc_balance is not None:
-        if btc_balance >= 0.01:
-            balance_text = '{:.2f}'.format(btc_balance)
-        elif btc_balance > 0:
-            balance_text = '{:.8f}'.format(btc_balance)
-        else:
-            balance_text = '0'
-        token['balance'].configure(text=balance_text)
-
-        if usd_price is not None:
-            usd_bal = usd_price * btc_balance
-            token['usd_bal'].configure(text='{:.2f}$'.format(usd_bal))
-    else:
-        token['balance'].configure(text='0')
-        token['usd_bal'].configure(text='None')
 
 
 if __name__ == '__main__':
