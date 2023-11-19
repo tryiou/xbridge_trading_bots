@@ -138,8 +138,8 @@ class General:
                                     bal_free += float(utxo['amount'])
                                 # else:
                                 #    print('no orderid in utxo:\n', utxo)
-                            else:
-                                print(token, 'no amount in utxo:\n', utxo, '**', utxos)
+                            # else:
+                            #     print(token, 'no amount in utxo:\n', utxo, '**', utxos)
                                 # cc_check.cc_height_check(cc_coins)
                     self.tokens_dict[token].dex_total_balance = bal
                     self.tokens_dict[token].dex_free_balance = bal_free
