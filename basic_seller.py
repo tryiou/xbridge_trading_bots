@@ -79,10 +79,10 @@ def main_dx_update_bals(tokens_dict):
                     if 'orderid' in utxo:
                         if utxo['orderid'] == '':
                             bal_free += float(utxo['amount'])
-                    else:
-                        print('no orderid in utxo:\n', utxo)
-                else:
-                    print(token, 'no amount in utxo:\n', utxo, '**', utxos)
+                    # else:
+                    #     print('no orderid in utxo:\n', utxo)
+                # else:
+                #     print(token, 'no amount in utxo:\n', utxo, '**', utxos)
             tokens_dict[token].dex_total_balance = bal
             tokens_dict[token].dex_free_balance = bal_free
         else:
@@ -161,7 +161,7 @@ def start(pair, tokens):
                 xb.dxflushcancelledorders()
                 flush_timer = time.time()
             main_loop(pair, tokens, init.my_ccxt)
-            time.sleep(5)
+            time.sleep(10)
         except Exception as e:
             print(type(e), str(e), e.args)
             traceback.print_exc()

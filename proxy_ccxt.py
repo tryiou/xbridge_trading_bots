@@ -10,48 +10,6 @@ import definitions.bcolors as bcolors
 import definitions.ccxt_def as ccxt_def
 
 
-# def timed_lru_cache(seconds: int, maxsize: int = None):
-#     def wrapper_cache(func):
-#         print('I will use lru_cache', maxsize)
-#         func = lru_cache(maxsize=maxsize)(func)
-#         print('I\'m setting func.lifetime', seconds)
-#         func.lifetime = timedelta(seconds=seconds)
-#         print('I\'m setting func.expiration')
-#         func.expiration = datetime.utcnow() + func.lifetime
-#
-#         @wraps(func)
-#         def wrapped_func(*args, **kwargs):
-#             global ccxt_cache_hit
-#             if (ccxt_call_count + ccxt_cache_hit) % 5 == 0:
-#                 msg = "ccxt_call_count: " + str(ccxt_call_count) + " ccxt_cache_hit: " + str(ccxt_cache_hit)
-#                 print(f"{bcolors.mycolor.OKGREEN}{msg}{bcolors.mycolor.ENDC}")
-#             if datetime.utcnow() >= func.expiration:
-#                 msg = 'func.expiration lru_cache lifetime expired'
-#                 print(f"{bcolors.mycolor.OKBLUE}{msg}{bcolors.mycolor.ENDC}")
-#                 func.cache_clear()
-#                 func.expiration = datetime.utcnow() + func.lifetime
-#             else:
-#                 ccxt_cache_hit += 1
-#             msg = 'Check timer:', f'expiration: {(func.expiration - datetime.utcnow()).total_seconds()}'
-#             print(f"{bcolors.mycolor.OKGREEN}{msg}{bcolors.mycolor.ENDC}")
-#             return func(*args, **kwargs)
-#
-#         return wrapped_func
-#
-#     return wrapper_cache
-
-
-# @timed_lru_cache(5)
-# def ccxt_call_fetch_tickers_lru(*args):
-#     global symbols_list, ccxt_call_count
-#     for symbol in args:
-#         if symbol not in symbols_list:
-#             symbols_list.append(symbol)
-#     result = ccxt_def.ccxt_call_fetch_tickers(ccxt_i, symbols_list, proxy=False)
-#     ccxt_call_count += 1
-#     return result
-
-
 def ccxt_call_fetch_tickers(*args):
     global symbols_list, tickers, ccxt_call_fetch_tickers_timer, ccxt_call_count, ccxt_cache_hit, print_timer
     refresh_delay = 4

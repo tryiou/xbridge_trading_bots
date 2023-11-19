@@ -5,7 +5,7 @@ import definitions.ccxt_def as ccxt_def
 from definitions.xbridge_def import rpc_call
 
 
-def isOpen(ip, port):
+def is_port_open(ip, port):
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
         s.connect((ip, int(port)))
@@ -22,4 +22,4 @@ result2 = ccxt_def.ccxt_call_fetch_tickers(ccxt_i, symbols_list, proxy=False)
 print('direct', type(result2), result2)
 result = rpc_call("ccxt_call_fetch_tickers", [symbols_list], rpc_port=2233, debug=0)
 print('proxy', type(result), result)
-print(isOpen("127.0.0.1", 2233))
+print(is_port_open("127.0.0.1", 2233))
