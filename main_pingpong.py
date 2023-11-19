@@ -113,6 +113,7 @@ class General:
             ccxt_price_timer = time.time()
 
     def main_dx_update_bals(self):
+        # send all the gettokenutxo requests at once with ThreadPoolExecutor
         if self._should_update_bals():
             xb_tokens = xb.getlocaltokens()
 
