@@ -9,7 +9,7 @@ def get_script_path():
     return os.path.dirname(os.path.realpath(sys.argv[0]))
 
 
-infile = get_script_path() + "/logs/pingpong_trade.log"
+infile = get_script_path() + "/../logs/pingpong_trade.log"
 
 keep_phrases = ["FINISHED"]
 with open(infile) as f:
