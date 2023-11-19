@@ -161,7 +161,7 @@ def start(pair, tokens):
                 xb.dxflushcancelledorders()
                 flush_timer = time.time()
             main_loop(pair, tokens, init.my_ccxt)
-            time.sleep(5)
+            time.sleep(10)
         except Exception as e:
             print(type(e), str(e), e.args)
             traceback.print_exc()
