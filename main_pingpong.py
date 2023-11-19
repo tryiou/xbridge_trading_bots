@@ -122,25 +122,13 @@ class General:
             ccxt_price_timer = time.time()
 
     def main_dx_update_bals(self):
-        if self.timer_main_dx_update_bals is None or time.time() - self.timer_main_dx_update_bals > self.delay_main_dx_update_bals:
+        if self._should_update_bals():
             xb_tokens = xb.getlocaltokens()
 
             def update_token_bal(token):
                 if xb_tokens and self.tokens_dict[token].symbol in xb_tokens:
                     utxos = xb.gettokenutxo(token, used=True)
-                    bal = 0
-                    bal_free = 0
-                    for utxo in utxos:
-                        if 'amount' in utxo:
-                            bal += float(utxo['amount'])
-                            if 'orderid' in utxo:
-                                if utxo['orderid'] == '':
-                                    bal_free += float(utxo['amount'])
-                                # else:
-                                #    print('no orderid in utxo:\n', utxo)
-                            # else:
-                            #     print(token, 'no amount in utxo:\n', utxo, '**', utxos)
-                                # cc_check.cc_height_check(cc_coins)
+                    bal, bal_free = self._calculate_balances(utxos)
                     self.tokens_dict[token].dex_total_balance = bal
                     self.tokens_dict[token].dex_free_balance = bal_free
                 else:
@@ -151,6 +139,20 @@ class General:
                 executor.map(update_token_bal, self.tokens_dict)
 
             self.timer_main_dx_update_bals = time.time()
+
+    def _should_update_bals(self):
+        return (self.timer_main_dx_update_bals is None or
+                time.time() - self.timer_main_dx_update_bals > self.delay_main_dx_update_bals)
+
+    def _calculate_balances(self, utxos):
+        bal, bal_free = 0, 0
+        for utxo in utxos:
+            if 'amount' in utxo:
+                bal += float(utxo['amount'])
+                if 'orderid' in utxo:
+                    if utxo['orderid'] == '':
+                        bal_free += float(utxo['amount'])
+        return bal, bal_free
 
     def thread_init(self, p):
         p.init_virtual_order(self.disabled_coins)
