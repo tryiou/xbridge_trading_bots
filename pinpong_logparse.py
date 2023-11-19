@@ -133,7 +133,7 @@ def display_results(completed_pingpong, inprogress_pingpong, profit_pingpong):
     # Convert the dictionary to a list of tuples for tabulation with trades flattened
     inprogress_table_data = [(symbol, *trade) for symbol, trades in inprogress_pingpong.items() for trade in trades]
 
-    # Print the tabulated data with left-aligned content
+    # Print the tabulated data
     print(tabulate(inprogress_table_data,
                    headers=["Symbol", "Timestamp", "Side", "Maker Size", "Maker", "R_Side", "Taker Size", "Taker"],
                    tablefmt="pretty"))
@@ -142,7 +142,7 @@ def display_results(completed_pingpong, inprogress_pingpong, profit_pingpong):
     # Convert the dictionary to a list of tuples for tabulation with profit values flattened
     profit_table_data = [(symbol, profit['profit'], profit['asset']) for symbol, profit in profit_pingpong.items()]
 
-    # Print the tabulated data with left-aligned content
+    # Print the tabulated data
     print(tabulate(profit_table_data, headers=["Symbol", "Profit", "Asset"], tablefmt="pretty"))
 
 

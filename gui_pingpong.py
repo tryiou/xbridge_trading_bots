@@ -72,6 +72,8 @@ class MyGUI:
         self.balances_treeview = None
         self.orders_frame = None
         self.orders_treeview = None
+        self.selected_item_orders_treeview = None
+        self.right_click_order_window = None
         self.gui_create_buttons()
         self.gui_create_orders_treeview()
         self.gui_create_balances_treeview()
@@ -91,8 +93,8 @@ class MyGUI:
         # Create a frame for the labels and other widgets
         self.orders_frame = ttk.Frame(self.root)
         self.orders_frame.grid(row=1, sticky='ew', columnspan=3)  #
-
-        height = len(config.user_pairs) + 1
+        sortedpairs = sorted(config.user_pairs)
+        height = len(sortedpairs) + 1
         self.orders_treeview = ttk.Treeview(self.orders_frame, columns=columns, height=height, show="headings")
 
         # Create Treeview inside the frame
@@ -104,9 +106,41 @@ class MyGUI:
             self.orders_treeview.column(label_text, width=100, anchor="w")  # Adjust width as needed
         # Adjust the weight of the last column to make it resizable
         # self.orders_treeview.column("#4", stretch=tk.YES)
-        for x, pair in enumerate(config.user_pairs):
+        for x, pair in enumerate(sortedpairs):
             self.orders_treeview.insert("", tk.END, values=[pair, "None", "None", "X", "None"])
+
+        # self.orders_treeview.bind('<Button-3>', self.right_click_orders_treeview)
+
         self.initialize()
+
+    def right_click_orders_treeview(self, event):
+        # Get the selected item
+        item_id = self.orders_treeview.identify_row(event.y)
+
+        # Check if another item is already selected
+        if (self.selected_item_orders_treeview == item_id and
+                hasattr(self, 'right_click_order_window') and self.right_click_order_window):
+            return
+
+        # Save the currently selected item
+        self.selected_item_orders_treeview = item_id
+
+        # Close the existing right_click_order_window if it's open
+        if self.right_click_order_window:
+            self.right_click_order_window.destroy()
+
+        # Open the new window
+        if self.selected_item_orders_treeview is not None:
+            # Get the values of the selected item
+            values = self.orders_treeview.item(self.selected_item_orders_treeview, 'values')
+
+            # Create a new window
+            self.right_click_order_window = tk.Toplevel(self.root)
+
+            # Add labels for each value in the new window
+            for index, value in enumerate(values):
+                label = tk.Label(self.right_click_order_window, text=f"Value {index + 1}: {value}")
+                label.pack()
 
     def gui_create_balances_treeview(self):
         columns = ("Coin", "USD ticker", "Total", "Free", "Total USD")
