@@ -64,7 +64,9 @@ class General:
         counter = 0
         self.main_dx_update_bals()
         for key, pair in self.pairs_dict.items():
+            # will update prices only if timer is spent
             self.update_ccxt_prices()
+
             if enable_threading:
                 t = Thread(target=self.thread_loop, args=(pair,))
                 threads.append(t)
@@ -82,43 +84,30 @@ class General:
         print(f'loop took{end_time - start_time: 0.2f} second(s) to complete.')
 
     def update_ccxt_prices(self):
+        # request all coins ccxt tickers at once
         global ccxt_price_timer
         if ccxt_price_timer is None or time.time() - ccxt_price_timer > self.ccxt_price_refresh:
-            keys = list(self.tokens_dict.keys())
-            for x, token in enumerate(keys):
-                if token == 'BTC':
-                    keys[x] = token + '/USDT'
-                else:
-                    keys[x] = token + '/BTC'
+            keys = [f"{token}/USDT" if token == 'BTC' else f"{token}/BTC" for token in self.tokens_dict.keys()]
             keys.insert(0, keys.pop(keys.index('BTC/USDT')))
-            done = False
-            while not done:
-                try:
-                    tickers = ccxt_def.ccxt_call_fetch_tickers(self.ccxt_i, keys)
-                    for token in self.tokens_dict:
+            try:
+                tickers = ccxt_def.ccxt_call_fetch_tickers(self.ccxt_i, keys)
+                for token in self.tokens_dict:
+                    symbol = f"{self.tokens_dict[token].symbol}/USDT" if (self.tokens_dict[token].symbol == 'BTC') \
+                        else f"{self.tokens_dict[token].symbol}/BTC"
+                    if tickers and symbol in tickers:
                         if self.tokens_dict[token].symbol == 'BTC':
-                            symbol = self.tokens_dict[token].symbol + '/USDT'
-                            if tickers and symbol in tickers:
-                                self.tokens_dict[token].usd_price = float(tickers[symbol]['info']['lastTradeRate'])
-                                self.tokens_dict[token].ccxt_price = 1
-                                done = True
-                            else:
-                                print("update_ccxt_prices, missing symbol in tickers:", [symbol], tickers)
-                                self.tokens_dict[token].usd_price = None
-                                self.tokens_dict[token].ccxt_price = None
+                            self.tokens_dict[token].usd_price = float(tickers[symbol]['info']['lastTradeRate'])
+                            self.tokens_dict[token].ccxt_price = 1
                         else:
-                            symbol = self.tokens_dict[token].symbol + '/BTC'
-                            if tickers and symbol in tickers:
-                                self.tokens_dict[token].ccxt_price = float(tickers[symbol]['info']['lastTradeRate'])
-                                self.tokens_dict[token].usd_price = float(
-                                    self.tokens_dict[token].ccxt_price * self.tokens_dict['BTC'].usd_price)
-                                done = True
-                            else:
-                                print("update_ccxt_prices, missing symbol in tickers:", [symbol], tickers)
-                                self.tokens_dict[token].ccxt_price = None
-                                self.tokens_dict[token].usd_price = None
-                except Exception as e:
-                    print("general.update_ccxt_prices error:", type(e), str(e))
+                            self.tokens_dict[token].ccxt_price = float(tickers[symbol]['info']['lastTradeRate'])
+                            self.tokens_dict[token].usd_price = float(
+                                self.tokens_dict[token].ccxt_price * self.tokens_dict['BTC'].usd_price)
+                    else:
+                        print("update_ccxt_prices, missing symbol in tickers:", [symbol], tickers)
+                        self.tokens_dict[token].ccxt_price = None
+                        self.tokens_dict[token].usd_price = None
+            except Exception as e:
+                print("general.update_ccxt_prices error:", type(e), str(e))
             ccxt_price_timer = time.time()
 
     def main_dx_update_bals(self):
