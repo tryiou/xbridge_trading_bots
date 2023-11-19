@@ -145,10 +145,12 @@ class MyGUI:
 
     def stop(self):
         import definitions.xbridge_def as xb
-        self.send_process.terminate()
-        while self.send_process.is_alive():
-            time.sleep(1)
         xb.cancelallorders()
+        self.send_process.terminate()
+        print("send stop order")
+        while self.send_process.is_alive():
+            print("wait process end...")
+            time.sleep(1)
         self.initialize()
         self.btn_stop.config(state="disabled")
         self.btn_start.config(state="active")
