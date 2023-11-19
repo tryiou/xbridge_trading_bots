@@ -105,7 +105,7 @@ class MyGUI:
         # Adjust the weight of the last column to make it resizable
         # self.orders_treeview.column("#4", stretch=tk.YES)
         for x, pair in enumerate(config.user_pairs):
-            self.orders_treeview.insert("", tk.END, values=[pair, "None", "None", "None", "None"])
+            self.orders_treeview.insert("", tk.END, values=[pair, "None", "None", "X", "None"])
         self.initialize()
 
     def gui_create_balances_treeview(self):
@@ -201,7 +201,7 @@ class MyGUI:
                 pair.symbol,
                 'Disabled' if pair.disabled else 'None',
                 'None',
-                'None',
+                'X',
                 'None'
             ]
         new = list(new_values)
@@ -269,14 +269,24 @@ class MyGUI:
 
 
 def get_flag(status):
-    if status == 'open':
-        return "green"
-    elif status in {'new'}:
-        return "yellow"
-    elif status in {'created', 'accepting', 'hold', 'initialized', 'commited', 'finished'}:
-        return "purple"
-    else:
-        return "red"
+    status_color_mapping = {
+        'open': 'V',
+        'new': 'V',
+        'created': 'V',
+        'accepting': 'V',
+        'hold': 'V',
+        'initialized': 'V',
+        'committed': 'V',
+        'finished': 'V'
+    }
+    # expired
+    # offline
+    # canceled
+    # invalid
+    # rolled back
+    # rollback failed
+
+    return status_color_mapping.get(status, 'X')
 
 
 if __name__ == '__main__':
