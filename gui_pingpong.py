@@ -150,7 +150,7 @@ class MyGUI:
         while self.send_process.is_alive():
             print("wait process end...")
             time.sleep(1)
-        # xb.cancelallorders()
+        xb.cancelallorders()
         self.initialize()
         self.btn_stop.config(state="disabled")
         self.btn_start.config(state="active")
