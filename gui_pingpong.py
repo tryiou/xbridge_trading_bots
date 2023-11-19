@@ -136,7 +136,7 @@ class MyGUI:
         init.init_pingpong()
 
     def start(self):
-        self.send_process = Thread(target=main_pingpong.main)
+        self.send_process = Thread(target=main_pingpong.run_async_main)
         self.send_process.start()
         self.started = True
         self.btn_start.config(state="disabled")
@@ -145,12 +145,12 @@ class MyGUI:
 
     def stop(self):
         import definitions.xbridge_def as xb
-        xb.cancelallorders()
         self.send_process.terminate()
         print("send stop order")
         while self.send_process.is_alive():
             print("wait process end...")
             time.sleep(1)
+        # xb.cancelallorders()
         self.initialize()
         self.btn_stop.config(state="disabled")
         self.btn_start.config(state="active")

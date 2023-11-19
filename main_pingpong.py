@@ -13,6 +13,8 @@ import definitions.init as init
 import definitions.xbridge_def as xb
 # from config.config_pingpong import cc_coins
 import concurrent.futures
+import asyncio
+import traceback
 
 
 # from pycallgraph import PyCallGraph
@@ -151,44 +153,56 @@ class General:
         p.status_check(self.disabled_coins)
 
 
-def main():
+def run_async_main():
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(main())
+
+
+async def main():
     global ccxt_price_timer, disabled_coins
 
-    # graphviz = GraphvizOutput()
-    # graphviz.output_file = 'basic.png'
-    #
-    # with PyCallGraph(output=graphviz):
-    ccxt_price_timer = None
-    # pairs_dict = init.p
-    # tokens_dict = init.t
-    general = General(pairs_dict=init.p, tokens_dict=init.t, ccxt_i=init.my_ccxt)
-    xb.cancelallorders()
-    xb.dxflushcancelledorders()
-    # exit()
-    flush_timer = time.time()
-    cc_check_timer = time.time()
-    flush_delay = 15 * 60
-    # cc_timer = 5 * 60
-    # general.disabled_coins = xlite_endpoint_check.xlite_endpoint_height_check(cc_coins, display=True)
-    general.main_init_loop()
-    # test_counter=0
-    while 1:
-        # test_counter+=1
-        # if test_counter >= 3:
-        #     break
-        # if time.time() - cc_check_timer > cc_timer:
-        # general.disabled_coins = xlite_endpoint_check.xlite_endpoint_height_check(cc_coins)
-        #    cc_check_timer = time.time()
-        if time.time() - flush_timer > flush_delay:
-            xb.dxflushcancelledorders()
-            flush_timer = time.time()
-        general.main_loop()
-        time.sleep(10)
+    try:
+        ccxt_price_timer = None
+        # pairs_dict = init.p
+        # tokens_dict = init.t
+        general = General(pairs_dict=init.p, tokens_dict=init.t, ccxt_i=init.my_ccxt)
+        xb.cancelallorders()
+        xb.dxflushcancelledorders()
+        flush_timer = time.time()
+        cc_check_timer = time.time()
+        flush_delay = 15 * 60
+        # cc_timer = 5 * 60
+        # general.disabled_coins = xlite_endpoint_check.xlite_endpoint_height_check(cc_coins, display=True)
+        general.main_init_loop()
+        # test_counter=0
+        while 1:
+            # test_counter+=1
+            # if test_counter >= 3:
+            #     break
+            # if time.time() - cc_check_timer > cc_timer:
+            # general.disabled_coins = xlite_endpoint_check.xlite_endpoint_height_check(cc_coins)
+            #    cc_check_timer = time.time()
+            if time.time() - flush_timer > flush_delay:
+                xb.dxflushcancelledorders()
+                flush_timer = time.time()
+            general.main_loop()
+            await asyncio.sleep(10)
+    except (SystemExit, KeyboardInterrupt):
+        print("Received Stop order. Cleaning up...")
+        # Perform cleanup actions here
+        xb.cancelallorders()
+        exit()
+    except Exception as e:
+        print(type(e), str(e), e.args)
+        traceback.print_exc()
+        xb.cancelallorders()
+        exit()
 
 
 def start():
     init.init_pingpong()
-    main()
+    run_async_main()
 
 
 if __name__ == '__main__':
