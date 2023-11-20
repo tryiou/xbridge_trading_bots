@@ -372,7 +372,8 @@ class Pair:
             self.disabled = True
             general_log.info(self.symbol + ' disabled due to cc checks: ' + str(disabled_coins))
         if not self.disabled:
-            if self.order_history is None or ('side' in self.order_history and self.order_history['side'] == 'BUY'):
+            if self.order_history is None or ("pingpong" in self.strategy and
+                                              'side' in self.order_history and self.order_history['side'] == 'BUY'):
                 self.create_dex_virtual_sell_order()
             elif 'side' in self.order_history and self.order_history['side'] == 'SELL':
                 self.create_dex_virtual_buy_order(manual_dex_price=True)
