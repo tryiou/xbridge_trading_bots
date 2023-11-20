@@ -546,7 +546,7 @@ class Pair:
         else:
             if not self.disabled:
                 general_log.error(
-                    f"status_check, no valid status: {self.symbol}, {self.current_order['side']}, {self.dex_order}")
+                    f"status_check, no valid status: {self.symbol}, {self.current_order}, {self.dex_order}")
                 self.dex_create_order()
 
     def dex_order_finished(self, disabled_coins):
