@@ -126,7 +126,7 @@ class Token:
 class Pair:
     def __init__(self, token1, token2, amount_token_to_sell=None, min_sell_price_usd=None, ccxt_sell_price_upscale=None,
                  strategy=None, dex_enabled=True):
-        self.strategy = strategy  # arbtaker, pingpong
+        self.strategy = strategy  # arbtaker, pingpong, basic_seller
         self.t1 = token1
         self.t2 = token2
         self.symbol = self.t1.symbol + '/' + self.t2.symbol
@@ -372,7 +372,8 @@ class Pair:
             self.disabled = True
             general_log.info(self.symbol + ' disabled due to cc checks: ' + str(disabled_coins))
         if not self.disabled:
-            if self.order_history is None or ('side' in self.order_history and self.order_history['side'] == 'BUY'):
+            if (self.order_history is None or "basic_seller" in self.strategy or
+                    ('side' in self.order_history and self.order_history['side'] == 'BUY')):
                 self.create_dex_virtual_sell_order()
             elif 'side' in self.order_history and self.order_history['side'] == 'SELL':
                 self.create_dex_virtual_buy_order(manual_dex_price=True)
@@ -385,7 +386,7 @@ class Pair:
                     self.t1.symbol + '/USD' + str(["{:.2f}".format(self.t1.usd_price)]),
                     self.t2.symbol + '/USD' + str(["{:.2f}".format(self.t2.usd_price)])
                 ))
-                general_log.info(f"current_order: {self.current_order}")
+            general_log.info(f"current_order: {self.current_order}")
 
     def dex_cancel_myorder(self):
         if self.dex_order and 'id' in self.dex_order:
@@ -546,7 +547,7 @@ class Pair:
         else:
             if not self.disabled:
                 general_log.error(
-                    f"status_check, no valid status: {self.symbol}, {self.current_order['side']}, {self.dex_order}")
+                    f"status_check, no valid status: {self.symbol}, {self.current_order}, {self.dex_order}")
                 self.dex_create_order()
 
     def dex_order_finished(self, disabled_coins):

@@ -118,13 +118,30 @@ def display_results(completed_pingpong, inprogress_pingpong, profit_pingpong):
                 # 1PING #2PONG #3PROFIT
                 if isinstance(event, list):
                     timestamp, side, maker_size, maker, r_side, taker_size, taker = event
-                    # Assuming profit is the third element in the pingpongsequence
-                    profit = pingpongsequence[2] if side == "BUY" else ""
+                    if side == "BUY":
+                        # Example dates
+                        date_str1 = pingpongsequence[0][0]
+                        date_str2 = pingpongsequence[1][0]
+
+                        # Convert string representations to datetime objects
+                        date_format = "%Y-%m-%d %H:%M:%S,%f"
+                        date1 = datetime.strptime(date_str1, date_format)
+                        date2 = datetime.strptime(date_str2, date_format)
+
+                        delta_date = str(date2 - date1).split('.')[0]
+
+                        # Assuming profit is the third element in the pingpongsequence
+                        profit = pingpongsequence[2]
+                    else:
+                        delta_date = ""
+                        profit = ""
+
                     completed_table_data.append(
-                        (symbol, timestamp, side, maker_size, maker, r_side, taker_size, taker, profit))
+                        (symbol, timestamp, side, maker_size, maker, r_side, taker_size, taker, profit, delta_date))
 
     # Ensure the headers match the number of columns in the completed_table_data
-    headers = ["Symbol", "Timestamp", "Side", "Maker Size", "Maker", "R_Side", "Taker Size", "Taker", "Profit"]
+    headers = ["Symbol", "Timestamp", "Side", "Size T1", "Token1", "R_Side", "Size T2", "Token2", "Profit",
+               "Exec time (D, h:m:s)"]
 
     # Print the tabulated data with left-aligned content
     print(tabulate(completed_table_data, headers=headers, tablefmt="pretty"))
@@ -133,16 +150,17 @@ def display_results(completed_pingpong, inprogress_pingpong, profit_pingpong):
     # Convert the dictionary to a list of tuples for tabulation with trades flattened
     inprogress_table_data = [(symbol, *trade) for symbol, trades in inprogress_pingpong.items() for trade in trades]
 
-    # Print the tabulated data with left-aligned content
+    # Print the tabulated data
     print(tabulate(inprogress_table_data,
-                   headers=["Symbol", "Timestamp", "Side", "Maker Size", "Maker", "R_Side", "Taker Size", "Taker"],
+                   headers=["Symbol", "Timestamp", "Side""Size T1", "Token1", "R_Side", "Size T2",
+                            "Token2"],
                    tablefmt="pretty"))
 
     print("\nProfit Pingpong:")
     # Convert the dictionary to a list of tuples for tabulation with profit values flattened
     profit_table_data = [(symbol, profit['profit'], profit['asset']) for symbol, profit in profit_pingpong.items()]
 
-    # Print the tabulated data with left-aligned content
+    # Print the tabulated data
     print(tabulate(profit_table_data, headers=["Symbol", "Profit", "Asset"], tablefmt="pretty"))
 
 

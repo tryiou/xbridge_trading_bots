@@ -21,7 +21,8 @@ def init_pingpong():
     my_ccxt = init_ccxt_instance(exchange=ccxt_exchange, hostname=ccxt_hostname, private_api=False)
     # ACTIVE TOKENS LIST, KEEP BTC INSIDE EVEN IF UNUSED
     tokens = []
-    for pair in user_pairs:
+    sorted_pairs = sorted(user_pairs)
+    for pair in sorted_pairs:
         sep = pair.find("/")
         t1 = pair[0:sep]
         t2 = pair[sep + 1::]
@@ -39,7 +40,7 @@ def init_pingpong():
         # t[token].read_xb_address()
     # main_dx_update_bals(t)
     p = {}
-    for pair in user_pairs:
+    for pair in sorted_pairs:
         sep = pair.find("/")
         t1 = pair[0:sep]
         t2 = pair[sep + 1::]
