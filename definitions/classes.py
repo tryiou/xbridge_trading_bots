@@ -379,7 +379,7 @@ class Pair:
                 self.create_dex_virtual_buy_order(manual_dex_price=True)
             else:
                 general_log.error('error during init_order\n' + str(self.order_history))
-            exit()
+                exit()
             if display:
                 general_log.info("init_virtual_order, Prices: %s %s %s" % (
                     self.symbol + str(["{:.8f}".format(self.price)]),
