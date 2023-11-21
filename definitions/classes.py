@@ -100,12 +100,17 @@ class Token:
 
             cex_symbol = "BTC/USD" if self.symbol == "BTC" else f"{self.symbol}/BTC"
 
+            if init.my_ccxt.id == "binance":
+                lastprice_string = "lastPrice"
+            elif init.my_ccxt.id == "bittrex":
+                lastprice_string = "lastTradeRate"
+
             if cex_symbol in init.my_ccxt.symbols:
                 while not done:
                     count += 1
                     try:
                         result = float(
-                            ccxt_def.ccxt_call_fetch_ticker(init.my_ccxt, cex_symbol)['info']['lastTradeRate'])
+                            ccxt_def.ccxt_call_fetch_ticker(init.my_ccxt, cex_symbol)['info'][lastprice_string])
                     except Exception as e:
                         general_log.error(f"update_ccxt_price: error({count}): {type(e).__name__}: {e}")
                         time.sleep(count)

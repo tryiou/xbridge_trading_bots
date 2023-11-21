@@ -39,11 +39,15 @@ def update_ccxt_prices(tokens_dict, ccxt_i):
         while not done:
             try:
                 tickers = ccxt_def.ccxt_call_fetch_tickers(ccxt_i, keys)
+                if ccxt_i.id == "binance":
+                    lastprice_string = "lastPrice"
+                elif ccxt_i.id == "bittrex":
+                    lastprice_string = "lastTradeRate"
                 for token in tokens_dict:
                     if tokens_dict[token].symbol == 'BTC':
                         symbol = tokens_dict[token].symbol + '/USDT'
                         if tickers and symbol in tickers:
-                            tokens_dict[token].usd_price = float(tickers[symbol]['info']['lastTradeRate'])
+                            tokens_dict[token].usd_price = float(tickers[symbol]['info'][lastprice_string])
                             tokens_dict[token].ccxt_price = 1
                             done = True
                         else:
@@ -53,7 +57,7 @@ def update_ccxt_prices(tokens_dict, ccxt_i):
                     else:
                         symbol = tokens_dict[token].symbol + '/BTC'
                         if tickers and symbol in tickers:
-                            tokens_dict[token].ccxt_price = float(tickers[symbol]['info']['lastTradeRate'])
+                            tokens_dict[token].ccxt_price = float(tickers[symbol]['info'][lastprice_string])
                             tokens_dict[token].usd_price = float(
                                 tokens_dict[token].ccxt_price * tokens_dict['BTC'].usd_price)
                             done = True

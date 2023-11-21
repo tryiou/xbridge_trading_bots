@@ -93,15 +93,19 @@ class General:
             keys.insert(0, keys.pop(keys.index('BTC/USDT')))
             try:
                 tickers = ccxt_def.ccxt_call_fetch_tickers(self.ccxt_i, keys)
+                if self.ccxt_i.id == "binance":
+                    lastprice_string = "lastPrice"
+                elif self.ccxt_i.id == "bittrex":
+                    lastprice_string = "lastTradeRate"
                 for token in self.tokens_dict:
                     symbol = f"{self.tokens_dict[token].symbol}/USDT" if (self.tokens_dict[token].symbol == 'BTC') \
                         else f"{self.tokens_dict[token].symbol}/BTC"
                     if tickers and symbol in tickers:
                         if self.tokens_dict[token].symbol == 'BTC':
-                            self.tokens_dict[token].usd_price = float(tickers[symbol]['info']['lastTradeRate'])
+                            self.tokens_dict[token].usd_price = float(tickers[symbol]['info'][lastprice_string])
                             self.tokens_dict[token].ccxt_price = 1
                         else:
-                            self.tokens_dict[token].ccxt_price = float(tickers[symbol]['info']['lastTradeRate'])
+                            self.tokens_dict[token].ccxt_price = float(tickers[symbol]['info'][lastprice_string])
                             self.tokens_dict[token].usd_price = float(
                                 self.tokens_dict[token].ccxt_price * self.tokens_dict['BTC'].usd_price)
                     else:
