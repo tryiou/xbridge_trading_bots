@@ -17,6 +17,7 @@ class CCXTServer:
         self.total_exec_time = time.time()
         self.ccxt_call_fetch_tickers_timer = time.time()
         self.ccxt_i = ccxt_def.init_ccxt_instance(ccxt_cfg.ccxt_exchange, ccxt_cfg.ccxt_hostname)
+        self.inprogress = False
 
     def ccxt_call_fetch_tickers(self, *args):
         refresh_delay = 5
@@ -24,17 +25,21 @@ class CCXTServer:
             if symbol not in self.symbols_list:
                 self.symbols_list.append(symbol)
         trigger = False
+        while self.inprogress == True:
+            time.sleep(0.1)
         for symbol in self.symbols_list:
             if symbol not in self.tickers:
                 trigger = True
         if time.time() - self.ccxt_call_fetch_tickers_timer > refresh_delay:
             trigger = True
         if trigger:
+            self.inprogress = True
             self.ccxt_call_count += 1
             temp_tickers = ccxt_def.ccxt_call_fetch_tickers(self.ccxt_i, self.symbols_list, proxy=False)
             self.tickers = temp_tickers
             self.ccxt_call_fetch_tickers_timer = time.time()
             self.print_metrics()
+            self.inprogress = False
         else:
             self.ccxt_cache_hit += 1
         return self.tickers
