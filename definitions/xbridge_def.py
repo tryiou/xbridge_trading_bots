@@ -1,8 +1,9 @@
 import time
 
 # import requests
+from requests import Session, HTTPError
 from requests.auth import HTTPBasicAuth
-from requests import Session
+# from requests import Session
 # import config.blocknet_rpc_cfg as config
 import definitions.bcolors as bcolors
 from definitions.detect_rpc import detect_rpc
@@ -19,8 +20,32 @@ def test_rpc(rpc_user, rpc_port, rpc_password):
         return False
 
 
-def rpc_call(method, params=[], url="http://127.0.0.1", rpc_user=user_rpc, rpc_password=password_rpc, rpc_port=port_rpc,
-             debug=2, timeout=120, display=True, prefix='xbridge', max_err_count=None):
+def handle_error(e, err_count, method, params, prefix):
+    err_count += 1
+    msg = f"{prefix}_rpc_call( {method}, {params} )"
+    print(f"{bcolors.mycolor.WARNING}{msg}{bcolors.mycolor.ENDC}")
+    print(f"{bcolors.mycolor.WARNING}{type(e)}, {e}{bcolors.mycolor.ENDC}")
+    time.sleep(err_count)
+
+
+def rpc_call(method, params=[], url="http://127.0.0.1", rpc_user=user_rpc, rpc_password=password_rpc,
+             rpc_port=port_rpc, debug=2, timeout=120, display=True, prefix='xbridge', max_err_count=None):
+    """
+    Make a JSON-RPC call.
+
+    :param method: RPC method to call.
+    :param params: Parameters for the RPC call.
+    :param url: URL for the RPC server.
+    :param rpc_user: RPC server username.
+    :param rpc_password: RPC server password.
+    :param rpc_port: RPC port.
+    :param debug: Debug level.
+    :param timeout: Timeout for the HTTP request.
+    :param display: Whether to display debug information.
+    :param prefix: Prefix for debug messages.
+    :param max_err_count: Maximum number of retries in case of errors.
+    :return: Result of the RPC call.
+    """
     if rpc_port not in {80, 443}:
         url = f"{url}:{rpc_port}"
 
@@ -32,26 +57,24 @@ def rpc_call(method, params=[], url="http://127.0.0.1", rpc_user=user_rpc, rpc_p
     headers = {'Content-type': 'application/json'}
     auth = HTTPBasicAuth(rpc_user, rpc_password) if rpc_user and rpc_password else None
 
-    done = False
+    result = None
     error = False
     err_count = 0
+    done = False
 
     while not done:
         try:
             with Session() as session:
                 response = session.post(url, json=payload, headers=headers, auth=auth, timeout=timeout)
-                responsejson = response.json()
-                result = responsejson.get('result')
+            response.raise_for_status()  # Check for HTTP errors
+            responsejson = response.json()
+            result = responsejson.get('result')
+        except HTTPError as e:
+            err_count += 1
+            handle_error(e, err_count, method, params, prefix)
         except Exception as e:
             err_count += 1
-            msg = f"{prefix}_rpc_call( {method}, {params} )"
-            print(f"{bcolors.mycolor.WARNING}{msg}{bcolors.mycolor.ENDC}")
-            print(f"{bcolors.mycolor.WARNING}{type(e)}, {e}{bcolors.mycolor.ENDC}")
-            result = None
-            error = True
-            if max_err_count and err_count >= max_err_count:
-                break
-            time.sleep(err_count)
+            handle_error(e, err_count, method, params, prefix)
         else:
             done = True
             error = False
