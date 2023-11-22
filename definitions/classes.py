@@ -2,6 +2,7 @@
 import logging
 import pickle
 import time
+import requests
 
 import config.config_pingpong as config_pp
 import definitions.bcolors as bcolors
@@ -112,18 +113,33 @@ class Token:
                         result = float(
                             ccxt_def.ccxt_call_fetch_ticker(init.my_ccxt, cex_symbol)['info'][lastprice_string])
                     except Exception as e:
+                        general_log.error(f"update_ccxt_price: {cex_symbol} error({count}): {type(e).__name__}: {e}")
+                        time.sleep(count)
+                    else:
+                        done = True
+            elif self.symbol == "BLOCK":
+                while not done:
+                    count += 1
+                    try:
+                        ticker = requests.get(url=f"https://market.southxchange.com/api/price/{cex_symbol}")
+                        if ticker.status_code == 200:
+                            json = ticker.json()
+                            result = json['Bid'] + ((json['Ask'] - json['Bid']) / 2)
+                    except Exception as e:
                         general_log.error(f"update_ccxt_price: error({count}): {type(e).__name__}: {e}")
                         time.sleep(count)
                     else:
-                        if result:
-                            self.ccxt_price = 1 if self.symbol == "BTC" else result
-                            self.usd_price = result if self.symbol != "BTC" else result * init.t['BTC'].usd_price
-                            self.ccxt_price_timer = time.time()
-                            done = True
+                        done = True
             else:
                 general_log.info(f"{cex_symbol} not in cex {str(init.my_ccxt)}")
                 self.usd_price = None
                 self.ccxt_price = None
+
+            if result:
+                self.ccxt_price = 1 if self.symbol == "BTC" else result
+                self.usd_price = result * init.t['BTC'].usd_price if self.symbol != "BTC" else result
+                self.ccxt_price_timer = time.time()
+                general_log.info(f"new pricing {self.symbol} {self.ccxt_price} {self.usd_price} ")
         elif display:
             print('Token.update_ccxt_price()', 'too fast call?', self.symbol)
 

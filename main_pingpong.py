@@ -89,7 +89,8 @@ class General:
         # request all coins ccxt tickers at once
         global ccxt_price_timer
         if ccxt_price_timer is None or time.time() - ccxt_price_timer > self.ccxt_price_refresh:
-            keys = [f"{token}/USDT" if token == 'BTC' else f"{token}/BTC" for token in self.tokens_dict.keys()]
+            keys = [f"{token}/USDT" if token == 'BTC' else f"{token}/BTC" for token in self.tokens_dict.keys() if
+                    token != 'BLOCK']
             keys.insert(0, keys.pop(keys.index('BTC/USDT')))
             try:
                 tickers = ccxt_def.ccxt_call_fetch_tickers(self.ccxt_i, keys)
@@ -97,7 +98,8 @@ class General:
                     lastprice_string = "lastPrice"
                 elif self.ccxt_i.id == "bittrex":
                     lastprice_string = "lastTradeRate"
-                for token in self.tokens_dict:
+                # exclude BLOCK from ccxt ticker gathering
+                for token in [token for token in self.tokens_dict if token != 'BLOCK']:
                     symbol = f"{self.tokens_dict[token].symbol}/USDT" if (self.tokens_dict[token].symbol == 'BTC') \
                         else f"{self.tokens_dict[token].symbol}/BTC"
                     if tickers and symbol in tickers:
@@ -112,6 +114,8 @@ class General:
                         print("update_ccxt_prices, missing symbol in tickers:", [symbol], tickers)
                         self.tokens_dict[token].ccxt_price = None
                         self.tokens_dict[token].usd_price = None
+                if "BLOCK" in self.tokens_dict.keys():
+                    self.tokens_dict["BLOCK"].update_ccxt_price()
             except Exception as e:
                 print("general.update_ccxt_prices error:", type(e), str(e))
             ccxt_price_timer = time.time()
