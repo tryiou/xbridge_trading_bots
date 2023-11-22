@@ -24,7 +24,7 @@ sell_price_offset = 0.05
 # usd_amount = PER ORDER USD_TO_TOKEN1 AMOUNT ("BLOCK/LTC" = "token1/token2")
 # gather token1/2/usd prices tickers to calc orders sizes
 # custom to use per pair setting, else use default
-usd_amount_default = 0.05  # 5 $USD PER ORDER
+usd_amount_default = 1  # $USD PER ORDER
 # optional >
 usd_amount_custom = {
     "DASH/BLOCK": 21,
