@@ -130,6 +130,7 @@ class Token:
                         time.sleep(count)
                     else:
                         done = True
+                        general_log.info(f"Updating BLOCK/BTC ticker: {result}")
             else:
                 general_log.info(f"{cex_symbol} not in cex {str(init.my_ccxt)}")
                 self.usd_price = None
