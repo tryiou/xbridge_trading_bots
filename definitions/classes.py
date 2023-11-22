@@ -232,7 +232,7 @@ class Pair:
 
             amount = self.amount_token_to_sell if self.strategy == 'basic_seller' else config_pp.usd_amount_custom.get(
                 self.symbol, config_pp.usd_amount_default) / (self.t1.ccxt_price * init.t['BTC'].usd_price)
-            spread = config_pp.arb_team_spread if config_pp.arb_team and self.symbol in config_pp.arb_team_pairs else config_pp.sell_price_offset
+            spread = config_pp.sell_price_offset
 
             self.current_order.update({
                 'maker_size': amount,
@@ -259,9 +259,8 @@ class Pair:
                 self.current_order['symbol'] = self.symbol
 
                 if manual_dex_price:
-                    price = self.price if self.price < self.order_history['dex_price'] and not \
-                        (config_pp.arb_team and self.symbol in config_pp.arb_team_pairs) else \
-                        self.order_history['dex_price']
+                    price = self.price if self.price < self.order_history['dex_price'] else self.order_history[
+                        'dex_price']
                 else:
                     price = self.price
 
@@ -269,10 +268,6 @@ class Pair:
 
                 amount = float(self.order_history['maker_size'])
                 spread = config_pp.spread_custom.get(self.symbol, config_pp.spread_default)
-
-                if config_pp.arb_team and self.symbol in config_pp.arb_team_pairs:
-                    spread = config_pp.arb_team_spread
-                    print('arbteam')
 
                 self.current_order['side'] = 'BUY'
                 self.current_order['maker'] = self.t2.symbol
@@ -318,20 +313,17 @@ class Pair:
             general_log.debug("Manual DEX price is True and 'side' is present")
 
             # Calculate var based on the side
-            if self.current_order['side'] == 'BUY' and (
-                    not (self.strategy == 'pingpong' and self.symbol in config_pp.arb_team_pairs and config_pp.arb_team)
-                    and self.price < self.order_history['org_pprice']):
+            if self.current_order['side'] == 'BUY' and self.price < self.order_history['org_pprice']:
                 var = float(self.price / self.current_order['org_pprice'])
                 # Debug log: Log that var is calculated based on 'BUY' side
-                general_log.debug("Var calculated based on 'BUY' side")
             elif self.current_order['side'] == 'SELL' and self.price > self.order_history['org_pprice']:
                 var = float(self.price / self.current_order['org_pprice'])
                 # Debug log: Log that var is calculated based on 'SELL' side
-                general_log.debug("Var calculated based on 'SELL' side")
             else:
                 var = 1
                 # Debug log: Log that var is set to 1
                 general_log.debug("Var set to 1")
+            general_log.debug(f"Var calculated based on '{self.current_order['side']}' side {var}")
         else:
             # Debug log: Log manual_dex_price is False or 'side' is not present
             general_log.debug("Manual DEX price is False or 'side' is not present")
@@ -424,6 +416,10 @@ class Pair:
                     if not dry_mode:
                         self.dex_order = xb.makeorder(maker, maker_size, maker_address, taker, taker_size,
                                                       taker_address)
+                        if self.dex_order and "error" in self.dex_order:
+                            general_log.error(f"Error making order on Pair {self.symbol}")
+                            # self.dex_order = None
+                            self.disabled = True
                     else:
                         msg = f"xb.makeorder({maker}, {maker_size}, {maker_address}, {taker}, {taker_size}, {taker_address})"
                         general_log.info(f"dex_create_order, Dry mode enabled. {msg}")
@@ -487,6 +483,7 @@ class Pair:
     def check_price_variation(self, disabled_coins, display=False):
         global star_counter
         if 'side' in self.current_order and self.check_price_in_range(display=display) is False:
+
             msg = "check_price_variation, " + self.symbol + ", variation: " + "{:.3f}".format(self.variation) + \
                   ', ' + self.dex_order['status'] + ", live_price: " + "{:.8f}".format(self.price) + \
                   ", order_price: " + "{:.8f}".format(self.current_order['dex_price'])
@@ -509,10 +506,11 @@ class Pair:
     def status_check(self, disabled_coins=None, display=False):
         self.update_pricing()
         status = None
-
-        if self.disabled and not (
-                disabled_coins and (self.t1.symbol in disabled_coins or self.t2.symbol in disabled_coins)):
-            self.disabled = False
+        if self.disabled:
+            general_log.info(f"Pair {self.symbol} Disabled, error: {self.dex_order}")
+        # if self.disabled and not (
+        #         disabled_coins and (self.t1.symbol in disabled_coins or self.t2.symbol in disabled_coins)):
+        #     self.disabled = False
 
         if self.dex_order and 'id' in self.dex_order:
             status = self.dex_check_order_status()
