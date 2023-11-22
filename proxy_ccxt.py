@@ -12,7 +12,7 @@ import definitions.ccxt_def as ccxt_def
 
 def ccxt_call_fetch_tickers(*args):
     global symbols_list, tickers, ccxt_call_fetch_tickers_timer, ccxt_call_count, ccxt_cache_hit, print_timer
-    refresh_delay = 4
+    refresh_delay = 5
     for symbol in args:
         if symbol not in symbols_list:
             symbols_list.append(symbol)
