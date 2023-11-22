@@ -16,7 +16,7 @@ user_pairs = [
 ]
 
 # price_variation_tolerance = CANCEL AND REFRESH ORDER IF PRICE CHANGE MORE THAN THIS % SET
-price_variation_tolerance = 0.01  # 0.01=1%
+price_variation_tolerance = 0.02  # 0.01=1%
 
 # sell_price_offset = % upscale applied to xb sell price based on ccxt ticker
 sell_price_offset = 0.05
