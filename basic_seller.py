@@ -28,46 +28,80 @@ def update_ccxt_prices(tokens_dict, ccxt_i):
     import definitions.ccxt_def as ccxt_def
     global ccxt_price_timer
     if ccxt_price_timer is None or time.time() - ccxt_price_timer > ccxt_price_refresh:
-        keys = list(tokens_dict.keys())
-        for x, token in enumerate(keys):
-            if token == 'BTC':
-                keys[x] = token + '/USDT'
-            else:
-                keys[x] = token + '/BTC'
+        keys = [f"{token}/USDT" if token == 'BTC' else f"{token}/BTC" for token in tokens_dict.keys() if
+                token != 'BLOCK']
         keys.insert(0, keys.pop(keys.index('BTC/USDT')))
         done = False
         while not done:
             try:
                 tickers = ccxt_def.ccxt_call_fetch_tickers(ccxt_i, keys)
-                if ccxt_i.id == "binance":
-                    lastprice_string = "lastPrice"
-                elif ccxt_i.id == "bittrex":
-                    lastprice_string = "lastTradeRate"
-                for token in tokens_dict:
-                    if tokens_dict[token].symbol == 'BTC':
-                        symbol = tokens_dict[token].symbol + '/USDT'
-                        if tickers and symbol in tickers:
-                            tokens_dict[token].usd_price = float(tickers[symbol]['info'][lastprice_string])
-                            tokens_dict[token].ccxt_price = 1
-                            done = True
-                        else:
-                            print("update_ccxt_prices, missing symbol in tickers:", [symbol], tickers)
-                            tokens_dict[token].usd_price = None
-                            tokens_dict[token].ccxt_price = None
+                lastprice_string = "lastPrice" if ccxt_i.id == "binance" else "lastTradeRate"
+                for token in [token for token in tokens_dict if token != 'BLOCK']:
+                    symbol = f"{tokens_dict[token].symbol}/USDT" if (tokens_dict[token].symbol == 'BTC') \
+                        else f"{tokens_dict[token].symbol}/BTC"
+                    if tickers and symbol in tickers:
+                        ccxt_price = float(tickers[symbol]['info'][lastprice_string])
+                        tokens_dict[token].ccxt_price = ccxt_price if tokens_dict[token].symbol != 'BTC' else 1
+                        tokens_dict[token].usd_price = ccxt_price * tokens_dict['BTC'].usd_price if tokens_dict[
+                                                                                                        token].symbol != 'BTC' else ccxt_price
                     else:
-                        symbol = tokens_dict[token].symbol + '/BTC'
-                        if tickers and symbol in tickers:
-                            tokens_dict[token].ccxt_price = float(tickers[symbol]['info'][lastprice_string])
-                            tokens_dict[token].usd_price = float(
-                                tokens_dict[token].ccxt_price * tokens_dict['BTC'].usd_price)
-                            done = True
-                        else:
-                            print("update_ccxt_prices, missing symbol in tickers:", [symbol], tickers)
-                            tokens_dict[token].ccxt_price = None
-                            tokens_dict[token].usd_price = None
+                        print("update_ccxt_prices, missing symbol in tickers:", [symbol], tickers)
+                        tokens_dict[token].ccxt_price = None
+                        tokens_dict[token].usd_price = None
+                done = True
             except Exception as e:
                 print("general.update_ccxt_prices error:", type(e), str(e))
+
+        if "BLOCK" in tokens_dict.keys():
+            tokens_dict["BLOCK"].update_ccxt_price()
         ccxt_price_timer = time.time()
+
+
+# def update_ccxt_prices(tokens_dict, ccxt_i):
+#     ccxt_price_refresh = 2
+#     import definitions.ccxt_def as ccxt_def
+#     global ccxt_price_timer
+#     if ccxt_price_timer is None or time.time() - ccxt_price_timer > ccxt_price_refresh:
+#         keys = list(tokens_dict.keys())
+#         for x, token in enumerate(keys):
+#             if token == 'BTC':
+#                 keys[x] = token + '/USDT'
+#             else:
+#                 keys[x] = token + '/BTC'
+#         keys.insert(0, keys.pop(keys.index('BTC/USDT')))
+#         done = False
+#         while not done:
+#             try:
+#                 tickers = ccxt_def.ccxt_call_fetch_tickers(ccxt_i, keys)
+#                 if ccxt_i.id == "binance":
+#                     lastprice_string = "lastPrice"
+#                 elif ccxt_i.id == "bittrex":
+#                     lastprice_string = "lastTradeRate"
+#                 for token in tokens_dict:
+#                     if tokens_dict[token].symbol == 'BTC':
+#                         symbol = tokens_dict[token].symbol + '/USDT'
+#                         if tickers and symbol in tickers:
+#                             tokens_dict[token].usd_price = float(tickers[symbol]['info'][lastprice_string])
+#                             tokens_dict[token].ccxt_price = 1
+#                             done = True
+#                         else:
+#                             print("update_ccxt_prices, missing symbol in tickers:", [symbol], tickers)
+#                             tokens_dict[token].usd_price = None
+#                             tokens_dict[token].ccxt_price = None
+#                     else:
+#                         symbol = tokens_dict[token].symbol + '/BTC'
+#                         if tickers and symbol in tickers:
+#                             tokens_dict[token].ccxt_price = float(tickers[symbol]['info'][lastprice_string])
+#                             tokens_dict[token].usd_price = float(
+#                                 tokens_dict[token].ccxt_price * tokens_dict['BTC'].usd_price)
+#                             done = True
+#                         else:
+#                             print("update_ccxt_prices, missing symbol in tickers:", [symbol], tickers)
+#                             tokens_dict[token].ccxt_price = None
+#                             tokens_dict[token].usd_price = None
+#             except Exception as e:
+#                 print("general.update_ccxt_prices error:", type(e), str(e))
+#         ccxt_price_timer = time.time()
 
 
 def main_dx_update_bals(tokens_dict):

@@ -137,9 +137,10 @@ class Token:
 
             if result:
                 self.ccxt_price = 1 if self.symbol == "BTC" else result
-                self.usd_price = result * init.t['BTC'].usd_price if self.symbol != "BTC" else result
+                self.usd_price = result if self.symbol == "BTC" else result * init.t['BTC'].usd_price
                 self.ccxt_price_timer = time.time()
-                general_log.info(f"new pricing {self.symbol} {self.ccxt_price} {self.usd_price} ")
+                general_log.debug(
+                    f"new pricing {self.symbol} {self.ccxt_price} {self.usd_price} USD PRICE {init.t['BTC'].usd_price}")
         elif display:
             print('Token.update_ccxt_price()', 'too fast call?', self.symbol)
 
