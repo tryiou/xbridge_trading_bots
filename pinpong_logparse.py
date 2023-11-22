@@ -152,7 +152,7 @@ def display_results(completed_pingpong, inprogress_pingpong, profit_pingpong):
 
     # Print the tabulated data
     print(tabulate(inprogress_table_data,
-                   headers=["Symbol", "Timestamp", "Side""Size T1", "Token1", "R_Side", "Size T2",
+                   headers=["Symbol", "Timestamp", "Side", "Size T1", "Token1", "R_Side", "Size T2",
                             "Token2"],
                    tablefmt="pretty"))
 
