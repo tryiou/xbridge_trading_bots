@@ -434,10 +434,12 @@ class Pair:
                     if not dry_mode:
                         self.dex_order = xb.makeorder(maker, maker_size, maker_address, taker, taker_size,
                                                       taker_address)
-                        if self.dex_order and "error" in self.dex_order:
-                            general_log.error(f"Error making order on Pair {self.symbol}")
-                            # self.dex_order = None
-                            self.disabled = True
+                        if self.dex_order and 'error' in self.dex_order:
+                            if 'code' in self.dex_order and self.dex_order['code'] != 1019:
+                                # {'error': 'Insufficient funds for XXX', 'code': 1019, 'name': 'dxMakeOrder'}
+                                # can happens when bot try to post lot of orders / or other bots interfering.
+                                self.disabled = True
+                            general_log.error(f"Error making order on Pair {self.symbol}, disabled : {self.disabled}")
                     else:
                         msg = f"xb.makeorder({maker}, {maker_size}, {maker_address}, {taker}, {taker_size}, {taker_address})"
                         general_log.info(f"dex_create_order, Dry mode enabled. {msg}")
