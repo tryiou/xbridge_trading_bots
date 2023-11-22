@@ -5,7 +5,7 @@ import definitions.bcolors as bcolors
 import definitions.ccxt_def as ccxt_def
 import time
 
-refresh_interval = 10
+refresh_interval = 15
 
 
 class CCXTServer:
