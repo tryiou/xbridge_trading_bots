@@ -1,9 +1,9 @@
-import time
-from jsonrpclib.SimpleJSONRPCServer import SimpleJSONRPCServer
-
+import asyncio
+from aiohttp import web
 import config.ccxt_cfg as ccxt_cfg
 import definitions.bcolors as bcolors
 import definitions.ccxt_def as ccxt_def
+import time
 
 
 class CCXTServer:
@@ -19,14 +19,14 @@ class CCXTServer:
         self.ccxt_i = ccxt_def.init_ccxt_instance(ccxt_cfg.ccxt_exchange, ccxt_cfg.ccxt_hostname)
         self.inprogress = False
 
-    def ccxt_call_fetch_tickers(self, *args):
+    async def ccxt_call_fetch_tickers(self, *args):
         refresh_delay = 5
         for symbol in args:
             if symbol not in self.symbols_list:
                 self.symbols_list.append(symbol)
         trigger = False
-        while self.inprogress == True:
-            time.sleep(0.1)
+        while self.inprogress:
+            await asyncio.sleep(0.1)
         for symbol in self.symbols_list:
             if symbol not in self.tickers:
                 trigger = True
@@ -51,13 +51,18 @@ class CCXTServer:
         print(f"{bcolors.mycolor.OKGREEN}{msg}{bcolors.mycolor.ENDC}")
 
 
-def main():
-    server = SimpleJSONRPCServer(('localhost', 2233))
+async def handle(request):
+    try:
+        data = await request.json()
+        response = await ccxt_server.ccxt_call_fetch_tickers(*data['params'])
+        return web.json_response({"jsonrpc": "2.0", "result": response, "id": data.get("id")})
+    except Exception as e:
+        error_response = {"jsonrpc": "2.0", "error": {"code": 500, "message": str(e)}, "id": None}
+        return web.json_response(error_response, status=500)
+
+
+if __name__ == "__main__":
     ccxt_server = CCXTServer()
-    server.register_function(ccxt_server.ccxt_call_fetch_tickers)
-    print("Start server")
-    server.serve_forever()
-
-
-if __name__ == '__main__':
-    main()
+    app = web.Application()
+    app.router.add_post("/", handle)
+    web.run_app(app, host="localhost", port=2233)
