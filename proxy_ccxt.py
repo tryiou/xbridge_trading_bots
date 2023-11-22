@@ -5,6 +5,8 @@ import definitions.bcolors as bcolors
 import definitions.ccxt_def as ccxt_def
 import time
 
+refresh_interval = 20
+
 
 class CCXTServer:
     def __init__(self):
@@ -17,6 +19,23 @@ class CCXTServer:
         self.total_exec_time = time.time()
         self.ccxt_call_fetch_tickers_timer = time.time()
         self.ccxt_i = ccxt_def.init_ccxt_instance(ccxt_cfg.ccxt_exchange, ccxt_cfg.ccxt_hostname)
+        self.task = None  # Initialize task to None
+
+    async def run_periodically(self, interval):
+        while True:
+            await asyncio.sleep(interval)
+            await self.refresh_tickers()
+
+    async def init_task(self):
+        self.task = asyncio.create_task(self.run_periodically(refresh_interval))
+
+    async def refresh_tickers(self):
+        print(f"symbols_list: {self.symbols_list}")
+        if self.symbols_list:
+            self.ccxt_call_count += 1
+            temp_tickers = ccxt_def.ccxt_call_fetch_tickers(self.ccxt_i, self.symbols_list, proxy=False)
+            self.tickers = temp_tickers
+            self.print_metrics()
 
     async def ccxt_call_fetch_tickers(self, *args):
         refresh_delay = 10
@@ -27,14 +46,8 @@ class CCXTServer:
         for symbol in self.symbols_list:
             if symbol not in self.tickers:
                 trigger = True
-        if time.time() - self.ccxt_call_fetch_tickers_timer > refresh_delay:
-            trigger = True
         if trigger:
-            self.ccxt_call_count += 1
-            temp_tickers = ccxt_def.ccxt_call_fetch_tickers(self.ccxt_i, self.symbols_list, proxy=False)
-            self.tickers = temp_tickers
-            self.ccxt_call_fetch_tickers_timer = time.time()
-            self.print_metrics()
+            await self.refresh_tickers()  # Await the refresh_tickers method
         else:
             self.ccxt_cache_hit += 1
         return self.tickers
@@ -56,8 +69,26 @@ async def handle(request):
         return web.json_response(error_response, status=500)
 
 
+async def init():
+    global ccxt_server
+    ccxt_server = CCXTServer()
+    await ccxt_server.init_task()
+
+
 if __name__ == "__main__":
     ccxt_server = CCXTServer()
-    app = web.Application()
-    app.router.add_post("/", handle)
-    web.run_app(app, host="localhost", port=2233)
+
+    async def main():
+        await ccxt_server.init_task()
+
+        app = web.Application()
+        app.router.add_post("/", handle)
+        web_task = web._run_app(app, host="localhost", port=2233)  # Use web._run_app instead of web.run_app
+
+        try:
+            await asyncio.gather(ccxt_server.task, web_task)
+        except KeyboardInterrupt:
+            pass
+
+    asyncio.run(main())
+
