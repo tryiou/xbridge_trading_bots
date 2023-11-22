@@ -130,10 +130,12 @@ def ccxt_call_fetch_tickers(ccxt_o, symbols_list, proxy=True):
     result = None
     while not result:
         try:
+            used_proxy = False
             if isportopen("127.0.0.1", 2233) and proxy:  # CCXT PROXY
                 # print('aaa',tuple(symbols_list))
                 result = rpc_call("ccxt_call_fetch_tickers", tuple(symbols_list), rpc_port=2233,
                                   debug=config.debug_level, display=False)
+                used_proxy = True
             else:
                 result = ccxt_o.fetchTickers(symbols_list)
         except Exception as error:
@@ -141,7 +143,7 @@ def ccxt_call_fetch_tickers(ccxt_o, symbols_list, proxy=True):
             ccxt_manage_error(error, err_count)
         else:
             stop = time.time()
-            debug_display('ccxt_call_fetch_tickers', str(symbols_list) + ' proxy:' + str(proxy), result,
+            debug_display('ccxt_call_fetch_tickers', str(symbols_list) + ' used_proxy? ' + str(used_proxy), result,
                           timer=stop - start)
             return result
 
