@@ -20,7 +20,7 @@ class CCXTServer:
         self.inprogress = False
 
     async def ccxt_call_fetch_tickers(self, *args):
-        refresh_delay = 5
+        refresh_delay = 10
         for symbol in args:
             if symbol not in self.symbols_list:
                 self.symbols_list.append(symbol)
