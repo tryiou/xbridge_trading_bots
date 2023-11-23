@@ -101,10 +101,7 @@ class Token:
 
             cex_symbol = "BTC/USD" if self.symbol == "BTC" else f"{self.symbol}/BTC"
 
-            if init.my_ccxt.id == "binance":
-                lastprice_string = "lastPrice"
-            elif init.my_ccxt.id == "bittrex":
-                lastprice_string = "lastTradeRate"
+            lastprice_string = "lastPrice" if init.my_ccxt.id == "binance" else "lastTradeRate"
 
             if cex_symbol in init.my_ccxt.symbols:
                 while not done:
@@ -126,11 +123,11 @@ class Token:
                             json = ticker.json()
                             result = json['Bid'] + ((json['Ask'] - json['Bid']) / 2)
                     except Exception as e:
-                        general_log.error(f"update_ccxt_price: error({count}): {type(e).__name__}: {e}")
+                        general_log.error(f"update_ccxt_price: BLOCK error({count}): {type(e).__name__}: {e}")
                         time.sleep(count)
                     else:
                         done = True
-                        general_log.info(f"Updating BLOCK/BTC ticker: {result}")
+                        general_log.info(f"Updated BLOCK ticker: {result} BTC")
             else:
                 general_log.info(f"{cex_symbol} not in cex {str(init.my_ccxt)}")
                 self.usd_price = None
@@ -435,9 +432,14 @@ class Pair:
                         self.dex_order = xb.makeorder(maker, maker_size, maker_address, taker, taker_size,
                                                       taker_address)
                         if self.dex_order and 'error' in self.dex_order:
-                            if 'code' in self.dex_order and self.dex_order['code'] != 1019:
+                            if 'code' in self.dex_order and self.dex_order['code'] not in {1019, 1018, 1026}:
                                 # {'error': 'Insufficient funds for XXX', 'code': 1019, 'name': 'dxMakeOrder'}
                                 # can happens when bot try to post lot of orders / or other bots interfering.
+                                # {'error': 'No session for currency Unable to connect to wallet: XXX',
+                                # 'code': 1018, 'name': 'dxMakeOrder'}
+                                # can happens if coin doesn't respond for a while
+                                # {'error': 'Bad address XXX', 'code': 1026, 'name': 'dxMakeOrder'}
+                                # wallet still locked ?
                                 self.disabled = True
                             general_log.error(f"Error making order on Pair {self.symbol}, disabled : {self.disabled}")
                     else:
