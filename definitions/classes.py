@@ -309,58 +309,41 @@ class Pair:
 
     def check_price_in_range(self, display=False):
         self.variation = None
-
-        # Debug log: Log entering the function
         general_log.debug("Entering check_price_in_range_ancient")
 
-        # Set the default tolerance
         if self.strategy == 'pingpong':
             price_variation_tolerance = config_pp.price_variation_tolerance
         elif self.strategy == 'basic_seller':
             price_variation_tolerance = 0.01
             # TODO: ADD PARAMETERS INPUT for 'basic_seller' if needed
 
-        # Debug log: Log the strategy and price_variation_tolerance
         general_log.debug(f"Strategy: {self.strategy}, Price Variation Tolerance: {price_variation_tolerance}")
 
         if 'side' in self.current_order and self.current_order['manual_dex_price'] is True:
-            # Debug log: Log manual_dex_price is True and 'side' is present
             general_log.debug("Manual DEX price is True and 'side' is present")
-
-            # Calculate var based on the side
             if self.current_order['side'] == 'BUY' and self.price < self.order_history['org_pprice']:
                 var = float(self.price / self.current_order['org_pprice'])
-                # Debug log: Log that var is calculated based on 'BUY' side
             elif self.current_order['side'] == 'SELL' and self.price > self.order_history['org_pprice']:
                 var = float(self.price / self.current_order['org_pprice'])
-                # Debug log: Log that var is calculated based on 'SELL' side
             else:
                 var = 1
-                # Debug log: Log that var is set to 1
                 general_log.debug("Var set to 1")
             general_log.debug(f"Var calculated based on '{self.current_order['side']}' side {var}")
         else:
-            # Debug log: Log manual_dex_price is False or 'side' is not present
             general_log.debug("Manual DEX price is False or 'side' is not present")
-
             # Calculate var based on strategy and conditions
             if self.strategy == 'basic_seller' and self.t1.usd_price < self.min_sell_price_usd:
                 var = (self.min_sell_price_usd / self.t2.usd_price) / self.current_order['org_pprice']
-                # Debug log: Log that var is calculated based on 'basic_seller' strategy and condition
                 general_log.debug("Var calculated based on 'basic_seller' strategy and condition")
             else:
                 var = float(self.price / self.current_order['org_pprice'])
-                # Debug log: Log that var is calculated based on default strategy
                 general_log.debug("Var calculated based on default strategy")
 
-        # Debug log: Log the calculated var
         general_log.debug(f"Calculated Var: {var}")
         if isinstance(var, float):
             self.variation = float("{:.3f}".format(var))
         else:
             self.variation = [float("{:.3f}".format(self.price / self.current_order['org_pprice']))]
-        # Debug log: Log the variation
-        general_log.debug(f"Variation: {self.variation}")
 
         if display:
             general_log.info("%s_%s %s %s %s" % (
@@ -371,11 +354,9 @@ class Pair:
 
         # Check if the price is in range
         if 1 - price_variation_tolerance < var < 1 + price_variation_tolerance:
-            # Debug log: Log that the price is in range
             general_log.debug("Price in range")
             return True
         else:
-            # Debug log: Log that the price is not in range
             general_log.debug("Price not in range")
             return False
 
@@ -529,52 +510,52 @@ class Pair:
     def status_check(self, disabled_coins=None, display=False):
         self.update_pricing()
         status = None
+
         if self.disabled:
             general_log.info(f"Pair {self.symbol} Disabled, error: {self.dex_order}")
-        # if self.disabled and not (
-        #         disabled_coins and (self.t1.symbol in disabled_coins or self.t2.symbol in disabled_coins)):
-        #     self.disabled = False
 
         if self.dex_order and 'id' in self.dex_order:
             status = self.dex_check_order_status()
-        else:
-            if not self.disabled:
-                # general_log.error(f"Order Missing: {self.dex_order}, {self.current_order}")
-                self.init_virtual_order(disabled_coins)  # Renamed from create_virtual_order
-                if self.dex_order and "id" in self.dex_order:
-                    status = self.dex_check_order_status()
+        elif not self.disabled:
+            self.init_virtual_order(disabled_coins)
+            if self.dex_order and "id" in self.dex_order:
+                status = self.dex_check_order_status()
 
-        if status == STATUS_OPEN:
-            if disabled_coins and (self.t1.symbol in disabled_coins or self.t2.symbol in disabled_coins):
-                if self.dex_order:
-                    general_log.info(f'Disabled pairs due to cc_height_check {self.symbol}, {disabled_coins}')
-                    general_log.info(f"status_check, dex cancel {self.dex_order['id']}")
-                    self.dex_cancel_myorder()
-            else:
-                self.check_price_variation(disabled_coins, display=display)
-        elif status == STATUS_FINISHED:
-            self.dex_order_finished(disabled_coins)
-        elif status == STATUS_OTHERS:
-            self.check_price_in_range(display=display)
-        elif status == STATUS_ERROR_SWAP:
-            general_log.error('Order Error:\n' + str(self.current_order))
-            general_log.error(self.dex_order)
-            if self.strategy == 'pingpong':
-                xb.cancelallorders()
-                exit()
-        elif status == STATUS_CANCELLED_WITHOUT_CALL:
-            if self.dex_order and 'id' in self.dex_order:
-                order_id = self.dex_order['id']
-            else:
-                order_id = None
-            general_log.error(f'Order Error: {order_id} CANCELLED WITHOUT CALL')
-            general_log.error(self.dex_order)
-            self.dex_order = None
+        status_handlers = {
+            STATUS_OPEN: lambda: self.handle_status_open(disabled_coins, display),
+            STATUS_FINISHED: lambda: self.dex_order_finished(disabled_coins),
+            STATUS_OTHERS: lambda: self.check_price_in_range(display=display),
+            STATUS_ERROR_SWAP: self.handle_status_error_swap,
+        }
+
+        status_handlers.get(status, self.handle_status_default)()
+
+    def handle_status_open(self, disabled_coins, display):
+        if disabled_coins and (self.t1.symbol in disabled_coins or self.t2.symbol in disabled_coins):
+            if self.dex_order:
+                general_log.info(f'Disabled pairs due to cc_height_check {self.symbol}, {disabled_coins}')
+                general_log.info(f"status_check, dex cancel {self.dex_order['id']}")
+                self.dex_cancel_myorder()
         else:
-            if not self.disabled:
-                general_log.error(
-                    f"status_check, no valid status: {self.symbol}, {self.dex_order}")
-                self.dex_create_order()
+            self.check_price_variation(disabled_coins, display=display)
+
+    def handle_status_error_swap(self):
+        general_log.error('Order Error:\n' + str(self.current_order))
+        general_log.error(self.dex_order)
+        if self.strategy == 'pingpong':
+            xb.cancelallorders()
+            exit()
+
+    def handle_status_cancelled_without_call(self):
+        order_id = self.dex_order['id'] if self.dex_order and 'id' in self.dex_order else None
+        general_log.error(f'Order Error: {order_id} CANCELLED WITHOUT CALL')
+        general_log.error(self.dex_order)
+        self.dex_order = None
+
+    def handle_status_default(self):
+        if not self.disabled:
+            general_log.error(f"status_check, no valid status: {self.symbol}, {self.dex_order}")
+            self.dex_create_order()
 
     def dex_order_finished(self, disabled_coins):
         msg = f"order FINISHED: {self.dex_order['id']}"
