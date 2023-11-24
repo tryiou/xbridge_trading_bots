@@ -441,7 +441,8 @@ class Pair:
                                 # {'error': 'Bad address XXX', 'code': 1026, 'name': 'dxMakeOrder'}
                                 # wallet still locked ?
                                 self.disabled = True
-                            general_log.error(f"Error making order on Pair {self.symbol}, disabled : {self.disabled}")
+                            general_log.error(
+                                f"Error making order on Pair {self.symbol}, disabled : {self.disabled}, {self.dex_order}")
                     else:
                         msg = f"xb.makeorder({maker}, {maker_size}, {maker_address}, {taker}, {taker_size}, {taker_address})"
                         general_log.info(f"dex_create_order, Dry mode enabled. {msg}")
