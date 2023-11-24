@@ -442,7 +442,7 @@ class Pair:
                                 # wallet still locked ?
                                 self.disabled = True
                             general_log.error(
-                                f"Error making order on Pair {self.symbol}, disabled : {self.disabled}, {self.dex_order}")
+                                f"Error making order on Pair {self.symbol}, disabled: {self.disabled}, {self.dex_order}")
                     else:
                         msg = f"xb.makeorder({maker}, {maker_size}, {maker_address}, {taker}, {taker_size}, {taker_address})"
                         general_log.info(f"dex_create_order, Dry mode enabled. {msg}")
@@ -573,7 +573,7 @@ class Pair:
         else:
             if not self.disabled:
                 general_log.error(
-                    f"status_check, no valid status: {self.symbol}, {self.current_order}, {self.dex_order}")
+                    f"status_check, no valid status: {self.symbol}, {self.dex_order}")
                 self.dex_create_order()
 
     def dex_order_finished(self, disabled_coins):
