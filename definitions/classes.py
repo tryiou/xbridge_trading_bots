@@ -413,7 +413,7 @@ class Pair:
                         self.dex_order = xb.makeorder(maker, maker_size, maker_address, taker, taker_size,
                                                       taker_address)
                         if self.dex_order and 'error' in self.dex_order:
-                            if 'code' in self.dex_order and self.dex_order['code'] not in {1019, 1018, 1026}:
+                            if 'code' in self.dex_order and self.dex_order['code'] not in {1019, 1018, 1026, 1032}:
                                 # {'error': 'Insufficient funds for XXX', 'code': 1019, 'name': 'dxMakeOrder'}
                                 # can happens when bot try to post lot of orders / or other bots interfering.
                                 # {'error': 'No session for currency Unable to connect to wallet: XXX',
@@ -421,6 +421,8 @@ class Pair:
                                 # can happens if coin doesn't respond for a while
                                 # {'error': 'Bad address XXX', 'code': 1026, 'name': 'dxMakeOrder'}
                                 # wallet still locked ?
+                                # {'error': 'Could not find a service node with required services: ', 'code': 1032, 'name': 'dxMakeOrder'}
+                                # wallet is still connecting ?
                                 self.disabled = True
                             general_log.error(
                                 f"Error making order on Pair {self.symbol}, disabled: {self.disabled}, {self.dex_order}")
