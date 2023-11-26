@@ -38,7 +38,6 @@ class CCXTServer:
             self.print_metrics()
 
     async def ccxt_call_fetch_tickers(self, *args):
-        refresh_delay = 10
         for symbol in args:
             if symbol not in self.symbols_list:
                 self.symbols_list.append(symbol)
@@ -58,37 +57,29 @@ class CCXTServer:
         msg = f"exec_sec: {round(exec_sec, 2)} ccxt_cps: {round(ccxt_cps, 2)} ccxt_call_count: {self.ccxt_call_count} ccxt_cache_hit: {self.ccxt_cache_hit}"
         print(f"{bcolors.mycolor.OKGREEN}{msg}{bcolors.mycolor.ENDC}")
 
-
-async def handle(request):
-    try:
-        data = await request.json()
-        response = await ccxt_server.ccxt_call_fetch_tickers(*data['params'])
-        return web.json_response({"jsonrpc": "2.0", "result": response, "id": data.get("id")})
-    except Exception as e:
-        error_response = {"jsonrpc": "2.0", "error": {"code": 500, "message": str(e)}, "id": None}
-        return web.json_response(error_response, status=500)
-
-
-async def init():
-    global ccxt_server
-    ccxt_server = CCXTServer()
-    await ccxt_server.init_task()
+    async def handle(self, request):
+        try:
+            data = await request.json()
+            response = await self.ccxt_call_fetch_tickers(*data['params'])
+            return web.json_response({"jsonrpc": "2.0", "result": response, "id": data.get("id")})
+        except Exception as e:
+            error_response = {"jsonrpc": "2.0", "error": {"code": 500, "message": str(e)}, "id": None}
+            return web.json_response(error_response, status=500)
 
 
-if __name__ == "__main__":
+def main():
     ccxt_server = CCXTServer()
 
-    async def main():
+    async def async_main():
         await ccxt_server.init_task()
 
         app = web.Application()
-        app.router.add_post("/", handle)
+        app.router.add_post("/", ccxt_server.handle)
         web_task = web._run_app(app, host="localhost", port=2233)  # Use web._run_app instead of web.run_app
+        await asyncio.gather(ccxt_server.task, web_task)
 
-        try:
-            await asyncio.gather(ccxt_server.task, web_task)
-        except KeyboardInterrupt:
-            pass
+    asyncio.run(async_main())
 
-    asyncio.run(main())
 
+if __name__ == "__main__":
+    main()

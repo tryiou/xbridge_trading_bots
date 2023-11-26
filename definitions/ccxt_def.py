@@ -70,7 +70,10 @@ def ccxt_manage_error(error, err_count=1):
     err_type = type(error).__name__
     msg = f"parent: {str(sys._getframe(1).f_code.co_name)},error: {str(type(error))}, {str(error)}, {str(err_type)}"
     # print('parent:', sys._getframe(1).f_code.co_name, type(error), error, err_type)
-    general_log.error(msg)
+    if general_log:
+        general_log.error(msg)
+    else:
+        print(msg)
     if (err_type == "NetworkError" or
         err_type == "DDoSProtection" or
         err_type == "RateLimitExceeded" or
