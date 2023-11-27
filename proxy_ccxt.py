@@ -32,7 +32,7 @@ class CCXTServer:
     async def refresh_tickers(self):
         if self.symbols_list:
             self.ccxt_call_count += 1
-            msg = f"{datetime.now()} refresh_tickers: {self.symbols_list}"
+            msg = f"{now()} refresh_tickers: {self.symbols_list}"
             print(f"{bcolors.mycolor.OKGREEN}{msg}{bcolors.mycolor.OKGREEN}")
             temp_tickers = self.ccxt_i.fetchTickers(self.symbols_list)
             self.tickers = temp_tickers
@@ -55,7 +55,7 @@ class CCXTServer:
     def print_metrics(self):
         exec_sec = time.time() - self.total_exec_time
         ccxt_cps = self.ccxt_call_count / exec_sec
-        msg = f"{datetime.now()} exec_sec: {round(exec_sec, 2)} ccxt_cps: {round(ccxt_cps, 2)} ccxt_call_count: {self.ccxt_call_count} ccxt_cache_hit: {self.ccxt_cache_hit}"
+        msg = f"{now()} exec_sec: {round(exec_sec, 2)} ccxt_cps: {round(ccxt_cps, 2)} ccxt_call_count: {self.ccxt_call_count} ccxt_cache_hit: {self.ccxt_cache_hit}"
         print(f"{bcolors.mycolor.OKGREEN}{msg}{bcolors.mycolor.ENDC}")
 
     async def handle(self, request):
@@ -66,6 +66,12 @@ class CCXTServer:
         except Exception as e:
             error_response = {"jsonrpc": "2.0", "error": {"code": 500, "message": str(e)}, "id": None}
             return web.json_response(error_response, status=500)
+
+
+def now():
+    current_time = datetime.now()
+    formatted_time = current_time.strftime("%Y-%m-%d %H:%M:%S")
+    return formatted_time
 
 
 def main():
@@ -109,7 +115,7 @@ def init_ccxt_instance(exchange, hostname=None, private_api=False):
             try:
                 instance.load_markets()
             except Exception as e:
-                msg = f"{datetime.now()} proxy_ccxt_rpc_call init_ccxt_instance error: {e} {type(e)} "
+                msg = f"{now()} proxy_ccxt_rpc_call init_ccxt_instance error: {e} {type(e)} "
                 print(f"{bcolors.mycolor.WARNING}{msg}{bcolors.mycolor.WARNING}")
             else:
                 done = True
