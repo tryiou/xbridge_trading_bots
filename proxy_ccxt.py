@@ -30,13 +30,21 @@ class CCXTServer:
         self.task = asyncio.create_task(self.run_periodically(refresh_interval))
 
     async def refresh_tickers(self):
-        if self.symbols_list:
-            self.ccxt_call_count += 1
-            msg = f"{now()} refresh_tickers: {self.symbols_list}"
-            print(f"{bcolors.mycolor.OKGREEN}{msg}{bcolors.mycolor.OKGREEN}")
-            temp_tickers = self.ccxt_i.fetchTickers(self.symbols_list)
-            self.tickers = temp_tickers
-            self.print_metrics()
+        done = False
+        while not done:
+            try:
+                if self.symbols_list:
+                    self.ccxt_call_count += 1
+                    msg = f"{now()} refresh_tickers: {self.symbols_list}"
+                    print(f"{bcolors.mycolor.OKGREEN}{msg}{bcolors.mycolor.OKGREEN}")
+                    temp_tickers = self.ccxt_i.fetchTickers(self.symbols_list)
+                    self.tickers = temp_tickers
+                    self.print_metrics()
+            except Exception as e:
+                msg = f"{now()} refresh_tickers error: {e} {type(e)}"
+                print(f"{bcolors.mycolor.FAIL}{msg}{bcolors.mycolor.FAIL}")
+            else:
+                done = True
 
     async def ccxt_call_fetch_tickers(self, *args):
         for symbol in args:
