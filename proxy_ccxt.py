@@ -31,15 +31,8 @@ class CCXTServer:
     async def refresh_tickers(self):
         print(f"symbols_list: {self.symbols_list}")
         if self.symbols_list:
-            print('a')
             self.ccxt_call_count += 1
-
             temp_tickers = self.ccxt_i.fetchTickers(self.symbols_list)
-            # rpc_call(method="ccxt_call_fetch_tickers", params=tuple(self.symbols_list), rpc_port=2233))
-
-            # result = rpc_call("ccxt_call_fetch_tickers", tuple(symbols_list), rpc_port=2233,
-            #                   debug=config.debug_level, display=False)
-            # temp_tickers = ccxt_def.ccxt_call_fetch_tickers(self.ccxt_i, self.symbols_list, proxy=False)
             self.tickers = temp_tickers
             self.print_metrics()
 
@@ -90,7 +83,6 @@ def main():
 def init_ccxt_instance(exchange, hostname=None, private_api=False):
     # CCXT instance
     import ccxt
-    import json
     api_key = None
     api_secret = None
     if exchange in ccxt.exchanges:
@@ -115,7 +107,7 @@ def init_ccxt_instance(exchange, hostname=None, private_api=False):
             try:
                 instance.load_markets()
             except Exception as e:
-                msg = f"proxy_ccxt_rpc_call init_ccxt_instance: {e} {type(e)} "
+                msg = f"proxy_ccxt_rpc_call init_ccxt_instance error: {e} {type(e)} "
                 print(f"{bcolors.mycolor.WARNING}{msg}{bcolors.mycolor.WARNING}")
             else:
                 done = True
