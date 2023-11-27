@@ -29,7 +29,6 @@ class CCXTServer:
         self.task = asyncio.create_task(self.run_periodically(refresh_interval))
 
     async def refresh_tickers(self):
-        print(f"symbols_list: {self.symbols_list}")
         if self.symbols_list:
             self.ccxt_call_count += 1
             temp_tickers = self.ccxt_i.fetchTickers(self.symbols_list)
@@ -53,6 +52,8 @@ class CCXTServer:
     def print_metrics(self):
         exec_sec = time.time() - self.total_exec_time
         ccxt_cps = self.ccxt_call_count / exec_sec
+        msg = f"refresh_tickers: {self.symbols_list} ok"
+        print(f"{bcolors.mycolor.OKGREEN}{msg}{bcolors.mycolor.OKGREEN}")
         msg = f"exec_sec: {round(exec_sec, 2)} ccxt_cps: {round(ccxt_cps, 2)} ccxt_call_count: {self.ccxt_call_count} ccxt_cache_hit: {self.ccxt_cache_hit}"
         print(f"{bcolors.mycolor.OKGREEN}{msg}{bcolors.mycolor.ENDC}")
 
