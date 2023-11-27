@@ -2,7 +2,6 @@ import asyncio
 from aiohttp import web
 import config.ccxt_cfg as ccxt_cfg
 import definitions.bcolors as bcolors
-import definitions.ccxt_def as ccxt_def
 import time
 
 refresh_interval = 15
@@ -18,7 +17,7 @@ class CCXTServer:
         self.print_timer = None
         self.total_exec_time = time.time()
         self.ccxt_call_fetch_tickers_timer = time.time()
-        self.ccxt_i = ccxt_def.init_ccxt_instance(ccxt_cfg.ccxt_exchange, ccxt_cfg.ccxt_hostname)
+        self.ccxt_i = init_ccxt_instance(ccxt_cfg.ccxt_exchange, ccxt_cfg.ccxt_hostname)
         self.task = None  # Initialize task to None
 
     async def run_periodically(self, interval):
@@ -32,8 +31,15 @@ class CCXTServer:
     async def refresh_tickers(self):
         print(f"symbols_list: {self.symbols_list}")
         if self.symbols_list:
+            print('a')
             self.ccxt_call_count += 1
-            temp_tickers = ccxt_def.ccxt_call_fetch_tickers(self.ccxt_i, self.symbols_list, proxy=False)
+
+            temp_tickers = self.ccxt_i.fetchTickers(self.symbols_list)
+            # rpc_call(method="ccxt_call_fetch_tickers", params=tuple(self.symbols_list), rpc_port=2233))
+
+            # result = rpc_call("ccxt_call_fetch_tickers", tuple(symbols_list), rpc_port=2233,
+            #                   debug=config.debug_level, display=False)
+            # temp_tickers = ccxt_def.ccxt_call_fetch_tickers(self.ccxt_i, self.symbols_list, proxy=False)
             self.tickers = temp_tickers
             self.print_metrics()
 
@@ -79,6 +85,43 @@ def main():
         await asyncio.gather(ccxt_server.task, web_task)
 
     asyncio.run(async_main())
+
+
+def init_ccxt_instance(exchange, hostname=None, private_api=False):
+    # CCXT instance
+    import ccxt
+    import json
+    api_key = None
+    api_secret = None
+    if exchange in ccxt.exchanges:
+        exchange_class = getattr(ccxt, exchange)
+        if hostname:
+            instance = exchange_class({
+                'apiKey': api_key,
+                'secret': api_secret,
+                'enableRateLimit': True,
+                'rateLimit': 1000,
+                'hostname': hostname,  # 'global.bittrex.com',
+            })
+        else:
+            instance = exchange_class({
+                'apiKey': api_key,
+                'secret': api_secret,
+                'enableRateLimit': True,
+                'rateLimit': 1000,
+            })
+        done = False
+        while not done:
+            try:
+                instance.load_markets()
+            except Exception as e:
+                msg = f"proxy_ccxt_rpc_call init_ccxt_instance: {e} {type(e)} "
+                print(f"{bcolors.mycolor.WARNING}{msg}{bcolors.mycolor.WARNING}")
+            else:
+                done = True
+        return instance
+    else:
+        return None
 
 
 if __name__ == "__main__":
