@@ -126,7 +126,7 @@ class Token:
                         general_log.error(f"update_ccxt_price: BLOCK error({count}): {type(e).__name__}: {e}")
                         time.sleep(count)
                     else:
-                        if isinstance(result, float):
+                        if result and isinstance(result, float):
                             done = True
                             general_log.info(f"Updated BLOCK ticker: {result} BTC")
                         else:
