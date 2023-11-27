@@ -126,8 +126,11 @@ class Token:
                         general_log.error(f"update_ccxt_price: BLOCK error({count}): {type(e).__name__}: {e}")
                         time.sleep(count)
                     else:
-                        done = True
-                        general_log.info(f"Updated BLOCK ticker: {result} BTC")
+                        if result and isinstance(result, float):
+                            done = True
+                            general_log.info(f"Updated BLOCK ticker: {result} BTC")
+                        else:
+                            time.sleep(count)
             else:
                 general_log.info(f"{cex_symbol} not in cex {str(init.my_ccxt)}")
                 self.usd_price = None

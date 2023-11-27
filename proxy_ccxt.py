@@ -2,8 +2,8 @@ import asyncio
 from aiohttp import web
 import config.ccxt_cfg as ccxt_cfg
 import definitions.bcolors as bcolors
-import definitions.ccxt_def as ccxt_def
 import time
+from datetime import datetime
 
 refresh_interval = 15
 
@@ -18,7 +18,7 @@ class CCXTServer:
         self.print_timer = None
         self.total_exec_time = time.time()
         self.ccxt_call_fetch_tickers_timer = time.time()
-        self.ccxt_i = ccxt_def.init_ccxt_instance(ccxt_cfg.ccxt_exchange, ccxt_cfg.ccxt_hostname)
+        self.ccxt_i = init_ccxt_instance(ccxt_cfg.ccxt_exchange, ccxt_cfg.ccxt_hostname)
         self.task = None  # Initialize task to None
 
     async def run_periodically(self, interval):
@@ -30,10 +30,11 @@ class CCXTServer:
         self.task = asyncio.create_task(self.run_periodically(refresh_interval))
 
     async def refresh_tickers(self):
-        print(f"symbols_list: {self.symbols_list}")
         if self.symbols_list:
             self.ccxt_call_count += 1
-            temp_tickers = ccxt_def.ccxt_call_fetch_tickers(self.ccxt_i, self.symbols_list, proxy=False)
+            msg = f"{now()} refresh_tickers: {self.symbols_list}"
+            print(f"{bcolors.mycolor.OKGREEN}{msg}{bcolors.mycolor.OKGREEN}")
+            temp_tickers = self.ccxt_i.fetchTickers(self.symbols_list)
             self.tickers = temp_tickers
             self.print_metrics()
 
@@ -54,7 +55,7 @@ class CCXTServer:
     def print_metrics(self):
         exec_sec = time.time() - self.total_exec_time
         ccxt_cps = self.ccxt_call_count / exec_sec
-        msg = f"exec_sec: {round(exec_sec, 2)} ccxt_cps: {round(ccxt_cps, 2)} ccxt_call_count: {self.ccxt_call_count} ccxt_cache_hit: {self.ccxt_cache_hit}"
+        msg = f"{now()} exec_sec: {round(exec_sec, 2)} ccxt_cps: {round(ccxt_cps, 2)} ccxt_call_count: {self.ccxt_call_count} ccxt_cache_hit: {self.ccxt_cache_hit}"
         print(f"{bcolors.mycolor.OKGREEN}{msg}{bcolors.mycolor.ENDC}")
 
     async def handle(self, request):
@@ -65,6 +66,12 @@ class CCXTServer:
         except Exception as e:
             error_response = {"jsonrpc": "2.0", "error": {"code": 500, "message": str(e)}, "id": None}
             return web.json_response(error_response, status=500)
+
+
+def now():
+    current_time = datetime.now()
+    formatted_time = current_time.strftime("%Y-%m-%d %H:%M:%S")
+    return formatted_time
 
 
 def main():
@@ -79,6 +86,42 @@ def main():
         await asyncio.gather(ccxt_server.task, web_task)
 
     asyncio.run(async_main())
+
+
+def init_ccxt_instance(exchange, hostname=None, private_api=False):
+    # CCXT instance
+    import ccxt
+    api_key = None
+    api_secret = None
+    if exchange in ccxt.exchanges:
+        exchange_class = getattr(ccxt, exchange)
+        if hostname:
+            instance = exchange_class({
+                'apiKey': api_key,
+                'secret': api_secret,
+                'enableRateLimit': True,
+                'rateLimit': 1000,
+                'hostname': hostname,  # 'global.bittrex.com',
+            })
+        else:
+            instance = exchange_class({
+                'apiKey': api_key,
+                'secret': api_secret,
+                'enableRateLimit': True,
+                'rateLimit': 1000,
+            })
+        done = False
+        while not done:
+            try:
+                instance.load_markets()
+            except Exception as e:
+                msg = f"{now()} proxy_ccxt_rpc_call init_ccxt_instance error: {e} {type(e)} "
+                print(f"{bcolors.mycolor.WARNING}{msg}{bcolors.mycolor.WARNING}")
+            else:
+                done = True
+        return instance
+    else:
+        return None
 
 
 if __name__ == "__main__":
