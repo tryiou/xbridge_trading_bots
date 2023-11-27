@@ -129,6 +129,8 @@ class Token:
                         if isinstance(result, float):
                             done = True
                             general_log.info(f"Updated BLOCK ticker: {result} BTC")
+                        else:
+                            time.sleep(count)
             else:
                 general_log.info(f"{cex_symbol} not in cex {str(init.my_ccxt)}")
                 self.usd_price = None
