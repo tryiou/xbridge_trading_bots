@@ -18,7 +18,7 @@ class CCXTServer:
         self.print_timer = None
         self.total_exec_time = time.time()
         self.ccxt_call_fetch_tickers_timer = time.time()
-        self.ccxt_i = init_ccxt_instance(ccxt_cfg.ccxt_exchange, ccxt_cfg.ccxt_hostname)
+        self.ccxt_i = None
         self.task = None  # Initialize task to None
 
     async def run_periodically(self, interval):
@@ -28,6 +28,7 @@ class CCXTServer:
 
     async def init_task(self):
         self.task = asyncio.create_task(self.run_periodically(refresh_interval))
+        self.ccxt_i = await init_ccxt_instance(ccxt_cfg.ccxt_exchange, ccxt_cfg.ccxt_hostname)
 
     async def refresh_tickers(self):
         done = False
@@ -37,7 +38,7 @@ class CCXTServer:
                     self.ccxt_call_count += 1
                     msg = f"{now()} refresh_tickers: {self.symbols_list}"
                     print(f"{bcolors.mycolor.OKGREEN}{msg}{bcolors.mycolor.OKGREEN}")
-                    temp_tickers = self.ccxt_i.fetchTickers(self.symbols_list)
+                    temp_tickers = await self.ccxt_i.fetchTickers(self.symbols_list)
                     self.tickers = temp_tickers
                     self.print_metrics()
             except Exception as e:
@@ -96,9 +97,9 @@ def main():
     asyncio.run(async_main())
 
 
-def init_ccxt_instance(exchange, hostname=None, private_api=False):
+async def init_ccxt_instance(exchange, hostname=None, private_api=False):
     # CCXT instance
-    import ccxt
+    import ccxt.async_support as ccxt
     api_key = None
     api_secret = None
     if exchange in ccxt.exchanges:
@@ -108,7 +109,6 @@ def init_ccxt_instance(exchange, hostname=None, private_api=False):
                 'apiKey': api_key,
                 'secret': api_secret,
                 'enableRateLimit': True,
-                'rateLimit': 1000,
                 'hostname': hostname,  # 'global.bittrex.com',
             })
         else:
@@ -116,12 +116,11 @@ def init_ccxt_instance(exchange, hostname=None, private_api=False):
                 'apiKey': api_key,
                 'secret': api_secret,
                 'enableRateLimit': True,
-                'rateLimit': 1000,
             })
         done = False
         while not done:
             try:
-                instance.load_markets()
+                await instance.load_markets()
             except Exception as e:
                 msg = f"{now()} proxy_ccxt_rpc_call init_ccxt_instance error: {e} {type(e)} "
                 print(f"{bcolors.mycolor.WARNING}{msg}{bcolors.mycolor.WARNING}")
