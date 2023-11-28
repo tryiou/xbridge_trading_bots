@@ -32,7 +32,9 @@ class CCXTServer:
 
     async def refresh_tickers(self):
         done = False
+        counter = 0
         while not done:
+            counter += 1
             try:
                 if self.symbols_list:
                     self.ccxt_call_count += 1
@@ -44,6 +46,7 @@ class CCXTServer:
             except Exception as e:
                 msg = f"{now()} refresh_tickers error: {e} {type(e)}"
                 print(f"{bcolors.mycolor.FAIL}{msg}{bcolors.mycolor.FAIL}")
+                time.sleep(counter)
             else:
                 done = True
 
