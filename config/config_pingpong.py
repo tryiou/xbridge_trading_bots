@@ -9,6 +9,7 @@ ttk_theme = "darkly"
 # each line is one active order
 user_pairs = [
     "BLOCK/LTC",
+    "LTC/BLOCK"
     # "LTC/DASH",
     # "DASH/LTC",
     # "BLOCK/DASH"
