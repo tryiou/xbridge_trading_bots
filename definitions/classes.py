@@ -117,6 +117,7 @@ class Token:
             elif self.symbol == "BLOCK":
                 while not done:
                     count += 1
+                    result = None
                     try:
                         ticker = requests.get(url=f"https://market.southxchange.com/api/price/{cex_symbol}")
                         if ticker.status_code == 200:
