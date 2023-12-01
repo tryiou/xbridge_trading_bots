@@ -46,7 +46,6 @@ class CCXTServer:
                     print(f"{bcolors.mycolor.OKGREEN}{msg}{bcolors.mycolor.OKGREEN}")
                     temp_tickers = await self.ccxt_i.fetchTickers(self.symbols_list)
                     self.tickers = temp_tickers
-                    self.print_metrics()
             except Exception as e:
                 msg = f"{now()} refresh_tickers error: {e} {type(e)}"
                 print(f"{bcolors.mycolor.FAIL}{msg}{bcolors.mycolor.FAIL}")
@@ -55,6 +54,7 @@ class CCXTServer:
                 done = True
         if 'BLOCK' in self.custom_ticker:
             await self.update_ticker_block()
+        self.print_metrics()
 
     async def ccxt_call_fetch_tickers(self, *args):
         for symbol in args:
@@ -89,7 +89,7 @@ class CCXTServer:
             else:
                 if result and isinstance(result, float):
                     done = True
-                    msg = f"{now()} Updated BLOCK ticker: {result} BTC, call_count: {self.custom_ticker_call_count}, cache_hit: {self.custom_ticker_cache_count}"
+                    msg = f"{now()} Updated BLOCK ticker: {result} BTC"
                     print(f"{bcolors.mycolor.OKGREEN}{msg}{bcolors.mycolor.ENDC}")
                     self.custom_ticker['BLOCK'] = result
                 else:
@@ -103,7 +103,10 @@ class CCXTServer:
         return self.custom_ticker['BLOCK']
 
     def print_metrics(self):
-        msg = f"{now()} ccxt_call_count: {self.ccxt_call_count} ccxt_cache_hit: {self.ccxt_cache_hit}"
+        if 'BLOCK' in self.custom_ticker:
+            msg = f"{now()} ccxt_call_count: {self.ccxt_call_count} ccxt_cache_hit: {self.ccxt_cache_hit} BLOCK_call_count: {self.custom_ticker_call_count}, BLOCK_cache_hit: {self.custom_ticker_cache_count}"
+        else:
+            msg = f"{now()} ccxt_call_count: {self.ccxt_call_count} ccxt_cache_hit: {self.ccxt_cache_hit}"
         print(f"{bcolors.mycolor.OKGREEN}{msg}{bcolors.mycolor.ENDC}")
 
     async def handle(self, request):
