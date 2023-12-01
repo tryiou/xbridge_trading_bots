@@ -173,6 +173,7 @@ async def init_ccxt_instance(exchange, hostname=None, private_api=False):
             except Exception as e:
                 msg = f"{now()} proxy_ccxt_rpc_call init_ccxt_instance error: {e} {type(e)} "
                 print(f"{bcolors.mycolor.WARNING}{msg}{bcolors.mycolor.WARNING}")
+                await asyncio.sleep(5)
             else:
                 done = True
         return instance
