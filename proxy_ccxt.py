@@ -50,7 +50,7 @@ class CCXTServer:
             except Exception as e:
                 msg = f"{now()} refresh_tickers error: {e} {type(e)}"
                 print(f"{bcolors.mycolor.FAIL}{msg}{bcolors.mycolor.FAIL}")
-                asyncio.sleep(counter)
+                await asyncio.sleep(counter)
             else:
                 done = True
         if 'BLOCK' in self.custom_ticker:
@@ -85,7 +85,7 @@ class CCXTServer:
             except Exception as e:
                 msg = f"update_ccxt_price: BLOCK error({count}): {type(e).__name__}: {e}"
                 print(f"{bcolors.mycolor.FAIL}{msg}{bcolors.mycolor.ENDC}")
-                asyncio.sleep(count)
+                await asyncio.sleep(count)
             else:
                 if result and isinstance(result, float):
                     done = True
@@ -93,7 +93,7 @@ class CCXTServer:
                     print(f"{bcolors.mycolor.OKGREEN}{msg}{bcolors.mycolor.ENDC}")
                     self.custom_ticker['BLOCK'] = result
                 else:
-                    asyncio.sleep(count)
+                    await asyncio.sleep(count)
 
     async def fetch_ticker_block(self):
         if 'BLOCK' not in self.custom_ticker:
