@@ -115,23 +115,7 @@ class Token:
                     else:
                         done = True
             elif self.symbol == "BLOCK":
-                while not done:
-                    count += 1
-                    result = None
-                    try:
-                        ticker = requests.get(url=f"https://market.southxchange.com/api/price/{cex_symbol}")
-                        if ticker.status_code == 200:
-                            json = ticker.json()
-                            result = json['Bid'] + ((json['Ask'] - json['Bid']) / 2)
-                    except Exception as e:
-                        general_log.error(f"update_ccxt_price: BLOCK error({count}): {type(e).__name__}: {e}")
-                        time.sleep(count)
-                    else:
-                        if result and isinstance(result, float):
-                            done = True
-                            general_log.info(f"Updated BLOCK ticker: {result} BTC")
-                        else:
-                            time.sleep(count)
+                result = self.update_block_ticker(cex_symbol)
             else:
                 general_log.info(f"{cex_symbol} not in cex {str(init.my_ccxt)}")
                 self.usd_price = None
@@ -145,6 +129,32 @@ class Token:
                     f"new pricing {self.symbol} {self.ccxt_price} {self.usd_price} USD PRICE {init.t['BTC'].usd_price}")
         elif display:
             print('Token.update_ccxt_price()', 'too fast call?', self.symbol)
+
+    def update_block_ticker(self, cex_symbol):
+        count = 0
+        done = False
+        used_proxy = False
+        while not done:
+            count += 1
+            result = None
+            try:
+                if ccxt_def.isportopen("127.0.0.1", 2233):
+                    result = xb.rpc_call("fetch_ticker_block", rpc_port=2233, debug=2, display=False)
+                    used_proxy = True
+                else:
+                    ticker = requests.get(url=f"https://market.southxchange.com/api/price/{cex_symbol}")
+                    if ticker.status_code == 200:
+                        json = ticker.json()
+                        result = json['Bid'] + ((json['Ask'] - json['Bid']) / 2)
+            except Exception as e:
+                general_log.error(f"update_ccxt_price: BLOCK error({count}): {type(e).__name__}: {e}")
+                time.sleep(count)
+            else:
+                if result and isinstance(result, float):
+                    general_log.info(f"Updated BLOCK ticker: {result} BTC proxy: {used_proxy}")
+                    return result
+                else:
+                    time.sleep(count)
 
 
 class Pair:

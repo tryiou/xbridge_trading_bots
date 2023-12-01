@@ -4,6 +4,7 @@ import config.ccxt_cfg as ccxt_cfg
 import definitions.bcolors as bcolors
 import time
 from datetime import datetime
+import requests
 
 refresh_interval = 15
 
@@ -20,6 +21,9 @@ class CCXTServer:
         self.ccxt_call_fetch_tickers_timer = time.time()
         self.ccxt_i = None
         self.task = None  # Initialize task to None
+        self.custom_ticker = {}
+        self.custom_ticker_call_count = 0
+        self.custom_ticker_cache_count = 0
 
     async def run_periodically(self, interval):
         while True:
@@ -49,6 +53,8 @@ class CCXTServer:
                 time.sleep(counter)
             else:
                 done = True
+        if 'BLOCK' in self.custom_ticker:
+            await self.update_ticker_block()
 
     async def ccxt_call_fetch_tickers(self, *args):
         for symbol in args:
@@ -64,16 +70,53 @@ class CCXTServer:
             self.ccxt_cache_hit += 1
         return self.tickers
 
+    async def update_ticker_block(self):
+        result = None
+        done = False
+        count = 0
+        while not done:
+            count += 1
+            try:
+                self.custom_ticker_call_count += 1
+                ticker = requests.get(url=f"https://market.southxchange.com/api/price/{'BLOCK/BTC'}")
+                if ticker.status_code == 200:
+                    json = ticker.json()
+                    result = json['Bid'] + ((json['Ask'] - json['Bid']) / 2)
+            except Exception as e:
+                msg = f"update_ccxt_price: BLOCK error({count}): {type(e).__name__}: {e}"
+                print(f"{bcolors.mycolor.FAIL}{msg}{bcolors.mycolor.ENDC}")
+                time.sleep(count)
+            else:
+                if result and isinstance(result, float):
+                    done = True
+                    msg = f"{now()} Updated BLOCK ticker: {result} BTC, call_count: {self.custom_ticker_call_count}, cache_hit: {self.custom_ticker_cache_count}"
+                    print(f"{bcolors.mycolor.OKGREEN}{msg}{bcolors.mycolor.ENDC}")
+                    self.custom_ticker['BLOCK'] = result
+                else:
+                    time.sleep(count)
+
+    async def fetch_ticker_block(self):
+        if 'BLOCK' not in self.custom_ticker:
+            await self.update_ticker_block()
+        else:
+            self.custom_ticker_cache_count += 1
+        return self.custom_ticker['BLOCK']
+
     def print_metrics(self):
-        exec_sec = time.time() - self.total_exec_time
-        ccxt_cps = self.ccxt_call_count / exec_sec
-        msg = f"{now()} exec_sec: {round(exec_sec, 2)} ccxt_cps: {round(ccxt_cps, 2)} ccxt_call_count: {self.ccxt_call_count} ccxt_cache_hit: {self.ccxt_cache_hit}"
+        msg = f"{now()} ccxt_call_count: {self.ccxt_call_count} ccxt_cache_hit: {self.ccxt_cache_hit}"
         print(f"{bcolors.mycolor.OKGREEN}{msg}{bcolors.mycolor.ENDC}")
 
     async def handle(self, request):
         try:
             data = await request.json()
-            response = await self.ccxt_call_fetch_tickers(*data['params'])
+            method = data.get('method')
+            if method == 'ccxt_call_fetch_tickers':
+                response = await self.ccxt_call_fetch_tickers(*data['params'])
+            elif method == 'fetch_ticker_block':
+                response = await self.fetch_ticker_block()
+            else:
+                raise ValueError(f"Unsupported method: {method}")
+
             return web.json_response({"jsonrpc": "2.0", "result": response, "id": data.get("id")})
         except Exception as e:
             error_response = {"jsonrpc": "2.0", "error": {"code": 500, "message": str(e)}, "id": None}
