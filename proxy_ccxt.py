@@ -78,10 +78,11 @@ class CCXTServer:
             count += 1
             try:
                 self.custom_ticker_call_count += 1
-                ticker = requests.get(url=f"https://market.southxchange.com/api/price/{'BLOCK/BTC'}")
+                ticker = requests.get(url='https://min-api.cryptocompare.com/data/price?fsym=BLOCK&tsyms=BTC')
+                # ticker = requests.get(url=f"https://market.southxchange.com/api/price/{'BLOCK/BTC'}")
                 if ticker.status_code == 200:
                     json = ticker.json()
-                    result = json['Bid'] + ((json['Ask'] - json['Bid']) / 2)
+                    result = json['BTC']
             except Exception as e:
                 msg = f"update_ccxt_price: BLOCK error({count}): {type(e).__name__}: {e}"
                 print(f"{bcolors.mycolor.FAIL}{msg}{bcolors.mycolor.ENDC}")

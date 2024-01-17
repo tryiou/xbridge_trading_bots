@@ -115,7 +115,7 @@ class Token:
                     else:
                         done = True
             elif self.symbol == "BLOCK":
-                result = self.update_block_ticker(cex_symbol)
+                result = self.update_block_ticker()
             else:
                 general_log.info(f"{cex_symbol} not in cex {str(init.my_ccxt)}")
                 self.usd_price = None
@@ -130,7 +130,7 @@ class Token:
         elif display:
             print('Token.update_ccxt_price()', 'too fast call?', self.symbol)
 
-    def update_block_ticker(self, cex_symbol):
+    def update_block_ticker(self):
         count = 0
         done = False
         used_proxy = False
@@ -142,10 +142,11 @@ class Token:
                     result = xb.rpc_call("fetch_ticker_block", rpc_port=2233, debug=2, display=False)
                     used_proxy = True
                 else:
-                    ticker = requests.get(url=f"https://market.southxchange.com/api/price/{cex_symbol}")
+                    ticker = requests.get(url='https://min-api.cryptocompare.com/data/price?fsym=BLOCK&tsyms=BTC')
+                    # ticker = requests.get(url=f"https://market.southxchange.com/api/price/{cex_symbol}")
                     if ticker.status_code == 200:
                         json = ticker.json()
-                        result = json['Bid'] + ((json['Ask'] - json['Bid']) / 2)
+                        result = json['BTC']
             except Exception as e:
                 general_log.error(f"update_ccxt_price: BLOCK error({count}): {type(e).__name__}: {e}")
                 time.sleep(count)
