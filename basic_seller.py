@@ -4,7 +4,15 @@ import sys
 import time
 import traceback
 import definitions.xbridge_def as xb
-from definitions import init
+import definitions.init as init
+
+
+class ValidatePercentArg(argparse.Action):
+    def __call__(self, parser, namespace, values, option_string=None):
+        # Check if the provided value is within the valid range
+        if not 0.01 <= values < 1:
+            raise argparse.ArgumentError(self, "Value must be between 0.01 (inclusive) and 1 (exclusive).")
+        setattr(namespace, self.dest, values)
 
 
 def cancel_my_order():
@@ -213,23 +221,27 @@ def main():
     # Create the main argument parser
     parser = argparse.ArgumentParser(prog="basic_seller",
                                      usage='%(prog)s [options]',
-                                     description="# Sell 'AmountTokenToSell' 'TokenToSell' To 'TokenToBuy'\n"
-                                                 "# use ccxt price ticker +'TokenToSell' minimum usd price anchor + price upscale %%\n"
-                                                 "# example:\n"
-                                                 "# python3 basic_seller.py -tts BLOCK -ttb LTC -atts 50 -mup 0.2 -spu 0.015",
+                                     description="Sell a specified amount of one token to buy another token using CCXT price tickers.\n\n"
+                                                 "Examples:\n"
+                                                 "python3 basic_seller.py -tts BLOCK -ttb LTC -atts 50 -mup 0.2 -spu 0.02 --partial 0.5\n"
+                                                 "python3 basic_seller.py -tts LTC -ttb BTC -atts 200 -mup 70",
+
                                      formatter_class=argparse.RawTextHelpFormatter)
-
-    # Create an argument group for required arguments
-    required_args_group = parser.add_argument_group('required arguments')
-
     # Adding required arguments
-    required_args_group.add_argument("-tts", "--TokenToSell", required=True, help="Token to sell, string")
-    required_args_group.add_argument("-ttb", "--TokenToBuy", required=True, help="Token to buy, string")
-    required_args_group.add_argument("-atts", "--AmountTokenToSell", required=True, help="Amount TokenToSell, float")
-    required_args_group.add_argument("-mup", "--MinUsdPrice", required=True,
-                                     help="Minimum USD sell price, 0.47 == 0.47 USD min tts price, float")
-    required_args_group.add_argument("-spu", "--SellPriceUpscale", required=True,
-                                     help="%% upscale on ccxt ticker, 0.03 == 3%% upscale, float")
+    parser.add_argument("-tts", "--TokenToSell", required=True, help="Token to sell (e.g., BLOCK). Required. string")
+    parser.add_argument("-ttb", "--TokenToBuy", required=True, help="Token to buy (e.g., LTC). Required. string")
+    parser.add_argument("-atts", "--AmountTokenToSell", required=True, type=float,
+                        help="Amount of 'TokenToSell' to sell. Required. float")
+    parser.add_argument("-mup", "--MinUsdPrice", required=True, type=float,
+                        help="Minimum USD sell price for 'TokenToSell'. Required. float")
+
+    # Adding optional arguments
+    parser.add_argument("-spu", "--SellPriceUpscale", default=0.015, type=float,
+                        help="Percentage upscale on CCXT ticker price (e.g 0.015 for 1.5%% upscale), default is 0.015. Optional. float")
+
+    parser.add_argument("-p", "--partial", type=float, default=None,
+                        help="Partial minimum size as a percentage of total size (between 0.01 (inclusive) and 1 (exclusive)).\n"
+                             "For example, '--partial 0.5' means sell 50%% of the specified amount, default is None. Optional. float")
 
     # Parse the command-line arguments
     args = parser.parse_args()
@@ -239,8 +251,11 @@ def main():
     amount_token_to_sell = float(args.AmountTokenToSell)
     min_sell_price_usd = float(args.MinUsdPrice)
     ccxt_sell_price_upscale = float(args.SellPriceUpscale)
-    print("Sell", amount_token_to_sell, token_to_sell, "to", token_to_buy, "// min_sell_price_usd:", min_sell_price_usd,
-          "// ccxt_sell_price_upscale", ccxt_sell_price_upscale)
+    partial_value = args.partial
+    print("Sell", amount_token_to_sell, token_to_sell, "to", token_to_buy,
+          "// min_sell_price_usd:", min_sell_price_usd,
+          "// ccxt_sell_price_upscale", ccxt_sell_price_upscale,
+          "// partial value:", partial_value)
 
     # LOAD FROM CONF FILE
     # token_to_sell = config.token_to_sell
@@ -249,11 +264,12 @@ def main():
     # min_sell_price_usd = config.min_sell_price_usd
     # ccxt_sell_price_upscale = config.ccxt_sell_price_upscale
 
+    from definitions import init
     pair_symbol = token_to_sell + '/' + token_to_buy
     ccxt_price_timer = None
     init.init_basic_seller([token_to_sell, token_to_buy], amount_token_to_sell=amount_token_to_sell,
                            min_sell_price_usd=min_sell_price_usd,
-                           ccxt_sell_price_upscale=ccxt_sell_price_upscale)  # exit()
+                           ccxt_sell_price_upscale=ccxt_sell_price_upscale, partial_percent=partial_value)  # exit()
     tokens = init.t
     pair = init.p
 

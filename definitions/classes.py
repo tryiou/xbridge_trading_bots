@@ -160,7 +160,7 @@ class Token:
 
 class Pair:
     def __init__(self, token1, token2, amount_token_to_sell=None, min_sell_price_usd=None, ccxt_sell_price_upscale=None,
-                 strategy=None, dex_enabled=True):
+                 strategy=None, dex_enabled=True, partial_percent=None):
         self.strategy = strategy  # arbtaker, pingpong, basic_seller
         self.t1 = token1
         self.t2 = token2
@@ -186,6 +186,7 @@ class Pair:
         self.amount_token_to_sell = amount_token_to_sell
         self.min_sell_price_usd = min_sell_price_usd
         self.ccxt_sell_price_upscale = ccxt_sell_price_upscale
+        self.partial_percent = partial_percent
 
     def update_cex_orderbook(self, limit=25, ignore_timer=False):
         update_cex_orderbook_timer_delay = 2
@@ -263,7 +264,12 @@ class Pair:
             amount = self.amount_token_to_sell if self.strategy == 'basic_seller' else config_pp.usd_amount_custom.get(
                 self.symbol, config_pp.usd_amount_default) / (self.t1.ccxt_price * init.t['BTC'].usd_price)
             spread = config_pp.sell_price_offset
-
+            if self.partial_percent:
+                minimum_size = amount * self.partial_percent
+                self.current_order.update({
+                    'type': 'partial',
+                    'minimum_size': minimum_size,
+                })
             self.current_order.update({
                 'maker_size': amount,
                 'taker_size': amount * (price * (1 + spread)),
@@ -420,13 +426,17 @@ class Pair:
                     taker = self.current_order['taker']
                     taker_size = "{:.6f}".format(self.current_order['taker_size'])
                     taker_address = self.current_order['taker_address']
-
+                    if self.partial_percent:
+                        minimum_size = "{:.6f}".format(self.current_order['minimum_size'])
                     general_log.info(
                         f"dex_create_order, Creating order. maker: {maker}, maker_size: {maker_size}, bal: {bal}")
 
                     if not dry_mode:
-                        self.dex_order = xb.makeorder(maker, maker_size, maker_address, taker, taker_size,
-                                                      taker_address)
+                        if self.partial_percent:
+                            order = xb.makepartialorder(maker, maker_size, maker_address, taker, taker_size, taker_address, minimum_size)
+                        else:
+                            order = xb.makeorder(maker, maker_size, maker_address, taker, taker_size,taker_address)
+                        self.dex_order = order
                         if self.dex_order and 'error' in self.dex_order:
                             if 'code' in self.dex_order and self.dex_order['code'] not in {1019, 1018, 1026, 1032}:
                                 # {'error': 'Insufficient funds for XXX', 'code': 1019, 'name': 'dxMakeOrder'}
@@ -524,7 +534,7 @@ class Pair:
                 if self.dex_order is None:
                     self.dex_create_order(dry_mode=False)
 
-    def status_check(self, disabled_coins=None, display=False):
+    def status_check(self, disabled_coins=None, display=False, partial_percent=None):
         self.update_pricing()
         status = None
 
