@@ -83,7 +83,7 @@ def init_arbtaker():
     p = init_pairs_dict_arbtaker(tokens_dict=t, dex_markets=dex_markets, strategy="arbtaker")
 
 
-def init_basic_seller(tokens_list, amount_token_to_sell, min_sell_price_usd, ccxt_sell_price_upscale):
+def init_basic_seller(tokens_list, amount_token_to_sell, min_sell_price_usd, ccxt_sell_price_upscale, partial_percent):
     global t, p, my_ccxt
     from definitions.classes import Token, Pair
     from definitions.ccxt_def import init_ccxt_instance
@@ -104,4 +104,5 @@ def init_basic_seller(tokens_list, amount_token_to_sell, min_sell_price_usd, ccx
                                                     strategy="basic_seller",
                                                     amount_token_to_sell=amount_token_to_sell,
                                                     min_sell_price_usd=min_sell_price_usd,
-                                                    ccxt_sell_price_upscale=ccxt_sell_price_upscale)
+                                                    ccxt_sell_price_upscale=ccxt_sell_price_upscale,
+                                                    partial_percent=partial_percent)

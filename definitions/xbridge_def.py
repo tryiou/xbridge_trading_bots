@@ -155,6 +155,18 @@ def makeorder(maker, makeramount, makeraddress, taker, takeramount, takeraddress
     return result
 
 
+def makepartialorder(maker, makeramount, makeraddress, taker, takeramount, takeraddress, min_size, repost=False,
+                     dryrun=None):
+    if dryrun:
+        result = rpc_call("dxMakePartialOrder",
+                          [maker, makeramount, makeraddress, taker, takeramount, takeraddress, min_size, repost,
+                           'dryrun'])
+    else:
+        result = rpc_call("dxMakePartialOrder",
+                          [maker, makeramount, makeraddress, taker, takeramount, takeraddress, min_size, repost])
+    return result
+
+
 def getorderstatus(oid):
     return rpc_call("dxGetOrder", [oid])
 
