@@ -10,8 +10,8 @@ import definitions.init as init
 class ValidatePercentArg(argparse.Action):
     def __call__(self, parser, namespace, values, option_string=None):
         # Check if the provided value is within the valid range
-        if not 0.01 <= values < 1:
-            raise argparse.ArgumentError(self, "Value must be between 0.01 (inclusive) and 1 (exclusive).")
+        if not 0.001 <= values < 1:
+            raise argparse.ArgumentError(self, "Value must be between 0.001 (inclusive) and 1 (exclusive).")
         setattr(namespace, self.dest, values)
 
 
@@ -239,8 +239,8 @@ def main():
     parser.add_argument("-spu", "--SellPriceUpscale", default=0.015, type=float,
                         help="Percentage upscale on CCXT ticker price (e.g 0.015 for 1.5%% upscale), default is 0.015. Optional. float")
 
-    parser.add_argument("-p", "--partial", type=float, default=None,
-                        help="Partial minimum size as a percentage of total size (between 0.01 (inclusive) and 1 (exclusive)).\n"
+    parser.add_argument("-p", "--partial", type=float, default=None, action=ValidatePercentArg,
+                        help="Partial minimum size as a percentage of total size (between 0.001 (inclusive) and 1 (exclusive)).\n"
                              "For example, '--partial 0.5' means sell 50%% of the specified amount, default is None. Optional. float")
 
     # Parse the command-line arguments
