@@ -5,6 +5,7 @@ import time
 import requests
 
 import config.config_pingpong as config_pp
+import config.config_coins as config_coins
 import definitions.bcolors as bcolors
 import definitions.ccxt_def as ccxt_def
 import definitions.init as init
@@ -102,8 +103,9 @@ class Token:
             cex_symbol = "BTC/USD" if self.symbol == "BTC" else f"{self.symbol}/BTC"
 
             lastprice_string = "lastPrice" if init.my_ccxt.id == "binance" else "lastTradeRate"
-
-            if cex_symbol in init.my_ccxt.symbols:
+            if self.symbol in config_coins.usd_ticker_custom:
+                result = config_coins.usd_ticker_custom[self.symbol] / init.t['BTC'].usd_price
+            elif cex_symbol in init.my_ccxt.symbols:
                 while not done:
                     count += 1
                     try:
@@ -433,9 +435,10 @@ class Pair:
 
                     if not dry_mode:
                         if self.partial_percent:
-                            order = xb.makepartialorder(maker, maker_size, maker_address, taker, taker_size, taker_address, minimum_size)
+                            order = xb.makepartialorder(maker, maker_size, maker_address, taker, taker_size,
+                                                        taker_address, minimum_size)
                         else:
-                            order = xb.makeorder(maker, maker_size, maker_address, taker, taker_size,taker_address)
+                            order = xb.makeorder(maker, maker_size, maker_address, taker, taker_size, taker_address)
                         self.dex_order = order
                         if self.dex_order and 'error' in self.dex_order:
                             if 'code' in self.dex_order and self.dex_order['code'] not in {1019, 1018, 1026, 1032}:
