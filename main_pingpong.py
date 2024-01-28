@@ -6,7 +6,7 @@
 # ONLY ONE AT A TIME, BOT RECORD THE LAST SELL ORDER ON A FILE, LOAD AT START
 import time
 from threading import Thread
-
+import config.config_coins as config_coins
 # import definitions.xlite_endpoint_check as xlite_endpoint_check
 import definitions.ccxt_def as ccxt_def
 import definitions.init as init
@@ -90,13 +90,14 @@ class General:
         global ccxt_price_timer
         if ccxt_price_timer is None or time.time() - ccxt_price_timer > self.ccxt_price_refresh:
             # Manage BLOCK token separately
-            keys = [f"{token}/USDT" if token == 'BTC' else f"{token}/BTC" for token in self.tokens_dict.keys() if token != 'BLOCK']
+            custom_coins = config_coins .usd_ticker_custom.keys()
+            keys = [f"{token}/USDT" if token == 'BTC' else f"{token}/BTC" for token in self.tokens_dict.keys() if token not in custom_coins]
             keys.insert(0, keys.pop(keys.index('BTC/USDT')))
             try:
                 tickers = ccxt_def.ccxt_call_fetch_tickers(self.ccxt_i, keys)
                 lastprice_string = "lastPrice" if self.ccxt_i.id == "binance" else "lastTradeRate"
                 # Manage BLOCK token separately
-                for token in [token for token in self.tokens_dict if token != 'BLOCK']:
+                for token in [token for token in self.tokens_dict if token not in custom_coins]:
                     symbol = f"{self.tokens_dict[token].symbol}/USDT" if (self.tokens_dict[token].symbol == 'BTC') else f"{self.tokens_dict[token].symbol}/BTC"
                     if tickers and symbol in tickers:
                         last_price = float(tickers[symbol]['info'][lastprice_string])
@@ -110,8 +111,11 @@ class General:
                         print("update_ccxt_prices, missing symbol in tickers:", [symbol], tickers)
                         self.tokens_dict[token].ccxt_price = None
                         self.tokens_dict[token].usd_price = None
-                if "BLOCK" in self.tokens_dict.keys():
-                    self.tokens_dict["BLOCK"].update_ccxt_price()
+                for token, custom_price in config_coins.usd_ticker_custom.items():
+                    if token in self.tokens_dict:
+                        self.tokens_dict[token].update_ccxt_price()
+                # if "BLOCK" in self.tokens_dict.keys():
+                #     self.tokens_dict["BLOCK"].update_ccxt_price()
             except Exception as e:
                 print("general.update_ccxt_prices error:", type(e), str(e))
             ccxt_price_timer = time.time()
