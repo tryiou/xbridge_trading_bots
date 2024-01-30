@@ -107,6 +107,9 @@ def calculate_profit(trades):
 
     return completed_pingpong, inprogress_pingpong, profit_pingpong
 
+# Define a custom sorting key function
+def custom_sort(item):
+    return (item[0], item[1])  # Assuming the first item is the symbol and the second is the timestamp
 
 def display_results(completed_pingpong, inprogress_pingpong, profit_pingpong):
     # Convert the dictionary to a list of tuples for tabulation with trades flattened
@@ -149,9 +152,9 @@ def display_results(completed_pingpong, inprogress_pingpong, profit_pingpong):
     print("\nInprogress Pingpong:")
     # Convert the dictionary to a list of tuples for tabulation with trades flattened
     inprogress_table_data = [(symbol, *trade) for symbol, trades in inprogress_pingpong.items() for trade in trades]
-
+    sorted_inprogress = sorted(inprogress_table_data, key=custom_sort)
     # Print the tabulated data
-    print(tabulate(inprogress_table_data,
+    print(tabulate(sorted_inprogress,
                    headers=["Symbol", "Timestamp", "Side", "Size T1", "Token1", "R_Side", "Size T2",
                             "Token2"],
                    tablefmt="pretty"))
