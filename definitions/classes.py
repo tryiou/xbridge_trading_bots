@@ -369,11 +369,14 @@ class Pair:
             self.variation = [float("{:.3f}".format(self.price / self.current_order['org_pprice']))]
 
         if display:
-            general_log.info("%s_%s %s %s %s" % (
-                self.symbol, str(self.variation),
-                self.price, self.current_order['org_pprice'],
-                self.price / self.current_order['org_pprice']
-            ))
+            general_log.info(
+                f"check_price_in_range - {self.symbol} - "
+                f"var: {var}, "
+                f"s.variation: {self.variation}, "
+                f"Price: {self.price}, "
+                f"Org PPrice: {self.current_order['org_pprice']}, "
+                f"Ratio: {self.price / self.current_order['org_pprice']}"
+            )
 
         # Check if the price is in range
         if 1 - price_variation_tolerance < var < 1 + price_variation_tolerance:
