@@ -22,8 +22,8 @@ class CCXTServer:
         self.ccxt_i = None
         self.task = None  # Initialize task to None
         self.custom_ticker = {}
-        self.custom_ticker_call_count = 0
-        self.custom_ticker_cache_count = 0
+        self.custom_ticker_call_count = {}
+        self.custom_ticker_cache_count = {}
 
     async def run_periodically(self, interval):
         while True:
@@ -52,8 +52,8 @@ class CCXTServer:
                 await asyncio.sleep(counter)
             else:
                 done = True
-        if 'BLOCK' in self.custom_ticker:
-            await self.update_ticker_block()
+        for token in self.custom_ticker:
+            await self.update_custom_ticker(token)
         self.print_metrics()
 
     async def ccxt_call_fetch_tickers(self, *args):
@@ -70,38 +70,54 @@ class CCXTServer:
             self.ccxt_cache_hit += 1
         return self.tickers
 
-    async def update_ticker_block(self):
+    async def update_custom_ticker(self, token):
         result = None
         done = False
         count = 0
         while not done:
             count += 1
             try:
-                self.custom_ticker_call_count += 1
-                ticker = requests.get(url='https://min-api.cryptocompare.com/data/price?fsym=BLOCK&tsyms=BTC')
-                # ticker = requests.get(url=f"https://market.southxchange.com/api/price/{'BLOCK/BTC'}")
-                if ticker.status_code == 200:
-                    json = ticker.json()
-                    result = json['BTC']
+                if token in self.custom_ticker_call_count:
+                    self.custom_ticker_call_count[token]+=1
+                else:
+                    self.custom_ticker_call_count[token]=1
+                if token == 'BLOCK':
+                    # Update ticker for BLOCK token
+                    url = 'https://min-api.cryptocompare.com/data/price?fsym=BLOCK&tsyms=BTC'
+                    ticker = requests.get(url=url)
+                    if ticker.status_code == 200:
+                        json_data = ticker.json()
+                        result = json_data['BTC']
+                elif token == 'UNO':
+                    # Update ticker for UNO token
+                    url = 'https://api.unobtanium.uno/v2/ticker/uno.json'
+                    ticker = requests.get(url=url)
+                    if ticker.status_code == 200:
+                        json_data = ticker.json()
+                        result = json_data['price']['btc']
+                # Add more cases for other tokens if needed
             except Exception as e:
-                msg = f"update_ccxt_price: BLOCK error({count}): {type(e).__name__}: {e}"
+                msg = f"update_custom_ticker: {token} error({count}): {type(e).__name__}: {e}"
                 print(f"{bcolors.mycolor.FAIL}{msg}{bcolors.mycolor.ENDC}")
                 await asyncio.sleep(count)
             else:
                 if result and isinstance(result, float):
                     done = True
-                    msg = f"{now()} Updated BLOCK ticker: {result} BTC"
+                    msg = f"{now()} Updated {token} ticker: {result} BTC"
                     print(f"{bcolors.mycolor.OKGREEN}{msg}{bcolors.mycolor.ENDC}")
-                    self.custom_ticker['BLOCK'] = result
+                    self.custom_ticker[token] = result
                 else:
                     await asyncio.sleep(count)
 
-    async def fetch_ticker_block(self):
-        if 'BLOCK' not in self.custom_ticker:
-            await self.update_ticker_block()
+    async def fetch_custom_ticker(self, token):
+        if token not in self.custom_ticker:
+            await self.update_custom_ticker(token)
         else:
-            self.custom_ticker_cache_count += 1
-        return self.custom_ticker['BLOCK']
+            if token in self.custom_ticker_cache_count:
+                self.custom_ticker_cache_count[token] += 1
+            else:
+                self.custom_ticker_cache_count[token] = 1
+        return self.custom_ticker[token]
 
     def print_metrics(self):
         if 'BLOCK' in self.custom_ticker:
@@ -117,7 +133,9 @@ class CCXTServer:
             if method == 'ccxt_call_fetch_tickers':
                 response = await self.ccxt_call_fetch_tickers(*data['params'])
             elif method == 'fetch_ticker_block':
-                response = await self.fetch_ticker_block()
+                response = await self.fetch_custom_ticker('BLOCK')
+            elif method == 'fetch_ticker_uno':
+                response = await self.fetch_custom_ticker('UNO')
             else:
                 raise ValueError(f"Unsupported method: {method}")
 

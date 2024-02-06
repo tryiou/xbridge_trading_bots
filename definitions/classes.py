@@ -93,7 +93,7 @@ class Token:
             general_log.error(f"Error requesting XB address for {self.symbol}: {type(e).__name__}: {e}")
             exit()
 
-    def update_ccxt_price(self, display=False):
+    def update_ccxt_price(self, display=False, custom_price=None):
         update_ccxt_price_delay = 2
 
         if self.ccxt_price_timer is None or time.time() - self.ccxt_price_timer > update_ccxt_price_delay:
@@ -101,10 +101,11 @@ class Token:
             count = 0
 
             cex_symbol = "BTC/USD" if self.symbol == "BTC" else f"{self.symbol}/BTC"
-
             lastprice_string = "lastPrice" if init.my_ccxt.id == "binance" else "lastTradeRate"
-            if self.symbol in config_coins.usd_ticker_custom:
-                result = config_coins.usd_ticker_custom[self.symbol] / init.t['BTC'].usd_price
+            if custom_price:
+                result = custom_price / init.t['BTC'].usd_price
+            elif self.symbol in ["UNO", "BLOCK"]:
+                result = self.update_custom_ticker()
             elif cex_symbol in init.my_ccxt.symbols:
                 while not done:
                     count += 1
@@ -116,8 +117,6 @@ class Token:
                         time.sleep(count)
                     else:
                         done = True
-            elif self.symbol == "BLOCK":
-                result = self.update_block_ticker()
             else:
                 general_log.info(f"{cex_symbol} not in cex {str(init.my_ccxt)}")
                 self.usd_price = None
@@ -127,34 +126,52 @@ class Token:
                 self.ccxt_price = 1 if self.symbol == "BTC" else result
                 self.usd_price = result if self.symbol == "BTC" else result * init.t['BTC'].usd_price
                 self.ccxt_price_timer = time.time()
-                general_log.debug(
-                    f"new pricing {self.symbol} {self.ccxt_price} {self.usd_price} USD PRICE {init.t['BTC'].usd_price}")
+                general_log.info(
+                    f"new pricing {self.symbol}: {self.ccxt_price} BTC, {self.usd_price} USD, BTC_PRICE: {init.t['BTC'].usd_price} USD")
         elif display:
             print('Token.update_ccxt_price()', 'too fast call?', self.symbol)
 
-    def update_block_ticker(self):
-        count = 0
+    def update_custom_ticker(self):
+        result = None
         done = False
+        count = 0
         used_proxy = False
         while not done:
             count += 1
-            result = None
             try:
-                if ccxt_def.isportopen("127.0.0.1", 2233):
-                    result = xb.rpc_call("fetch_ticker_block", rpc_port=2233, debug=2, display=False)
-                    used_proxy = True
-                else:
-                    ticker = requests.get(url='https://min-api.cryptocompare.com/data/price?fsym=BLOCK&tsyms=BTC')
-                    # ticker = requests.get(url=f"https://market.southxchange.com/api/price/{cex_symbol}")
-                    if ticker.status_code == 200:
-                        json = ticker.json()
-                        result = json['BTC']
+                if self.symbol == 'BLOCK':
+                    # Check if proxy is available
+                    if ccxt_def.isportopen("127.0.0.1", 2233):
+                        # Use proxy if available
+                        result = xb.rpc_call("fetch_ticker_block", rpc_port=2233, debug=2, display=False)
+                        used_proxy = True
+                    else:
+                        # Use direct request if proxy is not available
+                        url = 'https://min-api.cryptocompare.com/data/price?fsym=BLOCK&tsyms=BTC'
+                        ticker = requests.get(url=url)
+                        if ticker.status_code == 200:
+                            json_data = ticker.json()
+                            result = json_data['BTC']
+                elif self.symbol == 'UNO':
+                    # Check if proxy is available
+                    if ccxt_def.isportopen("127.0.0.1", 2233):
+                        # Use proxy if available
+                        result = xb.rpc_call("fetch_ticker_uno", rpc_port=2233, debug=2, display=False)
+                        used_proxy = True
+                    else:
+                        # Use direct request if proxy is not available
+                        url = 'https://api.unobtanium.uno/v2/ticker/uno.json'
+                        ticker = requests.get(url=url)
+                        if ticker.status_code == 200:
+                            json_data = ticker.json()
+                            result = json_data['price']['btc']
+                    # Add more cases for other tokens if needed
             except Exception as e:
-                general_log.error(f"update_ccxt_price: BLOCK error({count}): {type(e).__name__}: {e}")
+                general_log.error(f"update_ccxt_price: {self.symbol} error({count}): {type(e).__name__}: {e}")
                 time.sleep(count)
             else:
                 if result and isinstance(result, float):
-                    general_log.info(f"Updated BLOCK ticker: {result} BTC proxy: {used_proxy}")
+                    general_log.debug(f"update_custom_ticker {self.symbol}: {result} BTC, proxy: {used_proxy}")
                     return result
                 else:
                     time.sleep(count)

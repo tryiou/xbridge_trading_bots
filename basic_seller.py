@@ -6,6 +6,8 @@ import traceback
 import definitions.xbridge_def as xb
 import definitions.init as init
 
+import config.config_coins as config_coins
+
 
 class ValidatePercentArg(argparse.Action):
     def __call__(self, parser, namespace, values, option_string=None):
@@ -36,15 +38,20 @@ def update_ccxt_prices(tokens_dict, ccxt_i):
     import definitions.ccxt_def as ccxt_def
     global ccxt_price_timer
     if ccxt_price_timer is None or time.time() - ccxt_price_timer > ccxt_price_refresh:
+
+        custom_coins = config_coins.usd_ticker_custom.keys()
         keys = [f"{token}/USDT" if token == 'BTC' else f"{token}/BTC" for token in tokens_dict.keys() if
-                token != 'BLOCK']
+                token not in custom_coins and token not in ['UNO', 'BLOCK']]
+
         keys.insert(0, keys.pop(keys.index('BTC/USDT')))
         done = False
         while not done:
             try:
                 tickers = ccxt_def.ccxt_call_fetch_tickers(ccxt_i, keys)
                 lastprice_string = "lastPrice" if ccxt_i.id == "binance" else "lastTradeRate"
-                for token in [token for token in tokens_dict if token != 'BLOCK']:
+                for token in [token for token in tokens_dict if
+                              token not in custom_coins and token != "BLOCK" and token != "UNO"]:
+                    #  for token in [token for token in tokens_dict if token != 'BLOCK']:
                     symbol = f"{tokens_dict[token].symbol}/USDT" if (tokens_dict[token].symbol == 'BTC') \
                         else f"{tokens_dict[token].symbol}/BTC"
                     if tickers and symbol in tickers:
@@ -60,8 +67,13 @@ def update_ccxt_prices(tokens_dict, ccxt_i):
             except Exception as e:
                 print("general.update_ccxt_prices error:", type(e), str(e))
 
-        if "BLOCK" in tokens_dict.keys():
-            tokens_dict["BLOCK"].update_ccxt_price()
+        for token, custom_price in config_coins.usd_ticker_custom.items():
+            if token in tokens_dict:
+                tokens_dict[token].update_ccxt_price(custom_price=custom_price)
+
+        _ = [tokens_dict[token].update_ccxt_price() for token in ["BLOCK", "UNO"] if
+             token in tokens_dict and token not in config_coins.usd_ticker_custom]
+
         ccxt_price_timer = time.time()
 
 
