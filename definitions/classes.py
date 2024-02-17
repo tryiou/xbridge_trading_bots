@@ -160,11 +160,11 @@ class Token:
                         used_proxy = True
                     else:
                         # Use direct request if proxy is not available
-                        url = 'https://api.unobtanium.uno/v2/ticker/uno.json'
+                        url = 'https://api.freiexchange.com/public/ticker/UNO'
                         ticker = requests.get(url=url)
                         if ticker.status_code == 200:
                             json_data = ticker.json()
-                            result = json_data['price']['btc']
+                            result = json_data['UNO_BTC'][0]['average24h']
                     # Add more cases for other tokens if needed
             except Exception as e:
                 general_log.error(f"update_ccxt_price: {self.symbol} error({count}): {type(e).__name__}: {e}")
