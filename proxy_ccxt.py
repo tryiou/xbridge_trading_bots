@@ -78,9 +78,9 @@ class CCXTServer:
             count += 1
             try:
                 if token in self.custom_ticker_call_count:
-                    self.custom_ticker_call_count[token]+=1
+                    self.custom_ticker_call_count[token] += 1
                 else:
-                    self.custom_ticker_call_count[token]=1
+                    self.custom_ticker_call_count[token] = 1
                 if token == 'BLOCK':
                     # Update ticker for BLOCK token
                     url = 'https://min-api.cryptocompare.com/data/price?fsym=BLOCK&tsyms=BTC'
@@ -94,7 +94,7 @@ class CCXTServer:
                     ticker = requests.get(url=url)
                     if ticker.status_code == 200:
                         json_data = ticker.json()
-                        result = json_data['UNO_BTC'][0]['average24h']
+                        result = float(json_data['UNO_BTC'][0]['average24h'])
                 # Add more cases for other tokens if needed
             except Exception as e:
                 msg = f"update_custom_ticker: {token} error({count}): {type(e).__name__}: {e}"

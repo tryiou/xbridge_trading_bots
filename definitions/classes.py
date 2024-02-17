@@ -164,7 +164,7 @@ class Token:
                         ticker = requests.get(url=url)
                         if ticker.status_code == 200:
                             json_data = ticker.json()
-                            result = json_data['UNO_BTC'][0]['average24h']
+                            result = float(json_data['UNO_BTC'][0]['average24h'])
                     # Add more cases for other tokens if needed
             except Exception as e:
                 general_log.error(f"update_ccxt_price: {self.symbol} error({count}): {type(e).__name__}: {e}")
