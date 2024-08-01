@@ -7,21 +7,25 @@ ROOT_DIR = os.path.abspath(os.curdir)
 
 def init_pingpong():
     setup_logger("pingpong")
-    global t, p, my_ccxt
+    global t, p, my_ccxt, config_pp
     # , pairs_dict
-    from definitions.classes import Token, Pair
-    from config.config_pingpong import user_pairs
+    from definitions.classes import Token, Pair, Config
+    # from config.config_pingpong import user_pairs
     from config.ccxt_cfg import ccxt_exchange, ccxt_hostname
     # from main_pingpong import main_dx_update_bals
     from definitions.ccxt_def import init_ccxt_instance
     import definitions.xbridge_def as xbridge_def
+
+    config_pp = Config.load_config("./config/config_pingpong.yaml")
+
+    print(config_pp)
     # from multiprocessing import shared_memory
     xbridge_def.dxloadxbridgeconf()
     # xbridge_def.proxy_init_storage()
     my_ccxt = init_ccxt_instance(exchange=ccxt_exchange, hostname=ccxt_hostname, private_api=False)
     # ACTIVE TOKENS LIST, KEEP BTC INSIDE EVEN IF UNUSED
     tokens = []
-    sorted_pairs = sorted(user_pairs)
+    sorted_pairs = sorted(config_pp.user_pairs)
     for pair in sorted_pairs:
         sep = pair.find("/")
         t1 = pair[0:sep]

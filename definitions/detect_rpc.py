@@ -48,10 +48,10 @@ def prompt_user_for_config_path():
         from tkinter import filedialog, Tk
         # from ttkbootstrap import Style
         import ttkbootstrap
-        from config import config_pingpong as config
-
+        from definitions.classes import Config
+        config_pp = Config.load_config("./config/config_pingpong.yaml")
         root = Tk()
-        style = ttkbootstrap.Style(theme=config.ttk_theme)
+        style = ttkbootstrap.Style(theme=config_pp.ttk_theme)
         root.style = style
         root.withdraw()  # Hide the main window
         config_path = filedialog.askopenfilename(

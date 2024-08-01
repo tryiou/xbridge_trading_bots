@@ -3,8 +3,10 @@ import logging
 import pickle
 import time
 import requests
+import yaml
+import os
 
-import config.config_pingpong as config_pp
+# import config.config_pingpong as config_pp
 import config.config_coins as config_coins
 import definitions.bcolors as bcolors
 import definitions.ccxt_def as ccxt_def
@@ -45,6 +47,86 @@ def setup_logger(strategy=None):
 # logging.basicConfig(level=logging.INFO)
 
 star_counter = 0
+
+
+class Config:
+    def __init__(self, config_data=None):
+        # Initialize with None values
+        self.debug_level = None
+        self.ttk_theme = None
+        self.user_pairs = None
+        self.price_variation_tolerance = None
+        self.sell_price_offset = None
+        self.usd_amount_default = None
+        self.usd_amount_custom = None
+        self.spread_default = None
+        self.spread_custom = None
+
+        # Override with provided config_data
+        if config_data:
+            self.update_config(config_data)
+        else:
+            # Set default values if no config_data provided
+            self.set_defaults()
+
+    def set_defaults(self):
+        self.debug_level = 2
+        self.ttk_theme = "darkly"
+        self.user_pairs = ["BLOCK/LTC", "LTC/BLOCK"]
+        self.price_variation_tolerance = 0.02
+        self.sell_price_offset = 0.05
+        self.usd_amount_default = 1
+        self.usd_amount_custom = {
+            "DASH/BLOCK": 21,
+            "BLOCK/DASH": 19
+        }
+        self.spread_default = 0.05
+        self.spread_custom = {
+            "BLOCK/LTC": 0.04,
+            "LTC/BLOCK": 0.04
+        }
+
+    def update_config(self, config_data):
+        # Update only with the provided values
+        if 'debug_level' in config_data:
+            self.debug_level = config_data['debug_level']
+        if 'ttk_theme' in config_data:
+            self.ttk_theme = config_data['ttk_theme']
+        if 'user_pairs' in config_data:
+            self.user_pairs = config_data['user_pairs']
+        if 'price_variation_tolerance' in config_data:
+            self.price_variation_tolerance = config_data['price_variation_tolerance']
+        if 'sell_price_offset' in config_data:
+            self.sell_price_offset = config_data['sell_price_offset']
+        if 'usd_amount_default' in config_data:
+            self.usd_amount_default = config_data['usd_amount_default']
+        if 'usd_amount_custom' in config_data:
+            self.usd_amount_custom = config_data['usd_amount_custom']
+        if 'spread_default' in config_data:
+            self.spread_default = config_data['spread_default']
+        if 'spread_custom' in config_data:
+            self.spread_custom = config_data['spread_custom']
+
+    def get(self, key, default=None):
+        """Return the value for the given key or a default value if the key does not exist."""
+        return getattr(self, key, default)
+
+    @staticmethod
+    def load_config(filename):
+        if not os.path.exists(filename):
+            # File does not exist, save default configuration
+            default_config = Config()
+            Config.save_config(default_config, filename)
+
+        with open(filename, 'r') as file:
+            config_data = yaml.safe_load(file)
+        return Config(config_data)
+
+    @staticmethod
+    def save_config(config, filename):
+        with open(filename, 'w') as file:
+            yaml.dump(config.__dict__, file)  # Save the instance's dictionary to file
+
 
 
 class Token:
@@ -91,7 +173,7 @@ class Token:
             self.write_xb_address()
         except Exception as e:
             general_log.error(f"Error requesting XB address for {self.symbol}: {type(e).__name__}: {e}")
-            exit()
+            # exit()
 
     def update_ccxt_price(self, display=False):
         update_ccxt_price_delay = 2
@@ -263,9 +345,9 @@ class Pair:
             else:
                 price = self.min_sell_price_usd / self.t2.usd_price if self.min_sell_price_usd and self.t1.usd_price < self.min_sell_price_usd else self.price
 
-            amount = self.amount_token_to_sell if self.strategy == 'basic_seller' else config_pp.usd_amount_custom.get(
-                self.symbol, config_pp.usd_amount_default) / (self.t1.ccxt_price * init.t['BTC'].usd_price)
-            spread = config_pp.sell_price_offset
+            amount = self.amount_token_to_sell if self.strategy == 'basic_seller' else init.config_pp.usd_amount_custom.get(
+                self.symbol, init.config_pp.usd_amount_default) / (self.t1.ccxt_price * init.t['BTC'].usd_price)
+            spread = init.config_pp.sell_price_offset
             if self.partial_percent:
                 minimum_size = amount * self.partial_percent
                 self.current_order.update({
@@ -305,7 +387,7 @@ class Pair:
                 self.current_order['manual_dex_price'] = manual_dex_price
 
                 amount = float(self.order_history['maker_size'])
-                spread = config_pp.spread_custom.get(self.symbol, config_pp.spread_default)
+                spread = init.config_pp.spread_custom.get(self.symbol, init.config_pp.spread_default)
 
                 self.current_order['side'] = 'BUY'
                 self.current_order['maker'] = self.t2.symbol
@@ -335,7 +417,7 @@ class Pair:
         general_log.debug("Entering check_price_in_range_ancient")
 
         if self.strategy == 'pingpong':
-            price_variation_tolerance = config_pp.price_variation_tolerance
+            price_variation_tolerance = init.config_pp.price_variation_tolerance
         elif self.strategy == 'basic_seller':
             price_variation_tolerance = 0.01
             # TODO: ADD PARAMETERS INPUT for 'basic_seller' if needed
