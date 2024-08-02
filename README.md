@@ -1,70 +1,94 @@
 # xbridge_trading_bots
 
-Trading bots for Blocknet Xbridge.\
-https://github.com/blocknetdx/ \
-https://docs.blocknet.org/protocol/xbridge/introduction/
+Trading bots for Blocknet Xbridge.  
+[Blocknet GitHub](https://github.com/blocknetdx/)  
+[Blocknet Documentation](https://docs.blocknet.org/protocol/xbridge/introduction/)
 
-Should works with python3.10 python3.11, \
-python3.12 fail to build packages for now. \
-Tested on python3.10
+Compatible with Python 3.10 and 3.11.  
+Python 3.12 currently fails to build packages.  
+Tested on Python 3.10.
 
-# Install
+## Installation
 
-```
-git clone https://github.com/tryiou/xbridge_trading_bots.git
-cd xbridge_trading_bots
-# optional step: create and activate python venv
-# pip / pip3, python / python3 depending on OS
-pip install -r requirements.txt
-```
+1. Clone the repository:
+    ```sh
+    git clone https://github.com/tryiou/xbridge_trading_bots.git
+    cd xbridge_trading_bots
+    ```
 
-# Update
+2. (Optional) Create and activate a Python virtual environment:
+    ```sh
+    python -m venv venv
+    source venv/bin/activate   # On Windows use `venv\Scripts\activate`
+    ```
 
-```
-cd xbridge_trading_bots
-# optional step: activate python venv
-git pull
-pip install -r requirements.txt
-```
+3. Install the required packages:
+    ```sh
+    pip install -r requirements.txt
+    ```
 
-# Connection with blocknet-core
+## Update
 
-Bot will automatically attempt to grab blocknet.conf rpc credentials/port when starting one of the scripts,\
-if default chaindir path is used, it will pick from it and start,\
-if another custom path is used, a prompt box will open asking for blocknet.conf path, or a console prompt if tk is not
-installed.\
-this custom path will be stored in config folder for consequent uses.
+1. Navigate to the project directory:
+    ```sh
+    cd xbridge_trading_bots
+    ```
 
-# Pingpong
+2. (Optional) Activate the Python virtual environment:
+    ```sh
+    source venv/bin/activate   # On Windows use `venv\Scripts\activate`
+    ```
 
-gui version need tkinter package\
-https://www.pythonguis.com/installation/install-tkinter-mac/ \
-https://www.pythonguis.com/installation/install-tkinter-linux/ \
-(python3 for windows already got tkinter installed)
+3. Pull the latest changes and update dependencies:
+    ```sh
+    git pull
+    pip install -r requirements.txt
+    ```
 
-```
-# edit config/config_pingpong.py
-# set desired user_pairs / usd_amount_default / spread_default
-# optional: customise per pair
+## Connection with Blocknet Core
 
-# to display little user interface to start/stop/watch orders 
-# run the gui version with :
-python gui_pingpong.py 
-# or console version with:
-python main_pingpong.py
+The bot will automatically attempt to grab `blocknet.conf` RPC credentials and port when starting one of the scripts.
 
-```
+- If the default chain directory path is used, it will pick from it and start.
+- If a custom path is used, a prompt box will appear asking for the `blocknet.conf` path, or a console prompt if Tkinter is not installed.
+- This custom path will be stored in the config folder for subsequent uses.
 
-# BasicSeller
+## Pingpong Bot
 
-```
-# example usage:
-python basic_seller.py --help
-python basic_seller.py -tts BLOCK -ttb PIVX -atts 200 -mup 0.33 -spu 0.015
-# -tts  : Token to sell
-# -ttb  : Token to buy
-# -atts : Amount TokenToSell
-# -mup  : Min Usd Price TokenToSell
-# -spu  : Sell Price Upscale over ccxt price calcs 
-```
- 
+The GUI version requires the Tkinter package. Installation guides can be found here:
+- [Tkinter for Mac](https://www.pythonguis.com/installation/install-tkinter-mac/)
+- [Tkinter for Linux](https://www.pythonguis.com/installation/install-tkinter-linux/)
+
+Note: Python 3 for Windows already includes Tkinter.
+
+1. Edit the configuration:
+    ```python
+    # Edit config/config_pingpong.py
+    # Set desired user_pairs / usd_amount_default / spread_default
+    # Optional: customize per pair
+    ```
+
+2. Run the GUI version:
+    ```sh
+    python gui_pingpong.py 
+    ```
+
+3. Or run the console version:
+    ```sh
+    python main_pingpong.py
+    ```
+
+## BasicSeller Bot
+
+1. Example usage:
+    ```sh
+    python basic_seller.py --help
+    python basic_seller.py -tts BLOCK -ttb PIVX -atts 200 -mup 0.33 -spu 0.015
+    ```
+
+    Options:
+    - `-tts`  : Token to sell
+    - `-ttb`  : Token to buy
+    - `-atts` : Amount of Token to Sell
+    - `-mup`  : Minimum USD Price of Token to Sell
+    - `-spu`  : Sell Price Upscale over ccxt price calculations
