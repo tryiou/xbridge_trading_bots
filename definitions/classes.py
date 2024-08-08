@@ -14,7 +14,6 @@ import definitions.init as init
 import definitions.logger as logger
 import definitions.xbridge_def as xb
 
-# Status constants
 STATUS_OPEN = 0
 STATUS_FINISHED = 1
 STATUS_OTHERS = 2
@@ -29,27 +28,46 @@ def setup_logger(strategy=None):
     global general_log, trade_log
 
     if general_log and trade_log:
+        # Loggers are already set up, no need to do it again
         return
 
     if strategy:
-        log_dir = f'{init.ROOT_DIR}/logs/{strategy}_'
         general_log = logger.setup_logger(name="GENERAL_LOG",
-                                          log_file=f'{log_dir}general.log',
+                                          log_file=init.ROOT_DIR + '/logs/' + strategy + '_general.log',
                                           level=logging.INFO, console=True)
-        trade_log = logger.setup_logger(name="TRADE_LOG",
-                                        log_file=f'{log_dir}trade.log',
-                                        level=logging.INFO, console=False)
+        general_log.propagate = False
+        trade_log = logger.setup_logger(name="TRADE_LOG", log_file=init.ROOT_DIR + '/logs/' + strategy + '_trade.log',
+                                        level=logging.INFO,
+                                        console=False)
     else:
         print("setup_logger(strategy=None)")
         exit()
 
 
+# logging.basicConfig(level=logging.INFO)
+
+star_counter = 0
+
+
 class Config:
     def __init__(self, config_data=None):
-        self.set_defaults()
+        # Initialize with None values
+        self.debug_level = None
+        self.ttk_theme = None
+        self.user_pairs = None
+        self.price_variation_tolerance = None
+        self.sell_price_offset = None
+        self.usd_amount_default = None
+        self.usd_amount_custom = None
+        self.spread_default = None
+        self.spread_custom = None
 
+        # Override with provided config_data
         if config_data:
             self.update_config(config_data)
+        else:
+            # Set default values if no config_data provided
+            self.set_defaults()
 
     def set_defaults(self):
         self.debug_level = 2
@@ -58,20 +76,45 @@ class Config:
         self.price_variation_tolerance = 0.02
         self.sell_price_offset = 0.05
         self.usd_amount_default = 1
-        self.usd_amount_custom = {"DASH/BLOCK": 21, "BLOCK/DASH": 19}
+        self.usd_amount_custom = {
+            "DASH/BLOCK": 21,
+            "BLOCK/DASH": 19
+        }
         self.spread_default = 0.05
-        self.spread_custom = {"BLOCK/LTC": 0.04, "LTC/BLOCK": 0.04}
+        self.spread_custom = {
+            "BLOCK/LTC": 0.04,
+            "LTC/BLOCK": 0.04
+        }
 
     def update_config(self, config_data):
-        for key, value in config_data.items():
-            setattr(self, key, value)
+        # Update only with the provided values
+        if 'debug_level' in config_data:
+            self.debug_level = config_data['debug_level']
+        if 'ttk_theme' in config_data:
+            self.ttk_theme = config_data['ttk_theme']
+        if 'user_pairs' in config_data:
+            self.user_pairs = config_data['user_pairs']
+        if 'price_variation_tolerance' in config_data:
+            self.price_variation_tolerance = config_data['price_variation_tolerance']
+        if 'sell_price_offset' in config_data:
+            self.sell_price_offset = config_data['sell_price_offset']
+        if 'usd_amount_default' in config_data:
+            self.usd_amount_default = config_data['usd_amount_default']
+        if 'usd_amount_custom' in config_data:
+            self.usd_amount_custom = config_data['usd_amount_custom']
+        if 'spread_default' in config_data:
+            self.spread_default = config_data['spread_default']
+        if 'spread_custom' in config_data:
+            self.spread_custom = config_data['spread_custom']
 
     def get(self, key, default=None):
+        """Return the value for the given key or a default value if the key does not exist."""
         return getattr(self, key, default)
 
     @staticmethod
     def load_config(filename):
         if not os.path.exists(filename):
+            # File does not exist, save default configuration
             default_config = Config()
             Config.save_config(default_config, filename)
 
@@ -82,45 +125,46 @@ class Config:
     @staticmethod
     def save_config(config, filename):
         with open(filename, 'w') as file:
-            yaml.dump(config.__dict__, file)
+            yaml.dump(config.__dict__, file)  # Save the instance's dictionary to file
+
 
 
 class Token:
     def __init__(self, symbol, strategy, dex_enabled=True):
+        self.strategy = strategy  # arbtaker, pingpong
         self.symbol = symbol
-        self.strategy = strategy
-        self.dex_enabled = dex_enabled
         self.ccxt_price = None
         self.ccxt_price_timer = None
         self.xb_address = None
         self.usd_price = None
         self.dex_total_balance = None
         self.dex_free_balance = None
+        self.dex_enabled = dex_enabled
         self.cex_total_balance = None
         self.cex_free_balance = None
         self.read_xb_address()
 
     def read_xb_address(self):
         if self.dex_enabled:
-            filename = f'{init.ROOT_DIR}/data/{self.strategy}_{self.symbol}_addr.pic'
             try:
-                with open(filename, 'rb') as fp:
+                with open(init.ROOT_DIR + '/data/' + self.strategy + '_' + self.symbol + '_addr.pic', 'rb') as fp:
                     self.xb_address = pickle.load(fp)
             except FileNotFoundError:
-                general_log.info(f"File not found: {filename}")
+                general_log.info(f"File not found: {self.strategy}_{self.symbol}_addr.pic")
                 self.dx_request_addr()
-            except Exception as e:
-                general_log.error(f"Error reading XB address: {filename} - {type(e).__name__}: {e}")
+            except (pickle.PickleError, Exception) as e:
+                general_log.error(
+                    f"Error reading XB address from file: {self.strategy}_{self.symbol}_addr.pic - {type(e).__name__}: {e}")
                 self.dx_request_addr()
 
     def write_xb_address(self):
         if self.dex_enabled:
-            filename = f'{init.ROOT_DIR}/data/{self.strategy}_{self.symbol}_addr.pic'
             try:
-                with open(filename, 'wb') as fp:
+                with open(init.ROOT_DIR + '/data/' + self.strategy + '_' + self.symbol + '_addr.pic', 'wb') as fp:
                     pickle.dump(self.xb_address, fp)
-            except Exception as e:
-                general_log.error(f"Error writing XB address: {filename} - {type(e).__name__}: {e}")
+            except (pickle.PickleError, Exception) as e:
+                general_log.error(
+                    f"Error writing XB address to file: {self.strategy}_{self.symbol}_addr.pic - {type(e).__name__}: {e}")
 
     def dx_request_addr(self):
         try:
@@ -129,53 +173,52 @@ class Token:
             self.write_xb_address()
         except Exception as e:
             general_log.error(f"Error requesting XB address for {self.symbol}: {type(e).__name__}: {e}")
+            # exit()
 
     def update_ccxt_price(self, display=False):
         update_ccxt_price_delay = 2
 
         if self.ccxt_price_timer is None or time.time() - self.ccxt_price_timer > update_ccxt_price_delay:
+            done = False
+            count = 0
+
             cex_symbol = "BTC/USD" if self.symbol == "BTC" else f"{self.symbol}/BTC"
+
             lastprice_string = "last" if init.my_ccxt.id == "kucoin" else ("lastPrice" if init.my_ccxt.id == "binance" else "lastTradeRate")
 
             if self.symbol in config_coins.usd_ticker_custom:
                 result = config_coins.usd_ticker_custom[self.symbol] / init.t['BTC'].usd_price
             elif cex_symbol in init.my_ccxt.symbols:
-                result = self._fetch_cex_price(cex_symbol, lastprice_string)
+                while not done:
+                    count += 1
+                    try:
+                        result = float(
+                            ccxt_def.ccxt_call_fetch_ticker(init.my_ccxt, cex_symbol)['info'][lastprice_string])
+                    except Exception as e:
+                        general_log.error(f"update_ccxt_price: {cex_symbol} error({count}): {type(e).__name__}: {e}")
+                        time.sleep(count)
+                    else:
+                        done = True
             elif self.symbol == "BLOCK":
                 result = self.update_block_ticker()
             else:
                 general_log.info(f"{cex_symbol} not in cex {str(init.my_ccxt)}")
                 self.usd_price = None
                 self.ccxt_price = None
-                return
 
             if result:
                 self.ccxt_price = 1 if self.symbol == "BTC" else result
                 self.usd_price = result if self.symbol == "BTC" else result * init.t['BTC'].usd_price
                 self.ccxt_price_timer = time.time()
-                general_log.debug(f"new pricing {self.symbol} {self.ccxt_price} {self.usd_price} USD PRICE {init.t['BTC'].usd_price}")
-
+                general_log.debug(
+                    f"new pricing {self.symbol} {self.ccxt_price} {self.usd_price} USD PRICE {init.t['BTC'].usd_price}")
         elif display:
             print('Token.update_ccxt_price()', 'too fast call?', self.symbol)
-
-    def _fetch_cex_price(self, cex_symbol, lastprice_string):
-        count = 0
-        done = False
-        while not done:
-            count += 1
-            try:
-                result = float(ccxt_def.ccxt_call_fetch_ticker(init.my_ccxt, cex_symbol)['info'][lastprice_string])
-                done = True
-            except Exception as e:
-                general_log.error(f"update_ccxt_price: {cex_symbol} error({count}): {type(e).__name__}: {e}")
-                time.sleep(count)
-        return result
 
     def update_block_ticker(self):
         count = 0
         done = False
         used_proxy = False
-
         while not done:
             count += 1
             result = None
@@ -185,8 +228,10 @@ class Token:
                     used_proxy = True
                 else:
                     ticker = requests.get(url='https://min-api.cryptocompare.com/data/price?fsym=BLOCK&tsyms=BTC')
+                    # ticker = requests.get(url=f"https://market.southxchange.com/api/price/{cex_symbol}")
                     if ticker.status_code == 200:
-                        result = ticker.json()['BTC']
+                        json = ticker.json()
+                        result = json['BTC']
             except Exception as e:
                 general_log.error(f"update_ccxt_price: BLOCK error({count}): {type(e).__name__}: {e}")
                 time.sleep(count)
@@ -199,44 +244,53 @@ class Token:
 
 
 class Pair:
-    def __init__(self, token1, token2, amount_token_to_sell=None, min_sell_price_usd=None,
-                 ccxt_sell_price_upscale=None, strategy=None, dex_enabled=True, partial_percent=None):
+    def __init__(self, token1, token2, amount_token_to_sell=None, min_sell_price_usd=None, ccxt_sell_price_upscale=None,
+                 strategy=None, dex_enabled=True, partial_percent=None):
+        self.strategy = strategy  # arbtaker, pingpong, basic_seller
         self.t1 = token1
         self.t2 = token2
-        self.strategy = strategy
-        self.dex_enabled = dex_enabled
-        self.symbol = f'{self.t1.symbol}/{self.t2.symbol}'
+        self.symbol = self.t1.symbol + '/' + self.t2.symbol
         self.price = None
         self.order_history = None
+
+        # virtual order >
         self.current_order = None
+        # 'real' order >
         self.dex_order = None
+
         self.dex_orderbook = None
         self.have_dex_orderbook = None
         self.cex_orderbook = None
         self.cex_orderbook_timer = None
         self.cex_pair_1 = None
         self.cex_pair_2 = None
+        self.dex_enabled = dex_enabled
+        self.read_pair_dex_last_order_history()
         self.disabled = False
         self.variation = None
         self.amount_token_to_sell = amount_token_to_sell
         self.min_sell_price_usd = min_sell_price_usd
         self.ccxt_sell_price_upscale = ccxt_sell_price_upscale
         self.partial_percent = partial_percent
-        self.read_pair_dex_last_order_history()
 
     def update_cex_orderbook(self, limit=25, ignore_timer=False):
         update_cex_orderbook_timer_delay = 2
-        if ignore_timer or self.cex_orderbook_timer is None or time.time() - self.cex_orderbook_timer > update_cex_orderbook_timer_delay:
+        if ignore_timer or self.cex_orderbook_timer is None or \
+                time.time() - self.cex_orderbook_timer > update_cex_orderbook_timer_delay:
+            #            ccxt_def.ccxt_call_fetch_order_book(init.my_ccxt,self.symbol,self.symbol)
             self.cex_orderbook = ccxt_def.ccxt_call_fetch_order_book(init.my_ccxt, self.symbol, self.symbol)
+            # init.my_ccxt.fetch_order_book(self.symbol, limit)
             self.cex_orderbook_timer = time.time()
 
     def update_dex_orderbook(self):
         self.dex_orderbook = xb.dxgetorderbook(detail=3, maker=self.t1.symbol, taker=self.t2.symbol)
-        self.dex_orderbook.pop('detail', None)
+        del self.dex_orderbook['detail']
 
     def update_pricing(self, display=False):
-        self._ensure_token_prices()
-
+        while self.t1.ccxt_price is None:
+            self.t1.update_ccxt_price()
+        while self.t2.ccxt_price is None:
+            self.t2.update_ccxt_price()
         self.price = self.t1.ccxt_price / self.t2.ccxt_price
         if display:
             general_log.info("update_pricing: %s btc_p: %s, %s btc_p: %s, %s/%s price: %s" % (
@@ -245,124 +299,162 @@ class Pair:
                 self.t1.symbol, self.t2.symbol, self.price
             ))
 
-    def _ensure_token_prices(self):
-        while self.t1.ccxt_price is None:
-            self.t1.update_ccxt_price()
-        while self.t2.ccxt_price is None:
-            self.t2.update_ccxt_price()
-
     def read_pair_dex_last_order_history(self):
+        # print(self.dex_enabled)
         if self.dex_enabled:
-            filename = f'{init.ROOT_DIR}/data/{self.strategy}_{self.t1.symbol}_{self.t2.symbol}_last_order.pic'
             try:
-                with open(filename, 'rb') as fp:
+                with open(
+                        init.ROOT_DIR + '/data/' + self.strategy + '_' + self.t1.symbol + '_' + self.t2.symbol + '_last_order.pic',
+                        'rb') as fp:
                     self.order_history = pickle.load(fp)
             except FileNotFoundError:
-                general_log.info(f"File not found: {filename}")
+                general_log.info(f"File not found: {self.strategy}_{self.t1.symbol}_{self.t2.symbol}_last_order.pic")
             except Exception as e:
-                general_log.error(f"read_pair_last_order_history: {type(e).__name__}, {e}")
+                general_log.error(f"read_pair_last_order_history: {type(e)}, {e}")
                 self.order_history = None
+                # pass
 
     def write_pair_dex_last_order_history(self):
-        filename = f'{init.ROOT_DIR}/data/{self.strategy}_{self.t1.symbol}_{self.t2.symbol}_last_order.pic'
         try:
-            with open(filename, 'wb') as fp:
+            with open(
+                    init.ROOT_DIR + '/data/' + self.strategy + '_' + self.t1.symbol + '_' + self.t2.symbol + '_last_order.pic',
+                    'wb') as fp:
                 pickle.dump(self.order_history, fp)
         except Exception as e:
-            general_log.error(f'Error writing pair last order history: {type(e)}, {e}')
+            print('error write_pair_last_order_history:', type(e), e)
+            # pass
 
     def create_dex_virtual_sell_order(self, display=True, manual_dex_price=None):
-        self.current_order = {
-            'symbol': self.symbol,
-            'manual_dex_price': bool(manual_dex_price),
-            'side': 'SELL',
-            'maker': self.t1.symbol,
-            'maker_address': self.t1.xb_address,
-            'taker': self.t2.symbol,
-            'taker_address': self.t2.xb_address,
-            'type': 'exact',
-        }
+        # MADE FOR PINGPONG STRAT
+        # SELL BLOCK BUY LTC
+        #       T1       T2
+        self.current_order = None
+        try:
+            self.current_order = {
+                'symbol': self.symbol,
+                'manual_dex_price': bool(manual_dex_price),
+                'side': 'SELL',
+                'maker': self.t1.symbol,
+                'maker_address': self.t1.xb_address,
+                'taker': self.t2.symbol,
+                'taker_address': self.t2.xb_address,
+                'type': 'exact',
+            }
 
-        price = manual_dex_price or self._calculate_sell_price()
-        amount = self._calculate_sell_amount()
+            if manual_dex_price:
+                price = manual_dex_price
+            else:
+                price = self.min_sell_price_usd / self.t2.usd_price if self.min_sell_price_usd and self.t1.usd_price < self.min_sell_price_usd else self.price
 
-        if self.partial_percent:
-            minimum_size = amount * self.partial_percent
+            if self.strategy == 'basic_seller':
+                amount = self.amount_token_to_sell
+                spread = self.ccxt_sell_price_upscale
+            else:
+                amount = init.config_pp.usd_amount_custom.get(
+                    self.symbol, init.config_pp.usd_amount_default) / (self.t1.ccxt_price * init.t['BTC'].usd_price)
+                spread = init.config_pp.sell_price_offset
+
+            if self.partial_percent:
+                minimum_size = amount * self.partial_percent
+                self.current_order.update({
+                    'type': 'partial',
+                    'minimum_size': minimum_size,
+                })
             self.current_order.update({
-                'type': 'partial',
-                'minimum_size': minimum_size,
+                'maker_size': amount,
+                'taker_size': amount * (price * (1 + spread)),
+                'dex_price': (amount * (price * (1 + spread))) / amount,
+                'org_pprice': price,
+                'org_t1price': self.t1.ccxt_price,
+                'org_t2price': self.t2.ccxt_price,
             })
 
-        self.current_order.update({
-            'maker_size': amount,
-            'taker_size': amount * (price * (1 + self._calculate_spread())),
-            'dex_price': (amount * (price * (1 + self._calculate_spread()))) / amount,
-            'org_pprice': price,
-            'org_t1price': self.t1.ccxt_price,
-            'org_t2price': self.t2.ccxt_price,
-        })
-
-    def _calculate_sell_price(self):
-        if self.strategy == 'basic_seller' and self.t1.usd_price < self.min_sell_price_usd:
-            return self.min_sell_price_usd / self.t2.usd_price
-        return self.price
-
-    def _calculate_sell_amount(self):
-        if self.strategy == 'basic_seller':
-            return self.amount_token_to_sell
-        return init.config_pp.usd_amount_custom.get(self.symbol, init.config_pp.usd_amount_default) / (self.t1.ccxt_price * init.t['BTC'].usd_price)
-
-    def _calculate_spread(self):
-        if self.strategy == 'basic_seller':
-            return self.ccxt_sell_price_upscale
-        return init.config_pp.sell_price_offset
+        except Exception as e:
+            general_log.error(f"Error in create_virtual_sell_order: {type(e).__name__}, {e}")
+            exit()
 
     def create_dex_virtual_buy_order(self, display=True, manual_dex_price=False):
-        if self.strategy != 'pingpong':
-            general_log.error(f"Bot strategy is {self.strategy}, no rule for this strat on create_dex_virtual_buy_order")
-            return
+        # MADE FOR PINGPONG STRAT
+        # BUY ALWAYS COME AFTER A SELL FIRST, USE SELL ORDER AMOUNT (manual_dex_price).
+        # SELL LTC BUY BLOCK
+        #       T2       T1
+        self.current_order = None
+        if self.strategy == 'pingpong':
+            try:
+                self.current_order = {}
+                self.current_order['symbol'] = self.symbol
 
-        self.current_order = {
-            'symbol': self.symbol,
-            'side': 'BUY',
-            'manual_dex_price': manual_dex_price,
-            'maker': self.t2.symbol,
-            'maker_address': self.t2.xb_address,
-            'taker': self.t1.symbol,
-            'taker_address': self.t1.xb_address,
-            'type': 'exact',
-        }
+                if manual_dex_price:
+                    price = self.price if self.price < self.order_history['dex_price'] else self.order_history[
+                        'dex_price']
+                else:
+                    price = self.price
 
-        price = self._calculate_buy_price(manual_dex_price)
-        amount = float(self.order_history['maker_size'])
-        spread = init.config_pp.spread_custom.get(self.symbol, init.config_pp.spread_default)
+                self.current_order['manual_dex_price'] = manual_dex_price
 
-        self.current_order.update({
-            'maker_size': amount * price * (1 - spread),
-            'taker_size': amount,
-            'dex_price': (amount * price * (1 - spread)) / amount,
-            'org_pprice': price,
-            'org_t1price': self.t1.ccxt_price,
-            'org_t2price': self.t2.ccxt_price,
-        })
+                amount = float(self.order_history['maker_size'])
+                spread = init.config_pp.spread_custom.get(self.symbol, init.config_pp.spread_default)
 
-    def _calculate_buy_price(self, manual_dex_price):
-        if manual_dex_price:
-            return min(self.price, self.order_history['dex_price'])
-        return self.price
+                self.current_order['side'] = 'BUY'
+                self.current_order['maker'] = self.t2.symbol
+                self.current_order['maker_size'] = amount * price * (1 - spread)
+                self.current_order['maker_address'] = self.t2.xb_address
+                self.current_order['taker'] = self.t1.symbol
+                self.current_order['taker_size'] = amount
+                self.current_order['taker_address'] = self.t1.xb_address
+                self.current_order['type'] = 'exact'
+                # self.current_order['dryrun'] = True
+                self.current_order['dex_price'] = self.current_order['maker_size'] / self.current_order['taker_size']
+                self.current_order['org_pprice'] = price
+                self.current_order['org_t1price'] = self.t1.ccxt_price
+                self.current_order['org_t2price'] = self.t2.ccxt_price
+
+                # Rest of the function...
+
+            except Exception as e:
+                general_log.error(f"Error in create_virtual_buy_order: {type(e).__name__}, {e}")
+                exit()
+        else:
+            general_log.error(
+                f"Bot strategy is {self.strategy}, no rule for this strat on create_dex_virtual_buy_order")
 
     def check_price_in_range(self, display=False):
         self.variation = None
         general_log.debug("Entering check_price_in_range_ancient")
 
-        price_variation_tolerance = self._get_price_variation_tolerance()
+        if self.strategy == 'pingpong':
+            price_variation_tolerance = init.config_pp.price_variation_tolerance
+        elif self.strategy == 'basic_seller':
+            price_variation_tolerance = 0.01
+            # TODO: ADD PARAMETERS INPUT for 'basic_seller' if needed
+
+        general_log.debug(f"Strategy: {self.strategy}, Price Variation Tolerance: {price_variation_tolerance}")
 
         if 'side' in self.current_order and self.current_order['manual_dex_price'] is True:
-            var = self._calculate_manual_price_variation()
+            general_log.debug("Manual DEX price is True and 'side' is present")
+            if self.current_order['side'] == 'BUY' and self.price < self.order_history['org_pprice']:
+                var = float(self.price / self.current_order['org_pprice'])
+            elif self.current_order['side'] == 'SELL' and self.price > self.order_history['org_pprice']:
+                var = float(self.price / self.current_order['org_pprice'])
+            else:
+                var = 1
+                general_log.debug("Var set to 1")
+            general_log.debug(f"Var calculated based on '{self.current_order['side']}' side {var}")
         else:
-            var = self._calculate_auto_price_variation()
+            general_log.debug("Manual DEX price is False or 'side' is not present")
+            # Calculate var based on strategy and conditions
+            if self.strategy == 'basic_seller' and self.t1.usd_price < self.min_sell_price_usd:
+                var = (self.min_sell_price_usd / self.t2.usd_price) / self.current_order['org_pprice']
+                general_log.debug("Var calculated based on 'basic_seller' strategy and condition")
+            else:
+                var = float(self.price / self.current_order['org_pprice'])
+                general_log.debug("Var calculated based on default strategy")
 
-        self._set_variation(var)
+        general_log.debug(f"Calculated Var: {var}")
+        if isinstance(var, float):
+            self.variation = float("{:.3f}".format(var))
+        else:
+            self.variation = [float("{:.3f}".format(self.price / self.current_order['org_pprice']))]
 
         if display:
             general_log.info(
@@ -374,60 +466,34 @@ class Pair:
                 f"Ratio: {self.price / self.current_order['org_pprice']}"
             )
 
-        return 1 - price_variation_tolerance < var < 1 + price_variation_tolerance
-
-    def _get_price_variation_tolerance(self):
-        if self.strategy == 'pingpong':
-            return init.config_pp.price_variation_tolerance
-        if self.strategy == 'basic_seller':
-            return 0.01
-
-    def _calculate_manual_price_variation(self):
-        if self.current_order['side'] == 'BUY' and self.price < self.order_history['org_pprice']:
-            return float(self.price / self.current_order['org_pprice'])
-        if self.current_order['side'] == 'SELL' and self.price > self.order_history['org_pprice']:
-            return float(self.price / self.current_order['org_pprice'])
-        return 1
-
-    def _calculate_auto_price_variation(self):
-        if self.strategy == 'basic_seller' and self.t1.usd_price < self.min_sell_price_usd:
-            return (self.min_sell_price_usd / self.t2.usd_price) / self.current_order['org_pprice']
-        return float(self.price / self.current_order['org_pprice'])
-
-    def _set_variation(self, var):
-        if isinstance(var, float):
-            self.variation = float(f"{var:.3f}")
+        # Check if the price is in range
+        if 1 - price_variation_tolerance < var < 1 + price_variation_tolerance:
+            general_log.debug("Price in range")
+            return True
         else:
-            self.variation = [float(f"{self.price / self.current_order['org_pprice']:.3f}")]
+            general_log.debug("Price not in range")
+            return False
 
     def init_virtual_order(self, disabled_coins=None, display=True):
         if disabled_coins and (self.t1.symbol in disabled_coins or self.t2.symbol in disabled_coins):
             self.disabled = True
-            general_log.info(f'{self.symbol} disabled due to cc checks: {disabled_coins}')
-            return
-
+            general_log.info(self.symbol + ' disabled due to cc checks: ' + str(disabled_coins))
         if not self.disabled:
-            if self._is_initial_order():
+            if (self.order_history is None or "basic_seller" in self.strategy or
+                    ('side' in self.order_history and self.order_history['side'] == 'BUY')):
                 self.create_dex_virtual_sell_order()
-            elif self._is_buy_side_order():
+            elif 'side' in self.order_history and self.order_history['side'] == 'SELL':
                 self.create_dex_virtual_buy_order(manual_dex_price=True)
             else:
-                general_log.error(f'Error during init_order\n{self.order_history}')
+                general_log.error('error during init_order\n' + str(self.order_history))
                 exit()
-
             if display:
-                general_log.info(f"init_virtual_order, Prices: {self.symbol} {self._format_prices()}")
-
+                general_log.info("init_virtual_order, Prices: %s %s %s" % (
+                    self.symbol + str(["{:.8f}".format(self.price)]),
+                    self.t1.symbol + '/USD' + str(["{:.2f}".format(self.t1.usd_price)]),
+                    self.t2.symbol + '/USD' + str(["{:.2f}".format(self.t2.usd_price)])
+                ))
             general_log.info(f"current_order: {self.current_order}")
-
-    def _is_initial_order(self):
-        return self.order_history is None or "basic_seller" in self.strategy or (self._is_buy_side_order())
-
-    def _is_buy_side_order(self):
-        return 'side' in self.order_history and self.order_history['side'] == 'BUY'
-
-    def _format_prices(self):
-        return f"{self.symbol} [{self.price:.8f}], {self.t1.symbol}/USD [{self.t1.usd_price:.2f}], {self.t2.symbol}/USD [{self.t2.usd_price:.2f}]"
 
     def dex_cancel_myorder(self):
         if self.dex_order and 'id' in self.dex_order:
@@ -440,44 +506,63 @@ class Pair:
 
         if not self.disabled:
             maker = self.current_order['maker']
-            maker_size = f"{self.current_order['maker_size']:.6f}"
+            maker_size = "{:.6f}".format(self.current_order['maker_size'])
 
-            bal = self._get_balance()
-            valid = self._is_valid_balance(bal, maker_size)
+            bal = self.t2.dex_free_balance if self.current_order['side'] == "BUY" else self.t1.dex_free_balance
+            valid = bal is not None and maker_size.replace('.', '').isdigit()
 
             general_log.debug(f"dex_create_order, maker: {maker}, maker_size: {maker_size}, bal: {bal}, valid: {valid}")
 
-            if valid and float(bal) > float(maker_size):
-                order_func = self._get_order_func()
-                order_args = (maker, maker_size, self.current_order['maker_address'],
-                              self.current_order['taker'], f"{self.current_order['taker_size']:.6f}",
-                              self.current_order['taker_address'])
+            if valid:
+                if float(bal) > float(maker_size):
+                    maker_address = self.current_order['maker_address']
+                    taker = self.current_order['taker']
+                    taker_size = "{:.6f}".format(self.current_order['taker_size'])
+                    taker_address = self.current_order['taker_address']
+                    if self.partial_percent:
+                        minimum_size = "{:.6f}".format(self.current_order['minimum_size'])
+                    general_log.info(
+                        f"dex_create_order, Creating order. maker: {maker}, maker_size: {maker_size}, bal: {bal}")
 
-                if not dry_mode:
-                    self.dex_order = order_func(*order_args)
-                    self._handle_order_error()
+                    if not dry_mode:
+                        if self.partial_percent:
+                            order = xb.makepartialorder(maker, maker_size, maker_address, taker, taker_size,
+                                                        taker_address, minimum_size)
+                        else:
+                            order = xb.makeorder(maker, maker_size, maker_address, taker, taker_size, taker_address)
+                        self.dex_order = order
+                        if self.dex_order and 'error' in self.dex_order:
+                            if 'code' in self.dex_order and self.dex_order['code'] not in {1019, 1018, 1026, 1032}:
+                                # {'error': 'Insufficient funds for XXX', 'code': 1019, 'name': 'dxMakeOrder'}
+                                # can happens when bot try to post lot of orders / or other bots interfering.
+                                # {'error': 'No session for currency Unable to connect to wallet: XXX',
+                                # 'code': 1018, 'name': 'dxMakeOrder'}
+                                # can happens if coin doesn't respond for a while
+                                # {'error': 'Bad address XXX', 'code': 1026, 'name': 'dxMakeOrder'}
+                                # wallet still locked ?
+                                # {'error': 'Could not find a service node with required services: ', 'code': 1032, 'name': 'dxMakeOrder'}
+                                # wallet is still connecting ?
+                                self.disabled = True
+                            general_log.error(
+                                f"Error making order on Pair {self.symbol}, disabled: {self.disabled}, {self.dex_order}")
+                    else:
+                        msg = f"xb.makeorder({maker}, {maker_size}, {maker_address}, {taker}, {taker_size}, {taker_address})"
+                        general_log.info(f"dex_create_order, Dry mode enabled. {msg}")
+                        print(f"{bcolors.mycolor.OKBLUE}{msg}{bcolors.mycolor.ENDC}")
                 else:
-                    general_log.info(f"dex_create_order, Dry mode enabled. xb.makeorder{order_args}")
-                    print(f"{bcolors.mycolor.OKBLUE}xb.makeorder{order_args}{bcolors.mycolor.ENDC}")
+                    general_log.error(f"dex_create_order, balance too low: {bal}, need: {maker_size} {maker}")
             else:
-                general_log.error(f'dex_create_order, balance too low: {bal}, need: {maker_size} {maker}')
-
-    def _get_balance(self):
-        return self.t2.dex_free_balance if self.current_order['side'] == "BUY" else self.t1.dex_free_balance
-
-    def _is_valid_balance(self, bal, maker_size):
-        return bal is not None and maker_size.replace('.', '').isdigit()
-
-    def _get_order_func(self):
-        return xb.makepartialorder if self.partial_percent else xb.makeorder
-
-    def _handle_order_error(self):
-        if self.dex_order and 'error' in self.dex_order:
-            if self.dex_order.get('code') not in {1019, 1018, 1026, 1032}:
-                self.disabled = True
-            general_log.error(f"Error making order on Pair {self.symbol}, disabled: {self.disabled}, {self.dex_order}")
+                general_log.error(f"dex_create_order, valid=False, bal={bal}, maker_size={maker_size}")
 
     def dex_check_order_status(self) -> int:
+        """
+        Return:
+            2: INPROGRESS,
+            1: FINISHED,
+            0: OPEN,
+            -1: ERROR,
+            -2: CANCELLED WITHOUT CALL.
+        """
         done = False
         counter = 0
         max_count = 3
@@ -487,69 +572,68 @@ class Pair:
                 local_dex_order = xb.getorderstatus(self.dex_order['id'])
             except Exception as e:
                 general_log.error("Error in dex_check_order_status: %s %s\n%s", type(e), e, self.dex_order)
-
             if 'status' in local_dex_order:
                 done = True
             else:
                 counter += 1
                 if counter == max_count:
-                    return self._handle_max_count_exceeded(local_dex_order)
+                    general_log.error("Error in dex_check_order_status: 'status' not in order.")
+                    general_log.error(f"Symbol: {self.symbol}, Error: {local_dex_order.get('error')}")
+                    general_log.error(f"Current Order: {self.current_order}")
+                    general_log.error(f"Dex Order: {self.dex_order}")
+                    if self.strategy in ['pingpong', 'basic_seller']:
+                        self.dex_order = None
+                        return -2  # LOST TRACK, CONSIDER IT CANCELLED
                 else:
-                    general_log.warning(f"dex_check_order_status, 'status' not in order, counter: {counter}")
+                    general_log.warning("dex_check_order_status, 'status' not in order, counter: " + str(counter))
                     time.sleep(counter)
 
         self.dex_order = local_dex_order
-        return self._map_status_to_code()
-
-    def _handle_max_count_exceeded(self, local_dex_order):
-        general_log.error(f"Error in dex_check_order_status: 'status' not in order.\n{local_dex_order.get('error')}")
-        general_log.error(f"Symbol: {self.symbol}, Current Order: {self.current_order}, Dex Order: {self.dex_order}")
-        if self.strategy in ['pingpong', 'basic_seller']:
-            self.dex_order = None
-            return STATUS_CANCELLED_WITHOUT_CALL
-        return STATUS_ERROR_SWAP
-
-    def _map_status_to_code(self):
         status_mapping = {
-            "open": STATUS_OPEN,
-            "new": STATUS_OPEN,
-            "created": STATUS_OTHERS,
-            "initialized": STATUS_OTHERS,
-            "committed": STATUS_OTHERS,
-            "finished": STATUS_FINISHED,
-            "expired": STATUS_ERROR_SWAP,
-            "offline": STATUS_ERROR_SWAP,
-            "canceled": STATUS_CANCELLED_WITHOUT_CALL,
-            "invalid": STATUS_ERROR_SWAP,
-            "rolled back": STATUS_ERROR_SWAP,
-            "rollback failed": STATUS_ERROR_SWAP
+            "open": 0,
+            "new": 0,
+            "created": 2,
+            "initialized": 2,
+            "committed": 2,
+            "finished": 1,
+            "expired": -1,
+            "offline": -1,
+            "canceled": -2,
+            "invalid": -1,
+            "rolled back": -1,
+            "rollback failed": -1
         }
-        return status_mapping.get(self.dex_order.get('status'), STATUS_OPEN)
+        return status_mapping.get(self.dex_order.get('status'), 0)
 
     def check_price_variation(self, disabled_coins, display=False):
-        if 'side' in self.current_order and not self.check_price_in_range(display=display):
-            msg = (f"check_price_variation, {self.symbol}, variation: {self.variation:.3f}, "
-                   f"{self.dex_order['status']}, live_price: {self.price:.8f}, "
-                   f"order_price: {self.current_order['dex_price']:.8f}")
-            print(f"{bcolors.mycolor.WARNING}{msg}{bcolors.mycolor.ENDC}")
-            self.dex_cancel_myorder()
+        global star_counter
+        if 'side' in self.current_order and self.check_price_in_range(display=display) is False:
 
+            msg = "check_price_variation, " + self.symbol + ", variation: " + "{:.3f}".format(self.variation) + \
+                  ', ' + self.dex_order['status'] + ", live_price: " + "{:.8f}".format(self.price) + \
+                  ", order_price: " + "{:.8f}".format(self.current_order['dex_price'])
+            print(f"{bcolors.mycolor.WARNING}{msg}{bcolors.mycolor.ENDC}")
+            if self.dex_order:
+                msg = "check_price_variation, dex cancel: " + self.dex_order['id']
+                print(f"{bcolors.mycolor.WARNING}{msg}{bcolors.mycolor.ENDC}")
+                # general_log.info()
+                self.dex_cancel_myorder()
             if self.strategy == 'pingpong':
                 self.init_virtual_order(disabled_coins)
                 if not self.dex_order:
                     self.dex_create_order()
+
             elif self.strategy == 'basic_seller':
                 self.create_dex_virtual_sell_order()
-                if not self.dex_order:
+                if self.dex_order is None:
                     self.dex_create_order(dry_mode=False)
 
     def status_check(self, disabled_coins=None, display=False, partial_percent=None):
         self.update_pricing()
-
         status = None
+
         if self.disabled:
             general_log.info(f"Pair {self.symbol} Disabled, error: {self.dex_order}")
-            return
 
         if self.dex_order and 'id' in self.dex_order:
             status = self.dex_check_order_status()
@@ -563,7 +647,6 @@ class Pair:
             STATUS_FINISHED: lambda: self.dex_order_finished(disabled_coins),
             STATUS_OTHERS: lambda: self.check_price_in_range(display=display),
             STATUS_ERROR_SWAP: self.handle_status_error_swap,
-            STATUS_CANCELLED_WITHOUT_CALL: self.handle_status_cancelled_without_call,
         }
 
         status_handlers.get(status, self.handle_status_default)()
@@ -598,18 +681,17 @@ class Pair:
     def dex_order_finished(self, disabled_coins):
         msg = f"order FINISHED: {self.dex_order['id']}"
         general_log.info(msg)
+        # general_log.info(self.current_order)
+        # general_log.info(self.dex_order)
         trade_log.info(msg)
         trade_log.info(self.current_order)
         trade_log.info(self.dex_order)
-
         self.order_history = self.current_order
         self.write_pair_dex_last_order_history()
-
         if self.dex_order['taker'] == self.t1.symbol:
             self.t1.dx_request_addr()
         elif self.dex_order['taker'] == self.t2.symbol:
             self.t2.dx_request_addr()
-
         if self.strategy == 'pingpong':
             self.init_virtual_order(disabled_coins)
             self.dex_create_order()
