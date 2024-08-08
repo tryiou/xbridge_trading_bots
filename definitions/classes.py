@@ -346,9 +346,14 @@ class Pair:
             else:
                 price = self.min_sell_price_usd / self.t2.usd_price if self.min_sell_price_usd and self.t1.usd_price < self.min_sell_price_usd else self.price
 
-            amount = self.amount_token_to_sell if self.strategy == 'basic_seller' else init.config_pp.usd_amount_custom.get(
-                self.symbol, init.config_pp.usd_amount_default) / (self.t1.ccxt_price * init.t['BTC'].usd_price)
-            spread = init.config_pp.sell_price_offset
+            if self.strategy == 'basic_seller':
+                amount = self.amount_token_to_sell
+                spread = self.ccxt_sell_price_upscale
+            else:
+                amount = init.config_pp.usd_amount_custom.get(
+                    self.symbol, init.config_pp.usd_amount_default) / (self.t1.ccxt_price * init.t['BTC'].usd_price)
+                spread = init.config_pp.sell_price_offset
+
             if self.partial_percent:
                 minimum_size = amount * self.partial_percent
                 self.current_order.update({
