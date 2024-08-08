@@ -184,7 +184,8 @@ class Token:
 
             cex_symbol = "BTC/USD" if self.symbol == "BTC" else f"{self.symbol}/BTC"
 
-            lastprice_string = "lastPrice" if init.my_ccxt.id == "binance" else "lastTradeRate"
+            lastprice_string = "last" if init.my_ccxt.id == "kucoin" else ("lastPrice" if init.my_ccxt.id == "binance" else "lastTradeRate")
+
             if self.symbol in config_coins.usd_ticker_custom:
                 result = config_coins.usd_ticker_custom[self.symbol] / init.t['BTC'].usd_price
             elif cex_symbol in init.my_ccxt.symbols:

@@ -43,7 +43,8 @@ def update_ccxt_prices(tokens_dict, ccxt_i):
         while not done:
             try:
                 tickers = ccxt_def.ccxt_call_fetch_tickers(ccxt_i, keys)
-                lastprice_string = "lastPrice" if ccxt_i.id == "binance" else "lastTradeRate"
+                lastprice_string = "last" if ccxt_i.id == "kucoin" else ("lastPrice" if ccxt_i.id == "binance" else "lastTradeRate")
+                # lastprice_string = "lastPrice" if ccxt_i.id == "binance" else "lastTradeRate"
                 for token in [token for token in tokens_dict if token != 'BLOCK']:
                     symbol = f"{tokens_dict[token].symbol}/USDT" if (tokens_dict[token].symbol == 'BTC') \
                         else f"{tokens_dict[token].symbol}/BTC"

@@ -95,7 +95,8 @@ class General:
             keys.insert(0, keys.pop(keys.index('BTC/USDT')))
             try:
                 tickers = ccxt_def.ccxt_call_fetch_tickers(self.ccxt_i, keys)
-                lastprice_string = "lastPrice" if self.ccxt_i.id == "binance" else "lastTradeRate"
+                # lastprice_string = "lastPrice" if self.ccxt_i.id == "binance" else "lastTradeRate"
+                lastprice_string = "last" if init.my_ccxt.id == "kucoin" else ("lastPrice" if init.my_ccxt.id == "binance" else "lastTradeRate")
                 # Manage BLOCK token separately
                 for token in [token for token in self.tokens_dict if token not in custom_coins]:
                     symbol = f"{self.tokens_dict[token].symbol}/USDT" if (self.tokens_dict[token].symbol == 'BTC') else f"{self.tokens_dict[token].symbol}/BTC"
