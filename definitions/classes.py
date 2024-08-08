@@ -135,8 +135,7 @@ class Token:
 
         if self.ccxt_price_timer is None or time.time() - self.ccxt_price_timer > update_ccxt_price_delay:
             cex_symbol = "BTC/USD" if self.symbol == "BTC" else f"{self.symbol}/BTC"
-            lastprice_string = "last" if init.my_ccxt.id == "kucoin" else (
-                "lastPrice" if init.my_ccxt.id == "binance" else "lastTradeRate")
+            lastprice_string = "last" if init.my_ccxt.id == "kucoin" else ("lastPrice" if init.my_ccxt.id == "binance" else "lastTradeRate")
 
             if self.symbol in config_coins.usd_ticker_custom:
                 result = config_coins.usd_ticker_custom[self.symbol] / init.t['BTC'].usd_price
@@ -154,8 +153,7 @@ class Token:
                 self.ccxt_price = 1 if self.symbol == "BTC" else result
                 self.usd_price = result if self.symbol == "BTC" else result * init.t['BTC'].usd_price
                 self.ccxt_price_timer = time.time()
-                general_log.debug(
-                    f"new pricing {self.symbol} {self.ccxt_price} {self.usd_price} USD PRICE {init.t['BTC'].usd_price}")
+                general_log.debug(f"new pricing {self.symbol} {self.ccxt_price} {self.usd_price} USD PRICE {init.t['BTC'].usd_price}")
 
         elif display:
             print('Token.update_ccxt_price()', 'too fast call?', self.symbol)
@@ -312,8 +310,7 @@ class Pair:
     def _calculate_sell_amount(self):
         if self.strategy == 'basic_seller':
             return self.amount_token_to_sell
-        return init.config_pp.usd_amount_custom.get(self.symbol, init.config_pp.usd_amount_default) / (
-                    self.t1.ccxt_price * init.t['BTC'].usd_price)
+        return init.config_pp.usd_amount_custom.get(self.symbol, init.config_pp.usd_amount_default) / (self.t1.ccxt_price * init.t['BTC'].usd_price)
 
     def _calculate_spread(self):
         if self.strategy == 'basic_seller':
@@ -322,8 +319,7 @@ class Pair:
 
     def create_dex_virtual_buy_order(self, display=True, manual_dex_price=False):
         if self.strategy != 'pingpong':
-            general_log.error(
-                f"Bot strategy is {self.strategy}, no rule for this strat on create_dex_virtual_buy_order")
+            general_log.error(f"Bot strategy is {self.strategy}, no rule for this strat on create_dex_virtual_buy_order")
             return
 
         self.current_order = {
