@@ -28,12 +28,12 @@ def setup_logger(strategy=None):
 
     if strategy:
         general_log = setup_logging(name="GENERAL_LOG",
-                                          log_file=init.ROOT_DIR + '/logs/' + strategy + '_general.log',
-                                          level=logging.INFO, console=True)
+                                    log_file=init.ROOT_DIR + '/logs/' + strategy + '_general.log',
+                                    level=logging.INFO, console=True)
         general_log.propagate = False
         trade_log = setup_logging(name="TRADE_LOG", log_file=init.ROOT_DIR + '/logs/' + strategy + '_trade.log',
-                                        level=logging.INFO,
-                                        console=False)
+                                  level=logging.INFO,
+                                  console=False)
     else:
         print("setup_logger(strategy=None)")
         exit()
@@ -657,8 +657,9 @@ class Pair:
     def handle_status_error_swap(self):
         general_log.error(f"Order Error:\n{self.current_order}\n{self.dex_order}")
         if self.strategy == 'pingpong':
-            xb.cancelallorders()
-            exit()
+            self.disabled = True
+            # xb.cancelallorders()
+            # os._exit(1)
 
     def handle_status_default(self):
         if not self.disabled:
