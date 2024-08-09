@@ -14,12 +14,6 @@ import definitions.init as init
 import definitions.logger as logger
 import definitions.xbridge_def as xb
 
-# STATUS_OPEN = 0
-# STATUS_FINISHED = 1
-# STATUS_OTHERS = 2
-# STATUS_ERROR_SWAP = -1
-# STATUS_CANCELLED_WITHOUT_CALL = -2
-
 general_log = None
 trade_log = None
 
