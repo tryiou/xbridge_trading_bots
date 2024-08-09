@@ -143,11 +143,11 @@ async def init_ccxt_instance(exchange: str, hostname: str = None, private_api: b
     if exchange in ccxt.exchanges:
         exchange_class = getattr(ccxt, exchange)
         instance = exchange_class({
-            'apiKey': api_key,
-            'secret': api_secret,
-            'enableRateLimit': True,
-            'hostname': hostname
-        } if hostname else {
+                                      'apiKey': api_key,
+                                      'secret': api_secret,
+                                      'enableRateLimit': True,
+                                      'hostname': hostname
+                                  } if hostname else {
             'apiKey': api_key,
             'secret': api_secret,
             'enableRateLimit': True
@@ -159,7 +159,8 @@ async def init_ccxt_instance(exchange: str, hostname: str = None, private_api: b
                 await instance.load_markets()
                 done = True
             except Exception as e:
-                print(f"{bcolors.mycolor.WARNING}{now()} proxy_ccxt_rpc_call init_ccxt_instance error: {e} {type(e)} {bcolors.mycolor.WARNING}")
+                print(
+                    f"{bcolors.mycolor.WARNING}{now()} proxy_ccxt_rpc_call init_ccxt_instance error: {e} {type(e)} {bcolors.mycolor.WARNING}")
                 await asyncio.sleep(5)
         return instance
     return None

@@ -98,7 +98,8 @@ class General:
     def _update_token_prices(self, tickers):
         lastprice_string = self._get_last_price_string()
         for token in [t for t in self.tokens_dict if t not in config_coins.usd_ticker_custom]:
-            symbol = f"{self.tokens_dict[token].symbol}/USDT" if self.tokens_dict[token].symbol == 'BTC' else f"{self.tokens_dict[token].symbol}/BTC"
+            symbol = f"{self.tokens_dict[token].symbol}/USDT" if self.tokens_dict[
+                                                                     token].symbol == 'BTC' else f"{self.tokens_dict[token].symbol}/BTC"
             self._update_token_price(tickers, symbol, lastprice_string, token)
 
         for token in config_coins.usd_ticker_custom:

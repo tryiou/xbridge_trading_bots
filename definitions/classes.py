@@ -366,7 +366,7 @@ class Pair:
         if self.strategy == 'basic_seller':
             return self.amount_token_to_sell, self.ccxt_sell_price_upscale
         amount = init.config_pp.usd_amount_custom.get(self.symbol, init.config_pp.usd_amount_default) / (
-                    self.t1.ccxt_price * init.t['BTC'].usd_price)
+                self.t1.ccxt_price * init.t['BTC'].usd_price)
         spread = init.config_pp.sell_price_offset
         return amount, spread
 
