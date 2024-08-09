@@ -106,15 +106,26 @@ def main_dx_update_bals(tokens_dict):
 
     for token, token_data in tokens_dict.items():
         if xb_tokens and token_data.symbol in xb_tokens:
-            utxos = xb.gettokenutxo(token, used=True)
-            bal = sum(float(utxo.get('amount', 0)) for utxo in utxos)
-            bal_free = sum(
-                float(utxo['amount']) for utxo in utxos
-                if 'orderid' in utxo and not utxo['orderid']
-            )
-            token_data.dex_total_balance = bal
-            token_data.dex_free_balance = bal_free
-            logging.info("Balance updated for %s: Total: %f, Free: %f", token, bal, bal_free)
+            try:
+                utxos = xb.gettokenutxo(token, used=True)
+                bal = 0.0
+                bal_free = 0.0
+                for utxo in utxos:
+                    # Ensure that utxo is a dictionary
+                    if isinstance(utxo, dict):
+                        bal += float(utxo.get('amount', 0))
+                        if 'orderid' in utxo and not utxo['orderid']:
+                            bal_free += float(utxo['amount'])
+                    else:
+                        logging.warning("Unexpected utxo format: %s", utxo)
+
+                token_data.dex_total_balance = bal
+                token_data.dex_free_balance = bal_free
+                logging.info("Balance updated for %s: Total: %f, Free: %f", token, bal, bal_free)
+            except Exception as e:
+                logging.error("Failed to update balance for %s: %s", token, str(e))
+                token_data.dex_total_balance = None
+                token_data.dex_free_balance = None
         else:
             token_data.dex_total_balance = None
             token_data.dex_free_balance = None

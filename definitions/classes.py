@@ -11,7 +11,8 @@ import config.config_coins as config_coins
 import definitions.bcolors as bcolors
 import definitions.ccxt_def as ccxt_def
 import definitions.init as init
-import definitions.logger as logger
+# import definitions.logger as logger
+from definitions.logger import setup_logging
 import definitions.xbridge_def as xb
 
 general_log = None
@@ -26,11 +27,11 @@ def setup_logger(strategy=None):
         return
 
     if strategy:
-        general_log = logger.setup_logger(name="GENERAL_LOG",
+        general_log = setup_logging(name="GENERAL_LOG",
                                           log_file=init.ROOT_DIR + '/logs/' + strategy + '_general.log',
                                           level=logging.INFO, console=True)
         general_log.propagate = False
-        trade_log = logger.setup_logger(name="TRADE_LOG", log_file=init.ROOT_DIR + '/logs/' + strategy + '_trade.log',
+        trade_log = setup_logging(name="TRADE_LOG", log_file=init.ROOT_DIR + '/logs/' + strategy + '_trade.log',
                                         level=logging.INFO,
                                         console=False)
     else:

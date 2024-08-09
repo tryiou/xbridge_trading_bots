@@ -3,7 +3,7 @@ import logging
 formatter = logging.Formatter('[%(asctime)s] %(levelname)s - %(message)s')  # '%(asctime)s %(levelname)s %(message)s')
 
 
-def setup_logger(name, log_file=None, level=logging.INFO, console=False):
+def setup_logging(name, log_file=None, level=logging.INFO, console=False):
     """To set up as many loggers as you want"""
     log_handle = logging.getLogger(name)
     log_handle.setLevel(level)

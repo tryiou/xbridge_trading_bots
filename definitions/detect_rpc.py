@@ -1,15 +1,13 @@
-import logging
 import os
 import platform
 import json
 import logging
-from definitions.logger import setup_logger
-import time
+from definitions.logger import setup_logging
 
 debug_level = 2
 
-autoconf_rpc_log = setup_logger(name="autoconf_rpc_log",
-                                level=logging.INFO, console=True)
+autoconf_rpc_log = setup_logging(name="autoconf_rpc_log",
+                                 level=logging.INFO, console=True)
 
 
 def load_config_path_from_json(json_path):
@@ -42,16 +40,14 @@ def get_default_config_path():
 
 
 def prompt_user_for_config_path():
-    config_path = ''
+    max_attempts = 2
+    attempt_count = 0
 
-    try:
+    def _prompt_with_dialog():
         from tkinter import filedialog, Tk
-        # from ttkbootstrap import Style
         import ttkbootstrap
-        from definitions.classes import Config
-        config_pp = Config.load_config("./config/config_pingpong.yaml")
         root = Tk()
-        style = ttkbootstrap.Style(theme=config_pp.ttk_theme)
+        style = ttkbootstrap.Style(theme="darkly")
         root.style = style
         root.withdraw()  # Hide the main window
         config_path = filedialog.askopenfilename(
@@ -61,15 +57,35 @@ def prompt_user_for_config_path():
         )
         root.destroy()
         ttkbootstrap.Style.instance = None
-        if config_path:
-            autoconf_rpc_log.debug(f'User selected config path: {config_path}')
-        else:
-            autoconf_rpc_log.warning('User canceled the file dialog')
+        return config_path
+
+    def _prompt_on_console():
+        return input("Enter the path to blocknet.conf: ")
+
+    while True:  # Keep asking until a valid path is provided or max attempts reached
+        attempt_count += 1
+        if attempt_count > max_attempts:
+            autoconf_rpc_log.error('Maximum attempts exceeded.')
             exit()
-    except ImportError:
-        autoconf_rpc_log.error('Tkinter or ttkbootstrap is not available. Asking for config path on terminal.')
-        time.sleep(0.1)
-        config_path = input("Enter the path to blocknet.conf: ")
+
+        try:
+            config_path = _prompt_with_dialog()
+        except ImportError:
+            config_path = _prompt_on_console()
+
+        if not config_path:
+            autoconf_rpc_log.warning('No path provided. Please enter the correct path.')
+            continue
+
+        if not os.path.basename(config_path) == 'blocknet.conf':
+            autoconf_rpc_log.warning('Selected file is not blocknet.conf. Please select the correct file.')
+        else:
+            break  # Valid path provided, exit loop
+
+    if config_path:
+        autoconf_rpc_log.debug(f'User selected config path: {config_path}')
+    else:
+        autoconf_rpc_log.warning('No valid path provided.')
 
     return config_path
 
@@ -81,24 +97,51 @@ def save_config_path_to_json(json_path, config_path):
 
 
 def read_config_file(config_path):
-    if config_path:  # Only try to open the file if the path is not an empty string
-        if os.path.exists(config_path):
-            autoconf_rpc_log.debug(f'Reading config file: {config_path}')
-            with open(config_path, 'r') as file:
-                config_content = file.readlines()
+    if not config_path:
+        autoconf_rpc_log.error('Config path is empty.')
+        exit()
 
-            for line in config_content:
-                if '=' in line:
-                    key, value = map(str.strip, line.split('=', 1))
-                    if key == 'rpcuser':
-                        rpc_user = value
-                    elif key == 'rpcpassword':
-                        rpc_password = value
-                    elif key == 'rpcport':
+    if os.path.exists(config_path):
+        autoconf_rpc_log.debug(f'Reading config file: {config_path}')
+        with open(config_path, 'r') as file:
+            lines = file.readlines()
+
+        config_content = [line.strip() for line in
+                          lines]  # Remove leading/trailing whitespace and newline characters from each line
+
+        rpc_user = None
+        rpc_password = None
+        rpc_port = None
+
+        for line in config_content:
+            if '=' in line:
+                key, value = map(str.strip, line.split('=', 1))
+                if key == 'rpcuser':
+                    rpc_user = value
+                elif key == 'rpcpassword':
+                    rpc_password = value
+                elif key == 'rpcport':
+                    try:
                         rpc_port = int(value)
-            autoconf_rpc_log.debug(f'Read config successfully')
+                    except ValueError:
+                        autoconf_rpc_log.warning(f'Invalid rpcport value: {value}')
+
+        if all([rpc_user, rpc_password, rpc_port]):
+            autoconf_rpc_log.debug('Read config successfully')
         else:
-            autoconf_rpc_log.warning(f'Config file not found: {config_path}')
+            missing_config_keys = []
+            if not rpc_user:
+                missing_config_keys.append('rpcuser')
+            if not rpc_password:
+                missing_config_keys.append('rpcpassword')
+            if not rpc_port:
+                missing_config_keys.append('rpcport')
+
+            autoconf_rpc_log.error(f'Missing keys in config file: {", ".join(missing_config_keys)}. Exiting.')
+            exit()
+
+    else:
+        autoconf_rpc_log.warning(f'Config file not found: {config_path}')
 
     return rpc_user, rpc_password, rpc_port
 
@@ -123,6 +166,8 @@ def detect_rpc():
     if not config_path or not os.path.exists(config_path):
         autoconf_rpc_log.error("No valid Blocknet Core Config path found.")
         exit()
+    else:
+        autoconf_rpc_log.info(f"Blocknet Core Config found at {config_path}")
 
     rpc_user, rpc_password, rpc_port = read_config_file(config_path)
 
