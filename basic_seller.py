@@ -12,10 +12,10 @@ import definitions.ccxt_def as ccxt_def
 
 # Set up logging
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.WARNING,
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[
-        logging.FileHandler("basic_seller.log"),
+        logging.FileHandler("logs/basic_seller.log"),
         logging.StreamHandler(sys.stdout)
     ]
 )
@@ -133,7 +133,7 @@ def main_dx_update_bals(tokens_dict):
 
 
 def thread_init(p):
-    logging.debug("Initializing thread for pair: %s", p)
+    logging.debug("Initializing thread for pair: %s", p.symbol)
     p.create_dex_virtual_sell_order()
     p.dex_create_order(dry_mode=False)
 
@@ -162,7 +162,7 @@ def main_init_loop(pairs_dict, tokens_dict, my_ccxt):
 
 
 def thread_loop(p):
-    logging.debug("Starting thread loop for pair: %s", p)
+    logging.debug("Starting thread loop for pair: %s", p.symbol)
     p.status_check(display=True)
 
 
