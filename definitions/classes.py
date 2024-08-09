@@ -446,10 +446,10 @@ class Pair:
 
     def _log_price_check(self, var):
         general_log.info(
-            f"check_price_in_range - {self.symbol} - var: {var}, "
-            f"s.variation: {self.variation}, Price: {self.price}, "
-            f"Org PPrice: {self.current_order['org_pprice']}, "
-            f"Ratio: {self.price / self.current_order['org_pprice']}"
+            f"check_price_in_range - {self.symbol} - var: {var:.4f}, "
+            f"s.variation: {self.variation:.4f}, Price: {self.price:.4f}, "
+            f"Org PPrice: {self.current_order['org_pprice']:.4f}, "
+            f"Ratio: {self.price / self.current_order['org_pprice']:.4f}"
         )
 
     def _is_price_in_range(self, var, price_variation_tolerance):
