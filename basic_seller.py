@@ -3,29 +3,46 @@ import signal
 import sys
 import time
 import traceback
+import logging
 from threading import Thread
 
 import definitions.xbridge_def as xb
 import definitions.init as init
 import definitions.ccxt_def as ccxt_def
 
+# Set up logging
+logging.basicConfig(
+    level=logging.DEBUG,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[
+        logging.FileHandler("basic_seller.log"),
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+logging.getLogger("urllib3").setLevel(logging.WARNING)
+logging.getLogger("requests").setLevel(logging.WARNING)
+logging.getLogger("ccxt").setLevel(logging.WARNING)
+
 
 class ValidatePercentArg(argparse.Action):
     def __call__(self, parser, namespace, values, option_string=None):
         if not 0.001 <= values < 1:
+            logging.error("Invalid argument: %s must be between 0.001 (inclusive) and 1 (exclusive).", self.dest)
             raise argparse.ArgumentError(self, "Value must be between 0.001 (inclusive) and 1 (exclusive).")
         setattr(namespace, self.dest, values)
 
 
 def cancel_my_order():
+    logging.info("Cancelling orders...")
     p = init.p
     for pair in p:
         if p[pair].dex_order:
+            logging.debug("Cancelling order for pair: %s", pair)
             p[pair].dex_cancel_myorder()
 
 
 def signal_handler(signal, frame):
-    print('You pressed Ctrl+C - or killed me with -2')
+    logging.warning("Signal received: %s. Exiting...", signal)
     cancel_my_order()
     sys.exit(0)
 
@@ -36,6 +53,7 @@ def update_ccxt_prices(tokens_dict, ccxt_i):
 
     if ccxt_price_timer is None or time.time() - ccxt_price_timer > ccxt_price_refresh:
         try:
+            logging.debug("Fetching CCXT prices...")
             keys = [
                 f"{token}/USDT" if token == 'BTC' else f"{token}/BTC"
                 for token in tokens_dict.keys() if token != 'BLOCK'
@@ -66,8 +84,9 @@ def update_ccxt_prices(tokens_dict, ccxt_i):
                         ccxt_price * tokens_dict['BTC'].usd_price
                         if token_data.symbol != 'BTC' else ccxt_price
                     )
+                    logging.info("Updated price for %s: %f USD", token, token_data.usd_price)
                 else:
-                    print("update_ccxt_prices, missing symbol in tickers:", [symbol], tickers)
+                    logging.warning("Missing symbol in tickers: %s", symbol)
                     token_data.ccxt_price = None
                     token_data.usd_price = None
 
@@ -77,10 +96,12 @@ def update_ccxt_prices(tokens_dict, ccxt_i):
             ccxt_price_timer = time.time()
 
         except Exception as e:
-            print("update_ccxt_prices error:", type(e), str(e))
+            logging.error("Error updating CCXT prices: %s", str(e))
+            logging.debug(traceback.format_exc())
 
 
 def main_dx_update_bals(tokens_dict):
+    logging.debug("Updating DX balances...")
     xb_tokens = xb.getlocaltokens()
 
     for token, token_data in tokens_dict.items():
@@ -93,12 +114,15 @@ def main_dx_update_bals(tokens_dict):
             )
             token_data.dex_total_balance = bal
             token_data.dex_free_balance = bal_free
+            logging.info("Balance updated for %s: Total: %f, Free: %f", token, bal, bal_free)
         else:
             token_data.dex_total_balance = None
             token_data.dex_free_balance = None
+            logging.warning("Token %s not found in local DX tokens", token)
 
 
 def thread_init(p):
+    logging.debug("Initializing thread for pair: %s", p)
     p.create_dex_virtual_sell_order()
     p.dex_create_order(dry_mode=False)
 
@@ -107,6 +131,7 @@ def main_init_loop(pairs_dict, tokens_dict, my_ccxt):
     enable_threading = False
     max_threads = 10
 
+    logging.debug("Entering main initialization loop")
     for key, p in pairs_dict.items():
         update_ccxt_prices(tokens_dict, my_ccxt)
         p.update_pricing()
@@ -126,6 +151,7 @@ def main_init_loop(pairs_dict, tokens_dict, my_ccxt):
 
 
 def thread_loop(p):
+    logging.debug("Starting thread loop for pair: %s", p)
     p.status_check(display=True)
 
 
@@ -134,6 +160,7 @@ def main_loop(pairs_dict, tokens_dict, my_ccxt):
     max_threads = 10
 
     start_time = time.perf_counter()
+    logging.debug("Starting main loop")
     main_dx_update_bals(tokens_dict)
 
     for key, p in pairs_dict.items():
@@ -153,19 +180,21 @@ def main_loop(pairs_dict, tokens_dict, my_ccxt):
             thread_loop(p)
 
     end_time = time.perf_counter()
-    print(f'loop took {end_time - start_time: 0.2f} second(s) to complete.')
+    logging.info('Main loop completed in %0.2f second(s)', end_time - start_time)
 
 
 def start(pair, tokens):
     flush_delay = 15 * 60
     flush_timer = None
 
+    logging.debug("Starting main operations")
     main_dx_update_bals(tokens)
     main_init_loop(pair, tokens, init.my_ccxt)
 
     while True:
         try:
             if flush_timer is None or time.time() - flush_timer > flush_delay:
+                logging.debug("Flushing cancelled orders...")
                 xb.dxflushcancelledorders()
                 flush_timer = time.time()
 
@@ -173,8 +202,8 @@ def start(pair, tokens):
             time.sleep(10)
 
         except Exception as e:
-            print(type(e), str(e), e.args)
-            traceback.print_exc()
+            logging.error("Fatal error: %s", str(e))
+            logging.debug(traceback.format_exc())
             cancel_my_order()
             sys.exit(1)
 
@@ -218,10 +247,9 @@ def main():
     ccxt_sell_price_upscale = args.SellPriceUpscale
     partial_value = args.partial
 
-    print("Sell", amount_token_to_sell, token_to_sell, "to", token_to_buy,
-          "// min_sell_price_usd:", min_sell_price_usd,
-          "// ccxt_sell_price_upscale", ccxt_sell_price_upscale,
-          "// partial value:", partial_value)
+    logging.info("Sell %f %s to %s // min_sell_price_usd: %f // ccxt_sell_price_upscale: %f // partial value: %s",
+                 amount_token_to_sell, token_to_sell, token_to_buy, min_sell_price_usd, ccxt_sell_price_upscale,
+                 partial_value)
 
     pair_symbol = f"{token_to_sell}/{token_to_buy}"
     ccxt_price_timer = None
