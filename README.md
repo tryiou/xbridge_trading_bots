@@ -4,8 +4,6 @@ Trading bots for Blocknet Xbridge.
 [Blocknet GitHub](https://github.com/blocknetdx/)  
 [Blocknet Documentation](https://docs.blocknet.org/protocol/xbridge/introduction/)
 
-Compatible with Python 3.10 and 3.11.  
-Python 3.12 currently fails to build packages.  
 Tested on Python 3.10.
 
 ## Installation
