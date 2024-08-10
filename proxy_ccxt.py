@@ -1,12 +1,16 @@
 import asyncio
-from aiohttp import web
-import config.ccxt_cfg as ccxt_cfg
-import definitions.bcolors as bcolors
 import time
 from datetime import datetime
+
 import requests
+from aiohttp import web
+
+import definitions.bcolors as bcolors
+from definitions.yaml_mix import YamlToObject
 
 refresh_interval = 15
+
+config_ccxt = YamlToObject("./config/config_ccxt.yaml")
 
 
 class CCXTServer:
@@ -32,7 +36,7 @@ class CCXTServer:
 
     async def init_task(self):
         self.task = asyncio.create_task(self.run_periodically(refresh_interval))
-        self.ccxt_i = await init_ccxt_instance(ccxt_cfg.ccxt_exchange, ccxt_cfg.ccxt_hostname)
+        self.ccxt_i = await init_ccxt_instance(config_ccxt.ccxt_exchange, config_ccxt.ccxt_hostname)
 
     async def refresh_tickers(self):
         done = False

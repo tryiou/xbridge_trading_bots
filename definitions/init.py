@@ -1,28 +1,26 @@
 import os
 
-from definitions.classes import setup_logger
+from definitions.yaml_mix import YamlToObject
 
 ROOT_DIR = os.path.abspath(os.curdir)
+config_ccxt = YamlToObject("./config/config_ccxt.yaml")
 
 
 def init_pingpong():
-    setup_logger("pingpong")
     global t, p, my_ccxt, config_pp
-    # , pairs_dict
-    from definitions.classes import Token, Pair, Config
-    # from config.config_pingpong import user_pairs
-    from config.ccxt_cfg import ccxt_exchange, ccxt_hostname
-    # from main_pingpong import main_dx_update_bals
+    from definitions.classes import Token, Pair, ConfigPP, setup_logger
     from definitions.ccxt_def import init_ccxt_instance
     import definitions.xbridge_def as xbridge_def
 
-    config_pp = Config.load_config("./config/config_pingpong.yaml")
+    setup_logger("pingpong")
+    config_pp = ConfigPP.load_config("./config/config_pingpong.yaml")
 
     print(config_pp)
     # from multiprocessing import shared_memory
     xbridge_def.dxloadxbridgeconf()
     # xbridge_def.proxy_init_storage()
-    my_ccxt = init_ccxt_instance(exchange=ccxt_exchange, hostname=ccxt_hostname, private_api=False)
+    my_ccxt = init_ccxt_instance(exchange=config_ccxt.ccxt_exchange, hostname=config_ccxt.ccxt_hostname,
+                                 private_api=False)
     # ACTIVE TOKENS LIST, KEEP BTC INSIDE EVEN IF UNUSED
     tokens = []
     sorted_pairs = sorted(config_pp.user_pairs)
@@ -75,25 +73,26 @@ def init_pairs_dict_arbtaker(tokens_dict, dex_markets, strategy):
     return pairs_dict
 
 
-def init_arbtaker():
-    global t, p, my_ccxt
-    from main_arbtaker import main_dx_get_markets
-    from definitions.ccxt_def import init_ccxt_instance
-    from config.config_arbtaker import ccxt_exchange_name, ccxt_exchange_hostname
-    setup_logger("arbtaker")
-    my_ccxt = init_ccxt_instance(exchange=ccxt_exchange_name, hostname=ccxt_exchange_hostname, private_api=True)
-    t = init_coins_dict_arbtaker()
-    dex_markets = main_dx_get_markets(t)
-    p = init_pairs_dict_arbtaker(tokens_dict=t, dex_markets=dex_markets, strategy="arbtaker")
+# def init_arbtaker():
+#     from definitions.classes import setup_logger
+#     global t, p, my_ccxt
+#     from main_arbtaker import main_dx_get_markets
+#     from definitions.ccxt_def import init_ccxt_instance
+#     setup_logger("arbtaker")
+#     my_ccxt = init_ccxt_instance(exchange=config_ccxt.ccxt_exchange_name, hostname=config_ccxt.ccxt_exchange_hostname,
+#                                  private_api=True)
+#     t = init_coins_dict_arbtaker()
+#     dex_markets = main_dx_get_markets(t)
+#     p = init_pairs_dict_arbtaker(tokens_dict=t, dex_markets=dex_markets, strategy="arbtaker")
 
 
 def init_basic_seller(tokens_list, amount_token_to_sell, min_sell_price_usd, ccxt_sell_price_upscale, partial_percent):
     global t, p, my_ccxt
-    from definitions.classes import Token, Pair
+    from definitions.classes import Token, Pair, setup_logger
     from definitions.ccxt_def import init_ccxt_instance
-    from config.ccxt_cfg import ccxt_hostname, ccxt_exchange
     setup_logger("basic_seller")
-    my_ccxt = init_ccxt_instance(exchange=ccxt_exchange, hostname=ccxt_hostname, private_api=False)
+    my_ccxt = init_ccxt_instance(exchange=config_ccxt.ccxt_exchange, hostname=config_ccxt.ccxt_hostname,
+                                 private_api=False)
     t = {}
     # [token_to_sell,token_to_buy]
     if "BTC" not in t.items():

@@ -1,10 +1,8 @@
 import time
 
-# import requests
 from requests import Session, HTTPError
 from requests.auth import HTTPBasicAuth
-# from requests import Session
-# import config.blocknet_rpc_cfg as config
+
 import definitions.bcolors as bcolors
 from definitions.detect_rpc import detect_rpc
 

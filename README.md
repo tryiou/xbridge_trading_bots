@@ -50,12 +50,14 @@ Tested on Python 3.10.
 The bot will automatically attempt to grab `blocknet.conf` RPC credentials and port when starting one of the scripts.
 
 - If the default chain directory path is used, it will pick from it and start.
-- If a custom path is used, a prompt box will appear asking for the `blocknet.conf` path, or a console prompt if Tkinter is not installed.
+- If a custom path is used, a prompt box will appear asking for the `blocknet.conf` path, or a console prompt if Tkinter
+  is not installed.
 - This custom path will be stored in the config folder for subsequent uses.
 
 ## Pingpong Bot
 
 The GUI version requires the Tkinter package. Installation guides can be found here:
+
 - [Tkinter for Mac](https://www.pythonguis.com/installation/install-tkinter-mac/)
 - [Tkinter for Linux](https://www.pythonguis.com/installation/install-tkinter-linux/)
 
@@ -86,7 +88,7 @@ Note: Python 3 for Windows already includes Tkinter.
     python basic_seller.py -tts BLOCK -ttb PIVX -atts 200 -mup 0.33 -spu 0.015
     ```
 
-    Options:
+   Options:
     - `-tts`  : Token to sell
     - `-ttb`  : Token to buy
     - `-atts` : Amount of Token to Sell

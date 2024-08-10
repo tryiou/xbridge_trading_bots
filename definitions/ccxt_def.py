@@ -4,10 +4,12 @@ import time
 
 import ccxt
 
-import config.ccxt_cfg as config
 import definitions.bcolors as bcolors
-from definitions import init
+from definitions.init import ROOT_DIR
 from definitions.xbridge_def import rpc_call
+from definitions.yaml_mix import YamlToObject
+
+config = YamlToObject('config/config_ccxt.yaml')
 
 
 def debug_display(func, params, result, debug=config.debug_level, timer=None):
@@ -29,7 +31,7 @@ def init_ccxt_instance(exchange, hostname=None, private_api=False):
     api_key = None
     api_secret = None
     if private_api:
-        with open(init.ROOT_DIR + '/config/api_keys.local.json') as json_file:
+        with open(ROOT_DIR + '/config/api_keys.local.json') as json_file:
             data_json = json.load(json_file)
             for data in data_json['api_info']:
                 if exchange in data['exchange']:

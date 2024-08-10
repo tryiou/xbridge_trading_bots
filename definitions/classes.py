@@ -1,17 +1,18 @@
 # from utils import dxbottools
 import logging
+import os
 import pickle
 import time
+
 import requests
 import yaml
-import os
 
 import definitions.bcolors as bcolors
 import definitions.ccxt_def as ccxt_def
 import definitions.init as init
-
-from definitions.logger import setup_logging
 import definitions.xbridge_def as xb
+from definitions.logger import setup_logging
+from definitions.yaml_mix import YamlToObject
 
 general_log = None
 trade_log = None
@@ -41,20 +42,10 @@ def setup_logger(strategy=None):
 
 star_counter = 0
 
-
-class ConfigCoins:
-    def __init__(self, yaml_path):
-        with open(yaml_path, 'r') as file:
-            config = yaml.safe_load(file)
-            # Dynamically set attributes based on YAML content
-            for key, value in config.items():
-                setattr(self, key, value)
+config_coins = YamlToObject('config/config_coins.yaml')
 
 
-config_coins = ConfigCoins('config/config_coins.yaml')
-
-
-class Config:
+class ConfigPP:
     def __init__(self, config_data=None):
         # Initialize with None values
         self.debug_level = None
@@ -120,12 +111,12 @@ class Config:
     def load_config(filename):
         if not os.path.exists(filename):
             # File does not exist, save default configuration
-            default_config = Config()
-            Config.save_config(default_config, filename)
+            default_config = ConfigPP()
+            ConfigPP.save_config(default_config, filename)
 
         with open(filename, 'r') as file:
             config_data = yaml.safe_load(file)
-        return Config(config_data)
+        return ConfigPP(config_data)
 
     @staticmethod
     def save_config(config, filename):

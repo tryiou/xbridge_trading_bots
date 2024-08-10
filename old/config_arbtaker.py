@@ -1,4 +1,4 @@
-# UNFINISHED PORT, DON'T USE RIGHT NOW.
+#  UNFINISHED PORT, DON'T USE RIGHT NOW.
 
 ccxt_exchange_name = "bittrex"
 ccxt_exchange_hostname = "global.bittrex.com"  # SET TO None TO USE CCXT DEFAULT
@@ -12,7 +12,7 @@ dry_mode = True  # TRUE WONT EXECUTE TRADE FOR REAL, JUST CONSOLE/LOG, FALSE FOR
 debug = 0  # DEBUGLEVEL
 dex_coins_disabled = ['RVN']  # THOSE COIN WILL BE EXCLUDED FROM TRADING
 min_profit = 1.075  # 1=100% # MINIMUM % PROFIT TO TRIGGER
-time_per_loop = 20 # SECONDS SLEEPING BETWEEN EACH BOT LOOP
+time_per_loop = 20  # SECONDS SLEEPING BETWEEN EACH BOT LOOP
 error_rate_mod = 0.0001
 
 # MAX SIZE IN COIN ASSET PER ORDER
@@ -24,4 +24,3 @@ max_size['LTC'] = 5
 # MIN SIZE in COIN ASSET PER ORDER, BTC VALUE APPLY TO ALL, AS CEX HAVE MINSIZE PER ORDER TOO
 min_size = {}
 min_size['BTC'] = 0.0005  # NEEDED, CEX MINSIZE
-

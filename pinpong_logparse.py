@@ -1,7 +1,8 @@
-import re
 import json
-from tabulate import tabulate
+import re
 from datetime import datetime
+
+from tabulate import tabulate
 
 
 def reverse_side(s):

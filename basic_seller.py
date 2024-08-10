@@ -1,14 +1,14 @@
 import argparse
+import logging
 import signal
 import sys
 import time
 import traceback
-import logging
 from threading import Thread
 
-import definitions.xbridge_def as xb
-import definitions.init as init
 import definitions.ccxt_def as ccxt_def
+import definitions.init as init
+import definitions.xbridge_def as xb
 
 # Set up logging
 logging.basicConfig(

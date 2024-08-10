@@ -1,5 +1,6 @@
 import ctypes
 import inspect
+import re
 import threading
 import time
 import tkinter as tk
@@ -7,9 +8,9 @@ from tkinter import ttk
 
 from ruamel.yaml import YAML
 from ttkbootstrap import Style
+
 import main_pingpong
 from definitions import init
-import re
 
 
 def _async_raise(tid, exctype):

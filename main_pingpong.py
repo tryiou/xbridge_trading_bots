@@ -6,16 +6,17 @@
 # ONLY ONE AT A TIME, BOT RECORD THE LAST SELL ORDER ON A FILE, LOAD AT START
 
 
-import time
-from threading import Thread
+import asyncio
+import concurrent.futures
 import logging
+import time
+import traceback
+from threading import Thread
+
 import definitions.ccxt_def as ccxt_def
 import definitions.init as init
 import definitions.xbridge_def as xb
-from definitions.classes import ConfigCoins
-import concurrent.futures
-import asyncio
-import traceback
+from definitions.yaml_mix import YamlToObject
 
 # Constants
 CCXT_PRICE_REFRESH = 2
@@ -39,7 +40,7 @@ class General:
         self.delay_main_dx_update_bals = UPDATE_BALANCES_DELAY
         self.disabled_coins = []
         self.ccxt_price_timer = None
-        self.config_coins = ConfigCoins('config/config_coins.yaml')
+        self.config_coins = YamlToObject('config/config_coins.yaml')
 
     def main_init_loop(self) -> None:
         """Initial loop to update balances and initialize trading pairs."""
