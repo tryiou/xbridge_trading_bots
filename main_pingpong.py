@@ -9,10 +9,10 @@
 import time
 from threading import Thread
 import logging
-import config.config_coins as config_coins
 import definitions.ccxt_def as ccxt_def
 import definitions.init as init
 import definitions.xbridge_def as xb
+from definitions.classes import ConfigCoins
 import concurrent.futures
 import asyncio
 import traceback
@@ -39,6 +39,7 @@ class General:
         self.delay_main_dx_update_bals = UPDATE_BALANCES_DELAY
         self.disabled_coins = []
         self.ccxt_price_timer = None
+        self.config_coins = ConfigCoins('config/config_coins.yaml')
 
     def main_init_loop(self) -> None:
         """Initial loop to update balances and initialize trading pairs."""
@@ -93,7 +94,7 @@ class General:
 
     def _fetch_and_update_prices(self) -> None:
         """Fetches and updates token prices from CCXT."""
-        custom_coins = config_coins.usd_ticker_custom.keys()
+        custom_coins = self.config_coins.usd_ticker_custom.keys()
         keys = [self._construct_key(token) for token in self.tokens_dict if token not in custom_coins]
         keys.insert(0, keys.pop(keys.index('BTC/USDT')))
 
@@ -110,12 +111,12 @@ class General:
     def _update_token_prices(self, tickers) -> None:
         """Updates the prices of tokens based on fetched tickers."""
         lastprice_string = self._get_last_price_string()
-        for token in [t for t in self.tokens_dict if t not in config_coins.usd_ticker_custom]:
+        for token in [t for t in self.tokens_dict if t not in self.config_coins.usd_ticker_custom]:
             symbol = f"{self.tokens_dict[token].symbol}/USDT" if self.tokens_dict[
                                                                      token].symbol == 'BTC' else f"{self.tokens_dict[token].symbol}/BTC"
             self._update_token_price(tickers, symbol, lastprice_string, token)
 
-        for token in config_coins.usd_ticker_custom:
+        for token in self.config_coins.usd_ticker_custom:
             if token in self.tokens_dict:
                 self.tokens_dict[token].update_ccxt_price()
 

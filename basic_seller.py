@@ -12,7 +12,7 @@ import definitions.ccxt_def as ccxt_def
 
 # Set up logging
 logging.basicConfig(
-    level=logging.WARNING,
+    level=logging.DEBUG,
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[
         logging.FileHandler("logs/basic_seller.log"),
@@ -20,7 +20,6 @@ logging.basicConfig(
     ]
 )
 logging.getLogger("urllib3").setLevel(logging.WARNING)
-logging.getLogger("requests").setLevel(logging.WARNING)
 logging.getLogger("ccxt").setLevel(logging.WARNING)
 
 

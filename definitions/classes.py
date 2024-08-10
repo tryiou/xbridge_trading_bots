@@ -6,12 +6,10 @@ import requests
 import yaml
 import os
 
-# import config.config_pingpong as config_pp
-import config.config_coins as config_coins
 import definitions.bcolors as bcolors
 import definitions.ccxt_def as ccxt_def
 import definitions.init as init
-# import definitions.logger as logger
+
 from definitions.logger import setup_logging
 import definitions.xbridge_def as xb
 
@@ -42,6 +40,18 @@ def setup_logger(strategy=None):
 # logging.basicConfig(level=logging.INFO)
 
 star_counter = 0
+
+
+class ConfigCoins:
+    def __init__(self, yaml_path):
+        with open(yaml_path, 'r') as file:
+            config = yaml.safe_load(file)
+            # Dynamically set attributes based on YAML content
+            for key, value in config.items():
+                setattr(self, key, value)
+
+
+config_coins = ConfigCoins('config/config_coins.yaml')
 
 
 class Config:
