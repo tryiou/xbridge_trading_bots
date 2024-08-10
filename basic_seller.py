@@ -129,7 +129,8 @@ def main_dx_update_bals(tokens_dict):
         else:
             token_data.dex_total_balance = None
             token_data.dex_free_balance = None
-            logging.warning("Token %s not found in local DX tokens", token)
+            if token != "BTC":
+                logging.warning("Token %s not found in local DX tokens", token)
 
 
 def thread_init(p):
