@@ -1,0 +1,14 @@
+debug_level: 2
+ttk_theme: darkly
+user_pairs:
+  - LTC/BLOCK
+price_variation_tolerance: 0.02
+sell_price_offset: 0.05
+usd_amount_default: 1.0
+usd_amount_custom:
+  BLOCK/DASH: 19.0
+  DASH/BLOCK: 21.0
+spread_default: 0.05
+spread_custom:
+  BLOCK/LTC: 0.04
+  LTC/BLOCK: 0.04

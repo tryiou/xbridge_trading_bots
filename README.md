@@ -63,7 +63,7 @@ Note: Python 3 for Windows already includes Tkinter.
 
 1. Edit the configuration:
     ```python
-    # Edit config/config_pingpong.py
+    # Edit config/config_pingpong.yaml
     # Set desired user_pairs / usd_amount_default / spread_default
     # Optional: customize per pair
     ```
