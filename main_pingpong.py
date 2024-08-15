@@ -46,13 +46,14 @@ class General:
 
     def main_loop(self):
         """Main loop that continuously updates balances and processes trading pairs."""
+        start_time = time.perf_counter()
         self.main_dx_update_bals()
         self._process_pairs(self.thread_loop)
+        self._report_time(start_time)
 
     def _process_pairs(self, target_function):
         """Processes trading pairs concurrently using threads."""
         threads = []
-        start_time = time.perf_counter()
 
         for counter, pair in enumerate(self.pairs_dict.values(), start=1):
             self.update_ccxt_prices()
@@ -69,7 +70,6 @@ class General:
             # time.sleep(0.1)  # Yield control
 
         self._join_threads(threads)
-        self._report_time(start_time)
 
     def _join_threads(self, threads):
         """Joins all active threads."""
