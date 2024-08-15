@@ -66,7 +66,7 @@ class General:
                 self._join_threads(threads)
                 threads = []
 
-            time.sleep(0.1)  # Yield control
+            # time.sleep(0.1)  # Yield control
 
         self._join_threads(threads)
         self._report_time(start_time)
