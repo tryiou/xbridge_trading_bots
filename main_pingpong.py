@@ -22,7 +22,7 @@ from definitions.yaml_mix import YamlToObject
 CCXT_PRICE_REFRESH = 2
 UPDATE_BALANCES_DELAY = 0.5
 FLUSH_DELAY = 15 * 60
-MAX_THREADS = 10
+MAX_THREADS = 5
 OPERATION_INTERVAL = 10  # Main loop operations interval (in seconds)
 SLEEP_INTERVAL = 1  # Shorter sleep interval (in seconds)
 
