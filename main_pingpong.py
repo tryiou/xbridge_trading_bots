@@ -10,6 +10,7 @@ import concurrent.futures
 import logging
 import time
 import traceback
+from threading import Thread
 
 import definitions.ccxt_def as ccxt_def
 import definitions.init as init
@@ -33,57 +34,66 @@ class General:
         self.pairs_dict = pairs_dict
         self.tokens_dict = tokens_dict
         self.ccxt_i = ccxt_i
-        self.timer_main_dx_update_bals = None
-        self.ccxt_price_refresh = CCXT_PRICE_REFRESH
-        self.delay_main_dx_update_bals = UPDATE_BALANCES_DELAY
-        self.disabled_coins = []
-        self.ccxt_price_timer = None
         self.config_coins = YamlToObject('config/config_coins.yaml')
+        self.timer_main_dx_update_bals = None
+        self.ccxt_price_timer = None
+        self.disabled_coins = []
 
-    def main_init_loop(self) -> None:
+    def main_init_loop(self):
         """Initial loop to update balances and initialize trading pairs."""
         self.main_dx_update_bals()
-        self._process_pairs(self._thread_init)
+        self._process_pairs(self.thread_init)
 
-    def main_loop(self) -> None:
+    def main_loop(self):
         """Main loop that continuously updates balances and processes trading pairs."""
         self.main_dx_update_bals()
-        self._process_pairs(self._thread_loop)
+        self._process_pairs(self.thread_loop)
 
-    def _process_pairs(self, target_function) -> None:
+    def _process_pairs(self, target_function):
         """Processes trading pairs concurrently using threads."""
+        threads = []
         start_time = time.perf_counter()
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_THREADS) as executor:
-            for pair in self.pairs_dict.values():
-                self.update_ccxt_prices()
-                pair.update_pricing()
-                executor.submit(target_function, pair)
-                time.sleep(0.1)  # Yield control
+        for counter, pair in enumerate(self.pairs_dict.values(), start=1):
+            self.update_ccxt_prices()
+            pair.update_pricing()
 
+            thread = Thread(target=target_function, args=(pair,))
+            threads.append(thread)
+            thread.start()
+
+            if counter % MAX_THREADS == 0:
+                self._join_threads(threads)
+                threads = []
+
+            time.sleep(0.1)  # Yield control
+
+        self._join_threads(threads)
         self._report_time(start_time)
 
-    def _report_time(self, start_time) -> None:
+    def _join_threads(self, threads):
+        """Joins all active threads."""
+        for thread in threads:
+            thread.join()
+
+    def _report_time(self, start_time):
         """Reports the time taken to complete an operation."""
         end_time = time.perf_counter()
         logging.info(f'Operation took {end_time - start_time:0.2f} second(s) to complete.')
 
-    def update_ccxt_prices(self) -> None:
+    def update_ccxt_prices(self):
         """Updates CCXT prices if the refresh interval has passed."""
-        if self.ccxt_price_timer is None or time.time() - self.ccxt_price_timer > self.ccxt_price_refresh:
+        if self.ccxt_price_timer is None or time.time() - self.ccxt_price_timer > CCXT_PRICE_REFRESH:
             try:
                 self._fetch_and_update_prices()
                 self.ccxt_price_timer = time.time()
             except Exception as e:
                 logging.error(f"Error in update_ccxt_prices: {e}", exc_info=True)
 
-    def _fetch_and_update_prices(self) -> None:
+    def _fetch_and_update_prices(self):
         """Fetches and updates token prices from CCXT."""
         custom_coins = self.config_coins.usd_ticker_custom.keys()
         keys = [self._construct_key(token) for token in self.tokens_dict if token not in custom_coins]
-        if 'BTC/USDT' in keys:
-            keys.remove('BTC/USDT')
-            keys.insert(0, 'BTC/USDT')
 
         try:
             tickers = ccxt_def.ccxt_call_fetch_tickers(self.ccxt_i, keys)
@@ -91,68 +101,69 @@ class General:
         except Exception as e:
             logging.error(f"Error fetching tickers: {e}", exc_info=True)
 
-    def _construct_key(self, token) -> str:
+    def _construct_key(self, token):
         """Constructs the ticker key for a given token."""
         return f"{token}/USDT" if token == 'BTC' else f"{token}/BTC"
 
-    def _update_token_prices(self, tickers) -> None:
+    def _update_token_prices(self, tickers):
         """Updates the prices of tokens based on fetched tickers."""
         lastprice_string = self._get_last_price_string()
-        for token in self.tokens_dict:
+        for token, token_data in self.tokens_dict.items():
             if token not in self.config_coins.usd_ticker_custom:
-                symbol = f"{self.tokens_dict[token].symbol}/USDT" if self.tokens_dict[
-                                                                         token].symbol == 'BTC' else f"{self.tokens_dict[token].symbol}/BTC"
-                self._update_token_price(tickers, symbol, lastprice_string, token)
-            else:
+                symbol = f"{token_data.symbol}/USDT" if token_data.symbol == 'BTC' else f"{token_data.symbol}/BTC"
+                self._update_token_price(tickers, symbol, lastprice_string, token_data)
+
+        for token in self.config_coins.usd_ticker_custom:
+            if token in self.tokens_dict:
                 self.tokens_dict[token].update_ccxt_price()
 
-    def _get_last_price_string(self) -> str:
+    def _get_last_price_string(self):
         """Determines the appropriate last price string based on the exchange."""
         return {
             "kucoin": "last",
             "binance": "lastPrice"
         }.get(init.my_ccxt.id, "lastTradeRate")
 
-    def _update_token_price(self, tickers, symbol, lastprice_string, token) -> None:
+    def _update_token_price(self, tickers, symbol, lastprice_string, token_data):
         """Updates the price of a specific token."""
-        ticker_info = tickers.get(symbol)
-        if ticker_info:
-            last_price = float(ticker_info['info'][lastprice_string])
-            if self.tokens_dict[token].symbol == 'BTC':
-                self.tokens_dict[token].usd_price = last_price
-                self.tokens_dict[token].ccxt_price = 1
+        if symbol in tickers:
+            last_price = float(tickers[symbol]['info'][lastprice_string])
+            if token_data.symbol == 'BTC':
+                token_data.usd_price = last_price
+                token_data.ccxt_price = 1
             else:
-                self.tokens_dict[token].ccxt_price = last_price
-                self.tokens_dict[token].usd_price = last_price * self.tokens_dict['BTC'].usd_price
+                token_data.ccxt_price = last_price
+                token_data.usd_price = last_price * self.tokens_dict['BTC'].usd_price
         else:
             logging.warning(f"Missing symbol in tickers: {symbol}")
-            self.tokens_dict[token].ccxt_price = None
-            self.tokens_dict[token].usd_price = None
+            token_data.ccxt_price = None
+            token_data.usd_price = None
 
-    def main_dx_update_bals(self) -> None:
+    def main_dx_update_bals(self):
         """Main method for updating DEX balances."""
         if self._should_update_bals():
             xb_tokens = xb.getlocaltokens()
             with concurrent.futures.ThreadPoolExecutor() as executor:
-                executor.map(lambda token: self._update_token_balance(token, xb_tokens), self.tokens_dict)
+                executor.map(lambda token: self._update_token_balance(token, xb_tokens), self.tokens_dict.values())
+
             self.timer_main_dx_update_bals = time.time()
 
-    def _should_update_bals(self) -> bool:
+    def _should_update_bals(self):
         """Determines whether it's time to update balances."""
-        return self.timer_main_dx_update_bals is None or time.time() - self.timer_main_dx_update_bals > self.delay_main_dx_update_bals
+        return self.timer_main_dx_update_bals is None or time.time() - self.timer_main_dx_update_bals > UPDATE_BALANCES_DELAY
 
-    def _update_token_balance(self, token, xb_tokens) -> None:
+    def _update_token_balance(self, token_data, xb_tokens):
         """Updates the balance for a specific token."""
-        if xb_tokens and self.tokens_dict[token].symbol in xb_tokens:
-            utxos = xb.gettokenutxo(token, used=True)
+        if xb_tokens and token_data.symbol in xb_tokens:
+            utxos = xb.gettokenutxo(token_data.symbol, used=True)
             bal, bal_free = self._calculate_balances(utxos)
-            self.tokens_dict[token].dex_total_balance = bal
-            self.tokens_dict[token].dex_free_balance = bal_free
+            token_data.dex_total_balance = bal
+            token_data.dex_free_balance = bal_free
         else:
-            self.tokens_dict[token].dex_total_balance = None
-            self.tokens_dict[token].dex_free_balance = None
+            token_data.dex_total_balance = None
+            token_data.dex_free_balance = None
 
-    def _calculate_balances(self, utxos) -> tuple:
+    def _calculate_balances(self, utxos):
         """Calculates the total and free balances from UTXOs."""
         bal = bal_free = 0
         for utxo in utxos:
@@ -162,23 +173,23 @@ class General:
                 bal_free += amount
         return bal, bal_free
 
-    def _thread_init(self, p) -> None:
+    def thread_init(self, pair):
         """Thread function for initializing orders."""
         try:
-            p.init_virtual_order(self.disabled_coins)
-            p.dex_create_order()
+            pair.init_virtual_order(self.disabled_coins)
+            pair.dex_create_order()
         except Exception as e:
             logging.error(f"Error in thread_init: {e}", exc_info=True)
 
-    def _thread_loop(self, p) -> None:
+    def thread_loop(self, pair):
         """Thread function for checking order status."""
         try:
-            p.status_check(self.disabled_coins)
+            pair.status_check(self.disabled_coins)
         except Exception as e:
             logging.error(f"Error in thread_loop: {e}", exc_info=True)
 
 
-async def main() -> None:
+async def main():
     """Main asynchronous function to start the trading operations."""
     try:
         general = General(pairs_dict=init.p, tokens_dict=init.t, ccxt_i=init.my_ccxt)
@@ -215,14 +226,14 @@ async def main() -> None:
         exit()
 
 
-def run_async_main() -> None:
+def run_async_main():
     """Runs the main asynchronous function using a new event loop."""
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     loop.run_until_complete(main())
 
 
-def start() -> None:
+def start():
     """Initializes the application and starts the main process."""
     init.init_pingpong()
     run_async_main()
