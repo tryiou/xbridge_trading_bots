@@ -1,10 +1,8 @@
 import time
 
-# import requests
 from requests import Session, HTTPError
 from requests.auth import HTTPBasicAuth
-# from requests import Session
-# import config.blocknet_rpc_cfg as config
+
 import definitions.bcolors as bcolors
 from definitions.detect_rpc import detect_rpc
 
@@ -21,15 +19,14 @@ def test_rpc(rpc_user, rpc_port, rpc_password):
 
 
 def handle_error(e, err_count, method, params, prefix):
-    err_count += 1
     msg = f"{prefix}_rpc_call( {method}, {params} )"
     print(f"{bcolors.mycolor.WARNING}{msg}{bcolors.mycolor.ENDC}")
     print(f"{bcolors.mycolor.WARNING}{type(e)}, {e}{bcolors.mycolor.ENDC}")
-    time.sleep(err_count)
+    time.sleep(err_count + 1)
 
 
 def rpc_call(method, params=[], url="http://127.0.0.1", rpc_user=user_rpc, rpc_password=password_rpc,
-             rpc_port=port_rpc, debug=2, timeout=120, display=True, prefix='xbridge', max_err_count=None):
+             rpc_port=port_rpc, debug=2, timeout=120, display=True, prefix='xbridge', max_err_count=3):
     """
     Make a JSON-RPC call.
 
@@ -44,53 +41,30 @@ def rpc_call(method, params=[], url="http://127.0.0.1", rpc_user=user_rpc, rpc_p
     :param display: Whether to display debug information.
     :param prefix: Prefix for debug messages.
     :param max_err_count: Maximum number of retries in case of errors.
-    :return: Result of the RPC call.
+    :return: Result of the RPC call, or None if no result is obtained after max attempts.
     """
-    if rpc_port not in {80, 443}:
-        url = f"{url}:{rpc_port}"
-
-    payload = {"jsonrpc": "2.0",
-               "method": method,
-               "params": params,
-               "id": 0}
-
+    url = f"{url}:{rpc_port}" if rpc_port not in {80, 443} else url
+    payload = {"jsonrpc": "2.0", "method": method, "params": params, "id": 0}
     headers = {'Content-type': 'application/json'}
     auth = HTTPBasicAuth(rpc_user, rpc_password) if rpc_user and rpc_password else None
 
-    result = None
-    error = False
-    err_count = 0
-    done = False
-
-    while not done:
+    for err_count in range(max_err_count):
         try:
             with Session() as session:
                 response = session.post(url, json=payload, headers=headers, auth=auth, timeout=timeout)
-            response.raise_for_status()  # Check for HTTP errors
-            responsejson = response.json()
-            result = responsejson.get('result')
-        except HTTPError as e:
-            err_count += 1
+                response.raise_for_status()
+                result = response.json().get('result')
+                if result is not None:
+                    if debug >= 2 and display:
+                        msg = f"{prefix}_rpc_call( {method}, {params} )"
+                        print(f"{bcolors.mycolor.OKGREEN}{msg}{bcolors.mycolor.ENDC}")
+                        if debug >= 3:
+                            print(response.json())
+                    return result
+        except (HTTPError, Exception) as e:
             handle_error(e, err_count, method, params, prefix)
-        except Exception as e:
-            err_count += 1
-            handle_error(e, err_count, method, params, prefix)
-        else:
-            done = True
-            error = False
 
-    if debug >= 2 and display and not error:
-        msg = f"{prefix}_rpc_call( {method}, {params} )"
-        print(f"{bcolors.mycolor.OKGREEN}{msg}{bcolors.mycolor.ENDC}")
-        if debug >= 3:
-            print(str(responsejson))
-
-    return result
-
-
-if not test_rpc(user_rpc, port_rpc, password_rpc):
-    print.error(f'Blocknet core rpc server not responding ?')
-    exit()
+    return None
 
 
 def xrgetblockcount(token, nodecount=1, timeout=120, max_err_count=None):
@@ -173,3 +147,8 @@ def getorderstatus(oid):
 
 def dxgetorderbook(detail, maker, taker):
     return rpc_call("dxgetorderbook", [detail, maker, taker])
+
+
+if not test_rpc(user_rpc, port_rpc, password_rpc):
+    print.error(f'Blocknet core rpc server not responding ?')
+    exit()

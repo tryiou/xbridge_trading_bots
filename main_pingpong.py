@@ -4,212 +4,237 @@
 # 3/LOOP
 #
 # ONLY ONE AT A TIME, BOT RECORD THE LAST SELL ORDER ON A FILE, LOAD AT START
+
+import asyncio
+import concurrent.futures
+import logging
 import time
+import traceback
 from threading import Thread
-import config.config_coins as config_coins
-# import definitions.xlite_endpoint_check as xlite_endpoint_check
+
 import definitions.ccxt_def as ccxt_def
 import definitions.init as init
 import definitions.xbridge_def as xb
-# from config.config_pingpong import cc_coins
-import concurrent.futures
-import asyncio
-import traceback
+from definitions.yaml_mix import YamlToObject
 
+# Constants
+CCXT_PRICE_REFRESH = 2
+UPDATE_BALANCES_DELAY = 0.5
+FLUSH_DELAY = 15 * 60
+MAX_THREADS = 5
+OPERATION_INTERVAL = 10  # Main loop operations interval (in seconds)
+SLEEP_INTERVAL = 1  # Shorter sleep interval (in seconds)
 
-# from pycallgraph import PyCallGraph
-# from pycallgraph.output import GraphvizOutput
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
+
 
 class General:
     def __init__(self, pairs_dict, tokens_dict, ccxt_i):
         self.pairs_dict = pairs_dict
         self.tokens_dict = tokens_dict
         self.ccxt_i = ccxt_i
+        self.config_coins = YamlToObject('config/config_coins.yaml')
         self.timer_main_dx_update_bals = None
-        self.delay_main_dx_update_bals = 0.5
-        self.ccxt_price_refresh = 2
+        self.ccxt_price_timer = None
         self.disabled_coins = []
-        # print(self.pairs_dict)
 
     def main_init_loop(self):
+        """Initial loop to update balances and initialize trading pairs."""
         self.main_dx_update_bals()
-        enable_threading = False
-        threads = []
-        start_time = time.perf_counter()
-        max_threads = 10
-        counter = 0
-        for key, pair in self.pairs_dict.items():
-            self.update_ccxt_prices()
-            self.main_dx_update_bals()
-            pair.update_pricing()
-            if enable_threading:
-                t = Thread(target=self.thread_init, args=(pair,))
-                threads.append(t)
-                t.start()
-                counter += 1
-                if counter == max_threads:
-                    for t in threads:
-                        t.join()
-                    threads = []
-                    counter = 0
-                time.sleep(0.1)
-            else:
-                self.thread_init(pair)
-        end_time = time.perf_counter()
-        print(f'init took{end_time - start_time: 0.2f} second(s) to complete.')
+        self._process_pairs(self.thread_init)
 
     def main_loop(self):
-        enable_threading = False
-        threads = []
+        """Main loop that continuously updates balances and processes trading pairs."""
         start_time = time.perf_counter()
-        max_threads = 10
-        counter = 0
         self.main_dx_update_bals()
-        for key, pair in self.pairs_dict.items():
-            # will update prices only if timer is spent
-            self.update_ccxt_prices()
+        self._process_pairs(self.thread_loop)
+        self._report_time(start_time)
 
-            if enable_threading:
-                t = Thread(target=self.thread_loop, args=(pair,))
-                threads.append(t)
-                t.start()
-                counter += 1
-                if counter == max_threads:
-                    for t in threads:
-                        t.join()
-                    threads = []
-                    counter = 0
-                time.sleep(0.1)
-            else:
-                self.thread_loop(pair)
+    def _process_pairs(self, target_function):
+        """Processes trading pairs concurrently using threads."""
+        threads = []
+
+        for counter, pair in enumerate(self.pairs_dict.values(), start=1):
+            self.update_ccxt_prices()
+            pair.update_pricing()
+
+            thread = Thread(target=target_function, args=(pair,))
+            threads.append(thread)
+            thread.start()
+
+            if counter % MAX_THREADS == 0:
+                self._join_threads(threads)
+                threads = []
+
+            # time.sleep(0.1)  # Yield control
+
+        self._join_threads(threads)
+
+    def _join_threads(self, threads):
+        """Joins all active threads."""
+        for thread in threads:
+            thread.join()
+
+    def _report_time(self, start_time):
+        """Reports the time taken to complete an operation."""
         end_time = time.perf_counter()
-        print(f'loop took{end_time - start_time: 0.2f} second(s) to complete.')
+        logging.info(f'Operation took {end_time - start_time:0.2f} second(s) to complete.')
 
     def update_ccxt_prices(self):
-        # request all coins ccxt tickers at once
-        global ccxt_price_timer
-        if ccxt_price_timer is None or time.time() - ccxt_price_timer > self.ccxt_price_refresh:
-            # Manage BLOCK token separately
-            custom_coins = config_coins .usd_ticker_custom.keys()
-            keys = [f"{token}/USDT" if token == 'BTC' else f"{token}/BTC" for token in self.tokens_dict.keys() if token not in custom_coins]
-            keys.insert(0, keys.pop(keys.index('BTC/USDT')))
+        """Updates CCXT prices if the refresh interval has passed."""
+        if self.ccxt_price_timer is None or time.time() - self.ccxt_price_timer > CCXT_PRICE_REFRESH:
             try:
-                tickers = ccxt_def.ccxt_call_fetch_tickers(self.ccxt_i, keys)
-                lastprice_string = "lastPrice" if self.ccxt_i.id == "binance" else "lastTradeRate"
-                # Manage BLOCK token separately
-                for token in [token for token in self.tokens_dict if token not in custom_coins]:
-                    symbol = f"{self.tokens_dict[token].symbol}/USDT" if (self.tokens_dict[token].symbol == 'BTC') else f"{self.tokens_dict[token].symbol}/BTC"
-                    if tickers and symbol in tickers:
-                        last_price = float(tickers[symbol]['info'][lastprice_string])
-                        if self.tokens_dict[token].symbol == 'BTC':
-                            self.tokens_dict[token].usd_price = last_price
-                            self.tokens_dict[token].ccxt_price = 1
-                        else:
-                            self.tokens_dict[token].ccxt_price = last_price
-                            self.tokens_dict[token].usd_price = float(last_price * self.tokens_dict['BTC'].usd_price)
-                    else:
-                        print("update_ccxt_prices, missing symbol in tickers:", [symbol], tickers)
-                        self.tokens_dict[token].ccxt_price = None
-                        self.tokens_dict[token].usd_price = None
-                for token, custom_price in config_coins.usd_ticker_custom.items():
-                    if token in self.tokens_dict:
-                        self.tokens_dict[token].update_ccxt_price()
-                # if "BLOCK" in self.tokens_dict.keys():
-                #     self.tokens_dict["BLOCK"].update_ccxt_price()
+                self._fetch_and_update_prices()
+                self.ccxt_price_timer = time.time()
             except Exception as e:
-                print("general.update_ccxt_prices error:", type(e), str(e))
-            ccxt_price_timer = time.time()
+                logging.error(f"Error in update_ccxt_prices: {e}", exc_info=True)
+
+    def _fetch_and_update_prices(self):
+        """Fetches and updates token prices from CCXT."""
+        custom_coins = self.config_coins.usd_ticker_custom.keys()
+        keys = [self._construct_key(token) for token in self.tokens_dict if token not in custom_coins]
+
+        try:
+            tickers = ccxt_def.ccxt_call_fetch_tickers(self.ccxt_i, keys)
+            self._update_token_prices(tickers)
+        except Exception as e:
+            logging.error(f"Error fetching tickers: {e}", exc_info=True)
+
+    def _construct_key(self, token):
+        """Constructs the ticker key for a given token."""
+        return f"{token}/USDT" if token == 'BTC' else f"{token}/BTC"
+
+    def _update_token_prices(self, tickers):
+        """Updates the prices of tokens based on fetched tickers."""
+        lastprice_string = self._get_last_price_string()
+        for token, token_data in self.tokens_dict.items():
+            if token not in self.config_coins.usd_ticker_custom:
+                symbol = f"{token_data.symbol}/USDT" if token_data.symbol == 'BTC' else f"{token_data.symbol}/BTC"
+                self._update_token_price(tickers, symbol, lastprice_string, token_data)
+
+        for token in self.config_coins.usd_ticker_custom:
+            if token in self.tokens_dict:
+                self.tokens_dict[token].update_ccxt_price()
+
+    def _get_last_price_string(self):
+        """Determines the appropriate last price string based on the exchange."""
+        return {
+            "kucoin": "last",
+            "binance": "lastPrice"
+        }.get(init.my_ccxt.id, "lastTradeRate")
+
+    def _update_token_price(self, tickers, symbol, lastprice_string, token_data):
+        """Updates the price of a specific token."""
+        if symbol in tickers:
+            last_price = float(tickers[symbol]['info'][lastprice_string])
+            if token_data.symbol == 'BTC':
+                token_data.usd_price = last_price
+                token_data.ccxt_price = 1
+            else:
+                token_data.ccxt_price = last_price
+                token_data.usd_price = last_price * self.tokens_dict['BTC'].usd_price
+        else:
+            logging.warning(f"Missing symbol in tickers: {symbol}")
+            token_data.ccxt_price = None
+            token_data.usd_price = None
 
     def main_dx_update_bals(self):
-        # send all the gettokenutxo requests at once with ThreadPoolExecutor
+        """Main method for updating DEX balances."""
         if self._should_update_bals():
             xb_tokens = xb.getlocaltokens()
-
-            def update_token_bal(token):
-                if xb_tokens and self.tokens_dict[token].symbol in xb_tokens:
-                    utxos = xb.gettokenutxo(token, used=True)
-                    bal, bal_free = self._calculate_balances(utxos)
-                    self.tokens_dict[token].dex_total_balance = bal
-                    self.tokens_dict[token].dex_free_balance = bal_free
-                else:
-                    self.tokens_dict[token].dex_total_balance = None
-                    self.tokens_dict[token].dex_free_balance = None
-
             with concurrent.futures.ThreadPoolExecutor() as executor:
-                executor.map(update_token_bal, self.tokens_dict)
+                executor.map(lambda token: self._update_token_balance(token, xb_tokens), self.tokens_dict.values())
 
             self.timer_main_dx_update_bals = time.time()
 
     def _should_update_bals(self):
-        return (self.timer_main_dx_update_bals is None or
-                time.time() - self.timer_main_dx_update_bals > self.delay_main_dx_update_bals)
+        """Determines whether it's time to update balances."""
+        return self.timer_main_dx_update_bals is None or time.time() - self.timer_main_dx_update_bals > UPDATE_BALANCES_DELAY
+
+    def _update_token_balance(self, token_data, xb_tokens):
+        """Updates the balance for a specific token."""
+        if xb_tokens and token_data.symbol in xb_tokens:
+            utxos = xb.gettokenutxo(token_data.symbol, used=True)
+            bal, bal_free = self._calculate_balances(utxos)
+            token_data.dex_total_balance = bal
+            token_data.dex_free_balance = bal_free
+        else:
+            token_data.dex_total_balance = None
+            token_data.dex_free_balance = None
 
     def _calculate_balances(self, utxos):
-        bal, bal_free = 0, 0
+        """Calculates the total and free balances from UTXOs."""
+        bal = bal_free = 0
         for utxo in utxos:
-            if 'amount' in utxo:
-                bal += float(utxo['amount'])
-                if 'orderid' in utxo:
-                    if utxo['orderid'] == '':
-                        bal_free += float(utxo['amount'])
+            amount = float(utxo.get('amount', 0))
+            bal += amount
+            if not utxo.get('orderid'):
+                bal_free += amount
         return bal, bal_free
 
-    def thread_init(self, p):
-        p.init_virtual_order(self.disabled_coins)
-        p.dex_create_order()
+    def thread_init(self, pair):
+        """Thread function for initializing orders."""
+        try:
+            pair.init_virtual_order(self.disabled_coins)
+            pair.dex_create_order()
+        except Exception as e:
+            logging.error(f"Error in thread_init: {e}", exc_info=True)
 
-    def thread_loop(self, p):
-        p.status_check(self.disabled_coins)
-
-
-def run_async_main():
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    loop.run_until_complete(main())
+    def thread_loop(self, pair):
+        """Thread function for checking order status."""
+        try:
+            pair.status_check(self.disabled_coins)
+        except Exception as e:
+            logging.error(f"Error in thread_loop: {e}", exc_info=True)
 
 
 async def main():
-    global ccxt_price_timer, disabled_coins
-
+    """Main asynchronous function to start the trading operations."""
     try:
-        ccxt_price_timer = None
-        # pairs_dict = init.p
-        # tokens_dict = init.t
         general = General(pairs_dict=init.p, tokens_dict=init.t, ccxt_i=init.my_ccxt)
         xb.cancelallorders()
         xb.dxflushcancelledorders()
+
         flush_timer = time.time()
-        cc_check_timer = time.time()
-        flush_delay = 15 * 60
-        # cc_timer = 5 * 60
-        # general.disabled_coins = xlite_endpoint_check.xlite_endpoint_height_check(cc_coins, display=True)
+        operation_timer = time.time()
+
         general.main_init_loop()
-        # test_counter=0
-        while 1:
-            # test_counter+=1
-            # if test_counter >= 3:
-            #     break
-            # if time.time() - cc_check_timer > cc_timer:
-            # general.disabled_coins = xlite_endpoint_check.xlite_endpoint_height_check(cc_coins)
-            #    cc_check_timer = time.time()
-            if time.time() - flush_timer > flush_delay:
+
+        while True:
+            current_time = time.time()
+
+            if current_time - flush_timer > FLUSH_DELAY:
                 xb.dxflushcancelledorders()
-                flush_timer = time.time()
-            general.main_loop()
-            await asyncio.sleep(10)
+                flush_timer = current_time
+
+            if current_time - operation_timer > OPERATION_INTERVAL:
+                general.main_loop()
+                operation_timer = current_time
+
+            await asyncio.sleep(SLEEP_INTERVAL)
+
     except (SystemExit, KeyboardInterrupt):
-        print("Received Stop order. Cleaning up...")
-        # Perform cleanup actions here
+        logging.info("Received Stop order. Cleaning up...")
         xb.cancelallorders()
         exit()
+
     except Exception as e:
-        print(type(e), str(e), e.args)
+        logging.error(f"Exception in main loop: {e}", exc_info=True)
         traceback.print_exc()
         xb.cancelallorders()
         exit()
 
 
+def run_async_main():
+    """Runs the main asynchronous function using a new event loop."""
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(main())
+
+
 def start():
+    """Initializes the application and starts the main process."""
     init.init_pingpong()
     run_async_main()
 

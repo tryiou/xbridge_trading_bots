@@ -1,6 +1,7 @@
 import socket
 
 import config.ccxt_cfg as ccxt_cfg
+
 import definitions.ccxt_def as ccxt_def
 from definitions.xbridge_def import rpc_call
 
