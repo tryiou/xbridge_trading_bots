@@ -33,13 +33,13 @@ class CCXTServer:
         self.fetch_timeout = 10  # Timeout for fetchTickers in seconds
 
     async def run_periodically(self, interval: int):
-        try:
-            while True:
+        while True:
+            try:
                 self._log_info("Running periodic refresh of tickers...")
                 await asyncio.sleep(interval)
                 await self.refresh_tickers()
-        except asyncio.CancelledError:
-            self._log_info("Periodic task cancelled. Exiting run_periodically.")
+            except Exception as e:
+                self._log_error(f"Error in periodic task: {e}")
 
     async def init_task(self):
         self._log_info("Initializing CCXT task...")
