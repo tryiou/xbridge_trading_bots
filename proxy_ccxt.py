@@ -47,6 +47,11 @@ class CCXTServer:
             self.ccxt_i = await init_ccxt_instance(config_ccxt.ccxt_exchange, config_ccxt.ccxt_hostname)
             self._log_info("CCXT instance initialized.")
             self.task = asyncio.create_task(self.run_periodically(refresh_interval))
+
+        except asyncio.CancelledError:
+            self._log_info("Periodic task cancelled. Exiting run_periodically.")
+            await self.shutdown()
+            exit()
         except Exception as e:
             self._log_error(f"Error during init_task: {e}")
             traceback.print_exc()
