@@ -1,0 +1,9 @@
+ccxt
+requests
+ttkbootstrap
+Pillow
+python-dateutil
+tabulate
+aiohttp
+pyyaml
+ruamel.yaml
