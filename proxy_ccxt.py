@@ -50,8 +50,10 @@ class CCXTServer:
                     last_refresh = now
 
                 await asyncio.sleep(0.1)
+            except asyncio.CancelledError:
+                break
             except Exception as e:
-                self._log_error(f"Error in periodic task: {e}")
+                self._log_error(f"Error in periodic task: {e} {type(e)}")
 
     async def init_task(self):
         self._log_info("Initializing CCXT task...")
@@ -246,6 +248,21 @@ class CCXTServer:
         except Exception as e:
             self._log_error(f"Error in main method: {e}")
             traceback.print_exc()
+        finally:
+            # Close the exchange instance if it's not None
+            if hasattr(self, 'ccxt_i') and self.ccxt_i is not None:
+                await self.ccxt_i.close()
+
+            # Wait for all pending operations to complete before exiting
+            tasks = [self.task]
+            done, pending = await asyncio.wait(tasks, return_when=asyncio.ALL_COMPLETED)
+            await asyncio.gather(*pending, return_exceptions=True)
+
+        self._log_info("Server is shutting down...")
+        if hasattr(self, 'app') and self.app:
+            await self.app.shutdown()
+        if hasattr(self, 'runner') and self.runner:
+            await self.runner.cleanup()
 
 
 if __name__ == "__main__":
