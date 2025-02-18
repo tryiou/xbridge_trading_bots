@@ -2,12 +2,18 @@ import asyncio
 import time
 from datetime import datetime
 import traceback
-import signal
 import requests
 from aiohttp import web
 
+import os
+import sys
+import signal
+
 import definitions.bcolors as bcolors
 from definitions.yaml_mix import YamlToObject
+
+if os.name == 'nt':
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 
 class CCXTServer:
@@ -30,6 +36,20 @@ class CCXTServer:
         self.custom_ticker_cache_count: int = 0
         self.fetch_timeout = 10  # Timeout for fetchTickers in seconds
 
+    def _setup_signal_handler(self):
+        if os.name == 'nt':  # Windows
+            import atexit
+            def signal_handler():
+                print('Exiting...')
+                self.shutdown()
+
+            atexit.register(signal_handler)
+        else:
+            # Register signal handlers for graceful shutdown
+            loop = asyncio.get_running_loop()
+            loop.add_signal_handler(signal.SIGINT, lambda: asyncio.create_task(self.shutdown()))
+            loop.add_signal_handler(signal.SIGTERM, lambda: asyncio.create_task(self.shutdown()))
+
     def now(self) -> str:
         return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -39,13 +59,13 @@ class CCXTServer:
             try:
                 now = time.time()
                 if self.must_refresh_tickers:
-                    #self._log_info("Must refresh tickers")
+                    # self._log_info("Must refresh tickers")
                     await self.refresh_tickers()
                     last_refresh = now
                     self.must_refresh_tickers = False  # Reset the flag after refreshing
 
                 if (now - last_refresh) >= interval:
-                    #self._log_info("Periodic refresh tickers")
+                    # self._log_info("Periodic refresh tickers")
                     await self.refresh_tickers()
                     last_refresh = now
 
@@ -236,11 +256,6 @@ class CCXTServer:
             await runner.setup()
             site = web.TCPSite(runner, "localhost", 2233)
             await site.start()
-
-            # Register signal handlers for graceful shutdown
-            loop = asyncio.get_running_loop()
-            loop.add_signal_handler(signal.SIGINT, lambda: asyncio.create_task(self.shutdown()))
-            loop.add_signal_handler(signal.SIGTERM, lambda: asyncio.create_task(self.shutdown()))
 
             self._log_info("Web server is running.")
 
