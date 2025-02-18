@@ -2,21 +2,25 @@ import asyncio
 import time
 from datetime import datetime
 import traceback
-import signal
-
 import requests
 from aiohttp import web
+
+import os
+import sys
+import signal
 
 import definitions.bcolors as bcolors
 from definitions.yaml_mix import YamlToObject
 
-refresh_interval = 15
-
-config_ccxt = YamlToObject("./config/config_ccxt.yaml")
+if os.name == 'nt':
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 
 class CCXTServer:
     def __init__(self):
+        self.must_refresh_tickers = None
+        self.refresh_interval = 15
+        self.config_ccxt = None
         self.symbols_list: list[str] = []
         self.tickers: dict = {}
         self.ccxt_call_count: int = 0
@@ -32,21 +36,51 @@ class CCXTServer:
         self.custom_ticker_cache_count: int = 0
         self.fetch_timeout = 10  # Timeout for fetchTickers in seconds
 
+    def _setup_signal_handler(self):
+        if os.name == 'nt':  # Windows
+            import atexit
+            def signal_handler():
+                print('Exiting...')
+                self.shutdown()
+
+            atexit.register(signal_handler)
+        else:
+            # Register signal handlers for graceful shutdown
+            loop = asyncio.get_running_loop()
+            loop.add_signal_handler(signal.SIGINT, lambda: asyncio.create_task(self.shutdown()))
+            loop.add_signal_handler(signal.SIGTERM, lambda: asyncio.create_task(self.shutdown()))
+
+    def now(self) -> str:
+        return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
     async def run_periodically(self, interval: int):
+        last_refresh = 0
         while True:
             try:
-                self._log_info("Running periodic refresh of tickers...")
-                await asyncio.sleep(interval)
-                await self.refresh_tickers()
+                now = time.time()
+                if self.must_refresh_tickers:
+                    # self._log_info("Must refresh tickers")
+                    await self.refresh_tickers()
+                    last_refresh = now
+                    self.must_refresh_tickers = False  # Reset the flag after refreshing
+
+                if (now - last_refresh) >= interval:
+                    # self._log_info("Periodic refresh tickers")
+                    await self.refresh_tickers()
+                    last_refresh = now
+
+                await asyncio.sleep(0.1)
+            except asyncio.CancelledError:
+                break
             except Exception as e:
-                self._log_error(f"Error in periodic task: {e}")
+                self._log_error(f"Error in periodic task: {e} {type(e)}")
 
     async def init_task(self):
         self._log_info("Initializing CCXT task...")
         try:
-            self.ccxt_i = await init_ccxt_instance(config_ccxt.ccxt_exchange, config_ccxt.ccxt_hostname)
+            self.ccxt_i = await self.init_ccxt_instance(self.config_ccxt.ccxt_exchange, self.config_ccxt.ccxt_hostname)
             self._log_info("CCXT instance initialized.")
-            self.task = asyncio.create_task(self.run_periodically(refresh_interval))
+            self.task = asyncio.create_task(self.run_periodically(self.refresh_interval))
 
         except asyncio.CancelledError:
             self._log_info("Periodic task cancelled. Exiting run_periodically.")
@@ -58,6 +92,8 @@ class CCXTServer:
 
     async def refresh_tickers(self):
         self._log_info("Starting refresh_tickers task...")
+        if not self.symbols_list:
+            return
         done = False
         retry_count = 0
         while not done:
@@ -88,7 +124,10 @@ class CCXTServer:
         self.symbols_list.extend([symbol for symbol in symbols if symbol not in self.symbols_list])
         if any(symbol not in self.tickers for symbol in self.symbols_list):
             self._log_info("Fetching tickers from ccxt...")
-            await self.refresh_tickers()
+            self.must_refresh_tickers = True
+            while self.must_refresh_tickers:
+                await(asyncio.sleep(0.1))
+            # await self.refresh_tickers()
         else:
             self.ccxt_cache_hit += 1
             self._log_info("Returning cached tickers.")
@@ -157,10 +196,10 @@ class CCXTServer:
             return web.json_response(error_response, status=500)
 
     def _log_info(self, message: str):
-        print(f"{bcolors.mycolor.OKGREEN}{now()} [INFO] {message}{bcolors.mycolor.ENDC}")
+        print(f"{bcolors.mycolor.OKGREEN}{self.now()} [INFO] {message}{bcolors.mycolor.ENDC}")
 
     def _log_error(self, message: str):
-        print(f"{bcolors.mycolor.FAIL}{now()} [ERROR] {message}{bcolors.mycolor.ENDC}")
+        print(f"{bcolors.mycolor.FAIL}{self.now()} [ERROR] {message}{bcolors.mycolor.ENDC}")
 
     async def shutdown(self):
         self._log_info("Shutting down server...")
@@ -172,77 +211,75 @@ class CCXTServer:
             except asyncio.CancelledError:
                 self._log_info("Periodic task cancelled successfully.")
 
+    async def init_ccxt_instance(self, exchange: str, hostname: str = None) -> object:
+        import ccxt.async_support as ccxt
+        api_key = None
+        api_secret = None
+        if exchange in ccxt.exchanges:
+            exchange_class = getattr(ccxt, exchange)
+            instance = exchange_class({
+                                          'apiKey': api_key,
+                                          'secret': api_secret,
+                                          'enableRateLimit': True,
+                                          'hostname': hostname
+                                      } if hostname else {
+                'apiKey': api_key,
+                'secret': api_secret,
+                'enableRateLimit': True
+            })
 
-def now() -> str:
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            done = False
+            while not done:
+                try:
+                    print(f"{self.now()} [INFO] Loading markets for exchange: {exchange}")
+                    await instance.load_markets()
+                    done = True
+                    print(f"{self.now()} [INFO] Markets loaded successfully for exchange: {exchange}")
+                except Exception as e:
+                    print(f"{self.now()} [ERROR] init_ccxt_instance error: {e} {type(e)}")
+                    traceback.print_exc()
+                    await asyncio.sleep(5)
+            return instance
+        return None
 
+    async def main(self):
+        self.config_ccxt = YamlToObject("./config/config_ccxt.yaml")
 
-def main():
-    ccxt_server = CCXTServer()
-
-    async def async_main():
         try:
-            await ccxt_server.init_task()
+            await self.init_task()
 
             app = web.Application()
-            app.router.add_post("/", ccxt_server.handle)
-            ccxt_server._log_info("Starting web server...")
+            app.router.add_post("/", self.handle)
+            self._log_info("Starting web server...")
 
             runner = web.AppRunner(app)
             await runner.setup()
             site = web.TCPSite(runner, "localhost", 2233)
             await site.start()
 
-            # Register signal handlers for graceful shutdown
-            loop = asyncio.get_running_loop()
-            loop.add_signal_handler(signal.SIGINT, lambda: asyncio.create_task(ccxt_server.shutdown()))
-            loop.add_signal_handler(signal.SIGTERM, lambda: asyncio.create_task(ccxt_server.shutdown()))
+            self._log_info("Web server is running.")
 
-            ccxt_server._log_info("Web server is running.")
-
-            await ccxt_server.task  # Keep running the periodic task
+            await self.task  # Keep running the periodic task
         except Exception as e:
-            ccxt_server._log_error(f"Error in async_main: {e}")
+            self._log_error(f"Error in main method: {e}")
             traceback.print_exc()
+        finally:
+            # Close the exchange instance if it's not None
+            if hasattr(self, 'ccxt_i') and self.ccxt_i is not None:
+                await self.ccxt_i.close()
 
-    ccxt_server._log_info("Running asyncio main loop...")
-    try:
-        asyncio.run(async_main())
-    except KeyboardInterrupt:
-        ccxt_server._log_info("Received KeyboardInterrupt, exiting.")
+            # Wait for all pending operations to complete before exiting
+            tasks = [self.task]
+            done, pending = await asyncio.wait(tasks, return_when=asyncio.ALL_COMPLETED)
+            await asyncio.gather(*pending, return_exceptions=True)
 
-
-async def init_ccxt_instance(exchange: str, hostname: str = None, private_api: bool = False):
-    import ccxt.async_support as ccxt
-    api_key = None
-    api_secret = None
-    if exchange in ccxt.exchanges:
-        exchange_class = getattr(ccxt, exchange)
-        instance = exchange_class({
-                                      'apiKey': api_key,
-                                      'secret': api_secret,
-                                      'enableRateLimit': True,
-                                      'hostname': hostname
-                                  } if hostname else {
-            'apiKey': api_key,
-            'secret': api_secret,
-            'enableRateLimit': True
-        })
-
-        done = False
-        while not done:
-            try:
-                print(f"{now()} [INFO] Loading markets for exchange: {exchange}")
-                await instance.load_markets()
-                done = True
-                print(f"{now()} [INFO] Markets loaded successfully for exchange: {exchange}")
-            except Exception as e:
-                print(f"{now()} [ERROR] init_ccxt_instance error: {e} {type(e)}")
-                traceback.print_exc()
-                await asyncio.sleep(5)
-        return instance
-    return None
+        self._log_info("Server is shutting down...")
+        if hasattr(self, 'app') and self.app:
+            await self.app.shutdown()
+        if hasattr(self, 'runner') and self.runner:
+            await self.runner.cleanup()
 
 
 if __name__ == "__main__":
-    main()
+    ccxt_server = CCXTServer()
+    asyncio.run(ccxt_server.main())
