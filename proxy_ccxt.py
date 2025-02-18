@@ -39,13 +39,13 @@ class CCXTServer:
             try:
                 now = time.time()
                 if self.must_refresh_tickers:
-                    self._log_info("Must refresh tickers")
+                    #self._log_info("Must refresh tickers")
                     await self.refresh_tickers()
                     last_refresh = now
                     self.must_refresh_tickers = False  # Reset the flag after refreshing
 
                 if (now - last_refresh) >= interval:
-                    self._log_info("Periodic refresh tickers")
+                    #self._log_info("Periodic refresh tickers")
                     await self.refresh_tickers()
                     last_refresh = now
 
