@@ -4,7 +4,7 @@ from datetime import datetime
 import traceback
 import signal
 
-import requests
+import aiohttp
 from aiohttp import web
 
 import definitions.bcolors as bcolors
@@ -40,7 +40,7 @@ class CCXTServer:
                 await self.refresh_tickers()
             except Exception as e:
                 self._log_error(f"Error in periodic task: {e}")
-
+    
     async def init_task(self):
         self._log_info("Initializing CCXT task...")
         try:
@@ -58,26 +58,36 @@ class CCXTServer:
 
     async def refresh_tickers(self):
         self._log_info("Starting refresh_tickers task...")
+        # Prevent busy loop if there are no symbols to refresh.
+        if not self.symbols_list:
+            self._log_info("No symbols in symbols_list to refresh. Exiting refresh_tickers.")
+            return
+
         done = False
         retry_count = 0
+        max_retries = 5
         while not done:
             retry_count += 1
-            if self.symbols_list:
-                self.ccxt_call_count += 1
-                self._log_info(f"Attempting to refresh tickers for: {self.symbols_list}, retry: {retry_count}")
-                try:
-                    temp_tickers = await asyncio.wait_for(self.ccxt_i.fetchTickers(self.symbols_list),
-                                                          timeout=self.fetch_timeout)
-                    self.tickers = temp_tickers
-                    done = True
-                    self._log_info("Successfully refreshed tickers.")
-                except asyncio.TimeoutError:
-                    self._log_error(f"Timeout fetching tickers after {self.fetch_timeout} seconds, retrying...")
-                    await asyncio.sleep(retry_count)  # Delay before retrying
-                except Exception as e:
-                    self._log_error(f"refresh_tickers error: {e} {type(e)}, retrying...")
-                    traceback.print_exc()
-                    await asyncio.sleep(retry_count)
+            self.ccxt_call_count += 1
+            self._log_info(f"Attempting to refresh tickers for: {self.symbols_list}, retry: {retry_count}")
+            try:
+                temp_tickers = await asyncio.wait_for(
+                    self.ccxt_i.fetchTickers(self.symbols_list),
+                    timeout=self.fetch_timeout
+                )
+                self.tickers = temp_tickers
+                done = True
+                self._log_info("Successfully refreshed tickers.")
+            except asyncio.TimeoutError:
+                self._log_error(f"Timeout fetching tickers after {self.fetch_timeout} seconds, retrying...")
+            except Exception as e:
+                self._log_error(f"refresh_tickers error: {e} {type(e)}, retrying...")
+                traceback.print_exc()
+            if not done:
+                if retry_count >= max_retries:
+                    self._log_error("Max retry reached for refresh_tickers. Aborting refresh_tickers.")
+                    break
+                await asyncio.sleep(retry_count)  # progressive delay
 
         if 'BLOCK' in self.custom_ticker:
             await self.update_ticker_block()
@@ -85,6 +95,7 @@ class CCXTServer:
 
     async def ccxt_call_fetch_tickers(self, *symbols: str) -> dict:
         self._log_info(f"ccxt_call_fetch_tickers called with symbols: {symbols}")
+        # Add new symbols if not already tracked.
         self.symbols_list.extend([symbol for symbol in symbols if symbol not in self.symbols_list])
         if any(symbol not in self.tickers for symbol in self.symbols_list):
             self._log_info("Fetching tickers from ccxt...")
@@ -99,24 +110,35 @@ class CCXTServer:
         result = None
         done = False
         retry_count = 0
-        while not done:
-            retry_count += 1
-            try:
-                self.custom_ticker_call_count += 1
-                self._log_info("Fetching BLOCK ticker from external API...")
-                ticker = requests.get(url='https://min-api.cryptocompare.com/data/price?fsym=BLOCK&tsyms=BTC')
-                if ticker.status_code == 200:
-                    result = ticker.json().get('BTC')
-                    if result and isinstance(result, float):
-                        done = True
-                        self.custom_ticker['BLOCK'] = result
-                        self._log_info(f"Updated BLOCK ticker: {result} BTC")
-                else:
-                    self._log_error(f"Error fetching BLOCK ticker, status code: {ticker.status_code}")
-            except Exception as e:
-                self._log_error(f"update_ticker_block error: {e} {type(e)}, retrying...")
-                traceback.print_exc()
-                await asyncio.sleep(retry_count)
+        max_retries = 5
+        url = 'https://min-api.cryptocompare.com/data/price?fsym=BLOCK&tsyms=BTC'
+        
+        async with aiohttp.ClientSession() as session:
+            while not done:
+                retry_count += 1
+                try:
+                    self.custom_ticker_call_count += 1
+                    self._log_info("Fetching BLOCK ticker from external API...")
+                    async with session.get(url) as response:
+                        if response.status == 200:
+                            data = await response.json()
+                            result = data.get('BTC')
+                            if result and isinstance(result, (float, int)):
+                                done = True
+                                self.custom_ticker['BLOCK'] = result
+                                self._log_info(f"Updated BLOCK ticker: {result} BTC")
+                            else:
+                                self._log_error("Received invalid ticker data for BLOCK.")
+                        else:
+                            self._log_error(f"Error fetching BLOCK ticker, status code: {response.status}")
+                except Exception as e:
+                    self._log_error(f"update_ticker_block error: {e} {type(e)}, retrying...")
+                    traceback.print_exc()
+                if not done:
+                    if retry_count >= max_retries:
+                        self._log_error("Max retry reached in update_ticker_block. Aborting.")
+                        break
+                    await asyncio.sleep(retry_count)
 
     async def fetch_ticker_block(self) -> float:
         self._log_info("fetch_ticker_block called.")
@@ -126,7 +148,7 @@ class CCXTServer:
         else:
             self.custom_ticker_cache_count += 1
             self._log_info("Returning cached BLOCK ticker.")
-        return self.custom_ticker['BLOCK']
+        return self.custom_ticker.get('BLOCK')
 
     def print_metrics(self):
         if 'BLOCK' in self.custom_ticker:
@@ -219,11 +241,11 @@ async def init_ccxt_instance(exchange: str, hostname: str = None, private_api: b
     if exchange in ccxt.exchanges:
         exchange_class = getattr(ccxt, exchange)
         instance = exchange_class({
-                                      'apiKey': api_key,
-                                      'secret': api_secret,
-                                      'enableRateLimit': True,
-                                      'hostname': hostname
-                                  } if hostname else {
+            'apiKey': api_key,
+            'secret': api_secret,
+            'enableRateLimit': True,
+            'hostname': hostname
+        } if hostname else {
             'apiKey': api_key,
             'secret': api_secret,
             'enableRateLimit': True
