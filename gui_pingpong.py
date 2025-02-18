@@ -66,7 +66,7 @@ class MyGUI:
     def create_buttons(self):
         button_frame = ttk.Frame(self.root)
         button_frame.grid(column=0, row=0, padx=5, pady=5, sticky='ew')
-        btn_width = 10
+        btn_width = 12
         self.btn_start = ttk.Button(button_frame, text="START", command=self.start, width=btn_width)
         self.btn_start.grid(column=0, row=0, padx=5, pady=5)
         self.btn_stop = ttk.Button(button_frame, text="STOP", command=self.stop, width=btn_width)
@@ -77,6 +77,8 @@ class MyGUI:
         self.btn_configure = ttk.Button(button_frame, text="CONFIGURE", command=self.open_configure_window,
                                         width=btn_width)
         self.btn_configure.grid(column=3, row=0, padx=5, pady=5)
+
+
 
     def create_orders_treeview(self):
         columns = ("Pair", "Status", "Side", "Flag", "Variation")
@@ -352,6 +354,8 @@ class MyGUI:
             status_var.set(message)
             status_label.config(foreground=color)
 
+
+
         main_frame = ttk.Frame(self.config_window)
         main_frame.pack(fill='both', expand=True)
 
@@ -361,8 +365,31 @@ class MyGUI:
         scrollbar = ttk.Scrollbar(main_frame, orient='vertical', command=canvas.yview)
         scrollbar.pack(side='right', fill='y')
 
+
+
+
         content_frame = ttk.Frame(canvas)
         canvas.create_window((0, 0), window=content_frame, anchor='nw')
+
+        # Bind key events to allow scrolling with keys
+        self.config_window.bind("<Up>", lambda event: canvas.yview_scroll(-1, "units"))
+        self.config_window.bind("<Down>", lambda event: canvas.yview_scroll(1, "units"))
+        self.config_window.bind("<Prior>", lambda event: canvas.yview_scroll(-10, "units"))  # Page Up
+        self.config_window.bind("<Next>", lambda event: canvas.yview_scroll(10, "units"))  # Page Down
+
+        # Mouse scrolling binding to the config_window
+        def mouse_scroll(event):
+            # MouseWheel event handling
+            delta = event.delta if event.delta != 0 else event.widget.winfo_pointery()
+            if delta > 0:
+                # Scroll up
+                canvas.yview_scroll(-1, "units")
+            else:
+                # Scroll down
+                canvas.yview_scroll(1, "units")
+
+        # Bind the mouse scroll event to the window
+        self.config_window.bind("<MouseWheel>", lambda event: mouse_scroll(event))
 
         def on_frame_configure(event):
             canvas.configure(scrollregion=canvas.bbox("all"))
