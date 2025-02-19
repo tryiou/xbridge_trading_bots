@@ -45,6 +45,7 @@ class ThreadWithExc(threading.Thread):
 
 class MyGUI:
     def __init__(self):
+        self.config_window = None
         self.root = tk.Tk()
         self.root.title("PingPong")
         self.root.resizable(width=False, height=False)
@@ -77,8 +78,6 @@ class MyGUI:
         self.btn_configure = ttk.Button(button_frame, text="CONFIGURE", command=self.open_configure_window,
                                         width=btn_width)
         self.btn_configure.grid(column=3, row=0, padx=5, pady=5)
-
-
 
     def create_orders_treeview(self):
         columns = ("Pair", "Status", "Side", "Flag", "Variation")
@@ -208,6 +207,11 @@ class MyGUI:
                 self.balances_treeview.item(item_id, values=new_values)
 
     def open_configure_window(self):
+
+        if self.config_window:
+            self.config_window.tkraise()
+            return
+
         self.btn_start.config(state="disabled")
         self.btn_configure.config(state="disabled")
 
@@ -215,10 +219,10 @@ class MyGUI:
         self.config_window.title("Configure Bot")
 
         def on_configure_window_close():
-            self.config_window.destroy()
             self.btn_start.config(state="active")
             self.btn_configure.config(state="active")
-            self.root.protocol("WM_DELETE_WINDOW", self.root.destroy)
+            self.config_window.destroy()
+            self.config_window = None  # Reset the reference to None
 
         self.config_window.protocol("WM_DELETE_WINDOW", on_configure_window_close)
 
@@ -354,8 +358,6 @@ class MyGUI:
             status_var.set(message)
             status_label.config(foreground=color)
 
-
-
         main_frame = ttk.Frame(self.config_window)
         main_frame.pack(fill='both', expand=True)
 
@@ -364,9 +366,6 @@ class MyGUI:
 
         scrollbar = ttk.Scrollbar(main_frame, orient='vertical', command=canvas.yview)
         scrollbar.pack(side='right', fill='y')
-
-
-
 
         content_frame = ttk.Frame(canvas)
         canvas.create_window((0, 0), window=content_frame, anchor='nw')
