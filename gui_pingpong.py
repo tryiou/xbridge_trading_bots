@@ -91,6 +91,13 @@ class GUI_Orders:
                         ]
                         if list(new_values) != list(values):
                             self.orders_treeview.item(item_id, values=new_values)
+    def purge_treeview(self):
+        # Destroy existing orders and balances frames within their respective classes.
+        if self.orders_frame:
+            for widget in self.orders_frame.winfo_children():
+                widget.destroy()
+            self.orders_frame.destroy()
+
 
 
 class GUI_Balances:
@@ -136,6 +143,11 @@ class GUI_Balances:
             if list(new_values) != list(values):
                 self.balances_treeview.item(item_id, values=new_values)
 
+    def purge_treeview(self):
+        if self.balances_frame:
+            for widget in self.balances_frame.winfo_children():
+                widget.destroy()
+            self.balances_frame.destroy()
 
 class GUI_Config:
     def __init__(self, parent):
@@ -391,30 +403,27 @@ class GUI_Config:
             with open(config_file_path, 'w') as file:
                 yaml.dump(new_config, file)
             self.update_status("Configuration saved successfully.", 'lightgreen')
-            self.reload_configuration()
+            self.parent.reload_configuration()
 
         except Exception as e:
             self.update_status(f"Failed to save configuration: {e}", 'lightcoral')
 
-    def reload_configuration(self):
-        init.init_pingpong()
-
         # Destroy existing orders and balances frames within their respective classes.
-        if self.parent.gui_orders.orders_frame:
-            for widget in self.parent.gui_orders.orders_frame.winfo_children():
-                widget.destroy()
-            self.parent.gui_orders.orders_frame.destroy()
-        if self.parent.gui_balances.balances_frame:
-            for widget in self.parent.gui_balances.balances_frame.winfo_children():
-                widget.destroy()
+        # if self.parent.gui_orders.orders_frame:
+        #     for widget in self.parent.gui_orders.orders_frame.winfo_children():
+        #         widget.destroy()
+        #     self.parent.gui_orders.orders_frame.destroy()
+        # if self.parent.gui_balances.balances_frame:
+        #     for widget in self.parent.gui_balances.balances_frame.winfo_children():
+        #         widget.destroy()
         # if self.parent.balances_frame:
         #     for widget in self.parent.balances_frame.winfo_children():
         #         widget.destroy()
         #     self.parent.balances_frame.destroy()
 
-        # Re-create the orders and balances treeviews via their respective classes.
-        self.parent.gui_orders.create_orders_treeview()
-        self.parent.gui_balances.create_balances_treeview()
+        # # Re-create the orders and balances treeviews via their respective classes.
+        # self.parent.gui_orders.create_orders_treeview()
+        # self.parent.gui_balances.create_balances_treeview()
 
     def add_pair(self, new_pair):
         new_pair = new_pair.strip()
@@ -496,6 +505,7 @@ class GUI_Main:
         self.gui_balances = GUI_Balances(self)
         self.create_widgets()
         self.gui_config = GUI_Config(self)
+        self.refresh_gui()
 
     def create_widgets(self):
         self.create_buttons()
@@ -524,8 +534,8 @@ class GUI_Main:
         status_label = ttk.Label(status_frame, textvariable=self.status_var, anchor='w')
         status_label.grid(row=0, column=0, padx=5, pady=5, sticky='ew')
 
-    def initialize(self):
-        init.init_pingpong()
+    def initialize(self, loadxbridgeconf = True):
+        init.init_pingpong(loadxbridgeconf)
 
     def start(self):
         self.status_var.set("Bot is running...")
@@ -541,17 +551,17 @@ class GUI_Main:
         if self.send_process and self.send_process.is_alive():
             self.status_var.set("Stopping bot...")
             self.send_process.terminate()
-            print("Send stop order")
+            print("Stopping bot...")
             while self.send_process.is_alive():
                 print("Wait for process end...")
                 time.sleep(1)
-            self.started = False
-        # self.cancel_all()
-        # self.initialize()
+        self.started = False
         self.btn_stop.config(state="disabled")
         self.btn_start.config(state="active")
+        self.btn_configure.config(state="active")
+        self.reload_configuration(loadxbridgeconf=False)
         self.status_var.set("Bot stopped.")
-        print("stop done")
+        print("Bot stopped")
 
     def cancel_all(self):
         import definitions.xbridge_def as xb
@@ -562,20 +572,11 @@ class GUI_Main:
 
     def refresh_gui(self):
         if self.started:
-            self.btn_configure.config(state="disabled")
-
             if not self.send_process.is_alive():
-                import definitions.xbridge_def as xb
                 print("pingpong bot crashed!")
-                xb.cancelallorders()
-
-                self.btn_stop.config(state="disabled")
-                self.btn_start.config(state="active")
-                self.started = False
-                self.status_var.set("Bot crashed!")
-        else:
-            self.btn_configure.config(state="active")
-
+                self.status_var.set("pingpong bot crashed!")
+                self.stop()
+                self.cancel_all()
         self.gui_orders.update_order_display()
         self.gui_balances.update_balance_display()
         self.root.after(1500, self.refresh_gui)
@@ -594,11 +595,16 @@ class GUI_Main:
         self.stop()
         self.root.destroy()
 
+    def reload_configuration(self, loadxbridgeconf=True):
+        init.init_pingpong(loadxbridgeconf)
+        self.gui_orders.purge_treeview()
+        self.gui_balances.purge_treeview()
+        self.gui_orders.create_orders_treeview()
+        self.gui_balances.create_balances_treeview()
 
 if __name__ == '__main__':
     app = GUI_Main()
     app.root.protocol("WM_DELETE_WINDOW", app.on_closing)
-    app.refresh_gui()
 
     try:
         app.root.mainloop()

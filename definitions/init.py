@@ -6,7 +6,7 @@ ROOT_DIR = os.path.abspath(os.curdir)
 config_ccxt = YamlToObject("./config/config_ccxt.yaml")
 
 
-def init_pingpong():
+def init_pingpong(loadxbridgeconf=True):
     global t, p, my_ccxt, config_pp
     from definitions.classes import Token, Pair, ConfigPP, setup_logger
     from definitions.ccxt_def import init_ccxt_instance
@@ -16,9 +16,9 @@ def init_pingpong():
     config_pp = ConfigPP.load_config("./config/config_pingpong.yaml")
 
     print(config_pp)
-
-    # Load xbridge configuration
-    xbridge_def.dxloadxbridgeconf()
+    if loadxbridgeconf:
+        # Load xbridge configuration
+        xbridge_def.dxloadxbridgeconf()
 
     # Initialize CCXT instance
     my_ccxt = init_ccxt_instance(
