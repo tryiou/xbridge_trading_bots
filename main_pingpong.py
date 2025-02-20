@@ -38,6 +38,7 @@ class General:
         self.timer_main_dx_update_bals = None
         self.ccxt_price_timer = None
         self.disabled_coins = []
+        self.stop_order = False
 
     def main_init_loop(self):
         """Initial loop to update balances and initialize trading pairs."""
@@ -191,6 +192,7 @@ class General:
 
 async def main():
     """Main asynchronous function to start the trading operations."""
+    general = None  # Initialize general to avoid reference before assignment warning
     try:
         general = General(pairs_dict=init.p, tokens_dict=init.t, ccxt_i=init.my_ccxt)
         xb.cancelallorders()
@@ -198,6 +200,7 @@ async def main():
 
         flush_timer = time.time()
         operation_timer = time.time()
+        last_time = time.time()
 
         general.main_init_loop()
 
@@ -211,17 +214,23 @@ async def main():
             if current_time - operation_timer > OPERATION_INTERVAL:
                 general.main_loop()
                 operation_timer = current_time
-
+            # If not enough time has passed, sleep for a smaller interval
+            if general and general.stop_order:
+                break
             await asyncio.sleep(SLEEP_INTERVAL)
 
     except (SystemExit, KeyboardInterrupt):
         logging.info("Received Stop order. Cleaning up...")
+        if general:
+            general.stop_order = True
         xb.cancelallorders()
         exit()
 
     except Exception as e:
         logging.error(f"Exception in main loop: {e}", exc_info=True)
         traceback.print_exc()
+        if general:
+            general.stop_order = True
         xb.cancelallorders()
         exit()
 
