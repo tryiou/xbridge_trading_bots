@@ -63,7 +63,7 @@ def prompt_user_for_config_path():
         return config_path
 
     def _prompt_on_console():
-        return input("Enter the path to blocknet.conf: ")
+        return input("Enter path to blocknet.conf (including filename): ")
 
     while True:  # Keep asking until a valid path is provided or max attempts reached
         attempt_count += 1
