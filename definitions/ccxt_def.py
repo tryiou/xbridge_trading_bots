@@ -2,10 +2,7 @@ import socket
 import sys
 import time
 
-import ccxt
-
 import definitions.bcolors as bcolors
-from definitions.init import ROOT_DIR
 from definitions.xbridge_def import rpc_call
 from definitions.yaml_mix import YamlToObject
 
@@ -23,48 +20,6 @@ def debug_display(func, params, result, debug=config.debug_level, timer=None):
         print(f"{bcolors.mycolor.OKCYAN}{msg}{bcolors.mycolor.ENDC}")
         if debug >= 3:
             print(str(result))
-
-
-def init_ccxt_instance(exchange, hostname=None, private_api=False):
-    # CCXT instance
-    import json
-    api_key = None
-    api_secret = None
-    if private_api:
-        with open(ROOT_DIR + '/config/api_keys.local.json') as json_file:
-            data_json = json.load(json_file)
-            for data in data_json['api_info']:
-                if exchange in data['exchange']:
-                    api_key = data['api_key']
-                    api_secret = data['api_secret']
-    if exchange in ccxt.exchanges:
-        exchange_class = getattr(ccxt, exchange)
-        if hostname:
-            instance = exchange_class({
-                'apiKey': api_key,
-                'secret': api_secret,
-                'enableRateLimit': True,
-                'rateLimit': 1000,
-                'hostname': hostname,  # 'global.bittrex.com',
-            })
-        else:
-            instance = exchange_class({
-                'apiKey': api_key,
-                'secret': api_secret,
-                'enableRateLimit': True,
-                'rateLimit': 1000,
-            })
-        done = False
-        while not done:
-            try:
-                instance.load_markets()
-            except Exception as e:
-                ccxt_manage_error(e)
-            else:
-                done = True
-        return instance
-    else:
-        return None
 
 
 def ccxt_manage_error(error, err_count=1):

@@ -10,6 +10,7 @@ import asyncio
 import definitions.init as init
 from starter import main
 
+
 def run_async_main():
     """Runs the main asynchronous function using a new event loop."""
     loop = asyncio.new_event_loop()
@@ -19,7 +20,7 @@ def run_async_main():
 
 def start():
     """Initializes the application and starts the main process."""
-    init.init_pingpong()
+    init.init(strategy="pingpong")
     run_async_main()
 
 

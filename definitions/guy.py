@@ -13,6 +13,7 @@ from ttkbootstrap import Style
 import main_pingpong
 from definitions import init
 
+
 def _async_raise(tid, exctype):
     if not inspect.isclass(exctype):
         raise TypeError("Only types can be raised (not instances)")
@@ -83,20 +84,20 @@ class GUI_Orders:
                             pair.dex.order.get('status',
                                                'None') if self.parent.started and pair.dex.order and 'status' in pair.dex.order else 'Disabled' if pair.dex.disabled else 'None',
                             pair.dex.current_order.get('side',
-                                                   'None') if self.parent.started and pair.dex.order and 'status' in pair.dex.order else 'None',
+                                                       'None') if self.parent.started and pair.dex.order and 'status' in pair.dex.order else 'None',
                             self.parent.get_flag(pair.dex.order.get('status',
                                                                     'None') if self.parent.started and pair.dex.order and 'status' in pair.dex.order else 'None'),
                             str(pair.dex.variation) if self.parent.started and pair.dex.order and 'status' in pair.dex.order else 'None'
                         ]
                         if list(new_values) != list(values):
                             self.orders_treeview.item(item_id, values=new_values)
+
     def purge_treeview(self):
         # Destroy existing orders and balances frames within their respective classes.
         if self.orders_frame:
             for widget in self.orders_frame.winfo_children():
                 widget.destroy()
             self.orders_frame.destroy()
-
 
 
 class GUI_Balances:
@@ -147,6 +148,7 @@ class GUI_Balances:
             for widget in self.balances_frame.winfo_children():
                 widget.destroy()
             self.balances_frame.destroy()
+
 
 class GUI_Config:
     def __init__(self, parent):
@@ -533,8 +535,8 @@ class GUI_Main:
         status_label = ttk.Label(status_frame, textvariable=self.status_var, anchor='w')
         status_label.grid(row=0, column=0, padx=5, pady=5, sticky='ew')
 
-    def initialize(self, loadxbridgeconf = True):
-        init.init_pingpong(loadxbridgeconf)
+    def initialize(self, loadxbridgeconf=True):
+        init.init(strategy="pingpong", loadxbridgeconf=loadxbridgeconf)
 
     def start(self):
         self.status_var.set("Bot is running...")
@@ -595,7 +597,7 @@ class GUI_Main:
         self.root.destroy()
 
     def reload_configuration(self, loadxbridgeconf=True):
-        init.init_pingpong(loadxbridgeconf)
+        init.init(strategy="pingpong", loadxbridgeconf=loadxbridgeconf)
         self.gui_orders.purge_treeview()
         self.gui_balances.purge_treeview()
         self.gui_orders.create_orders_treeview()

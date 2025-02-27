@@ -101,7 +101,8 @@ class General:
     def _update_token_prices(self, tickers):
         """Updates the prices of tokens based on fetched tickers."""
         lastprice_string = self._get_last_price_string()
-        for token, token_data in self.tokens_dict.items():
+        # ALWAYS UPDATE BTC FIRST
+        for token, token_data in sorted(self.tokens_dict.items(), key=lambda item: (item[0] != 'BTC', item[0])):
             if token not in self.config_coins.usd_ticker_custom:
                 symbol = f"{token_data.symbol}/USDT" if token_data.symbol == 'BTC' else f"{token_data.symbol}/BTC"
                 self._update_token_price(tickers, symbol, lastprice_string, token_data)
@@ -206,9 +207,10 @@ async def main():
             if current_time - operation_timer > OPERATION_INTERVAL:
                 general.main_loop()
                 operation_timer = current_time
-            # If not enough time has passed, sleep for a smaller interval
+
             if general and general.stop_order:
                 break
+
             await asyncio.sleep(SLEEP_INTERVAL)
 
     except (SystemExit, KeyboardInterrupt):

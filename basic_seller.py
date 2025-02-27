@@ -8,6 +8,7 @@ import sys
 import definitions.init as init
 import definitions.xbridge_def as xb
 
+
 def signal_handler(signal, frame):
     logging.warning("Signal received: %s. Exiting...", signal)
     xb.cancelallorders()
@@ -21,14 +22,15 @@ class ValidatePercentArg(argparse.Action):
             raise argparse.ArgumentError(self, "Value must be between 0.001 (inclusive) and 1 (exclusive).")
         setattr(namespace, self.dest, values)
 
+
 def run_async_main():
     """Runs the main asynchronous function using a new event loop."""
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     loop.run_until_complete(main())
 
+
 def start():
-    global ccxt_price_timer
     signal.signal(signal.SIGINT, signal_handler)
 
     parser = argparse.ArgumentParser(
@@ -70,21 +72,15 @@ def start():
                  amount_token_to_sell, token_to_sell, token_to_buy, min_sell_price_usd, ccxt_sell_price_upscale,
                  partial_value)
 
-    pair_symbol = f"{token_to_sell}/{token_to_buy}"
-    ccxt_price_timer = None
-
-    init.init_basic_seller(
-        [token_to_sell, token_to_buy],
-        amount_token_to_sell=amount_token_to_sell,
-        min_sell_price_usd=min_sell_price_usd,
-        ccxt_sell_price_upscale=ccxt_sell_price_upscale,
-        partial_percent=partial_value
-    )
+    init.init(strategy="basic_seller",
+              tokens_list=[token_to_sell, token_to_buy],
+              amount_token_to_sell=amount_token_to_sell,
+              min_sell_price_usd=min_sell_price_usd,
+              ccxt_sell_price_upscale=ccxt_sell_price_upscale,
+              partial_percent=partial_value
+              )
     run_async_main()
-
 
 
 if __name__ == '__main__':
     start()
-
-
