@@ -1,24 +1,61 @@
 import os
-
 from definitions.yaml_mix import YamlToObject
+from definitions.classes import Token, Pair, ConfigPP, setup_logger
+from definitions.ccxt_def import ccxt_manage_error
+import definitions.xbridge_def as xbridge_def
+import json
+import ccxt
 
 ROOT_DIR = os.path.abspath(os.curdir)
 config_ccxt = YamlToObject("./config/config_ccxt.yaml")
 
 
-def init_pingpong(loadxbridgeconf=True):
+def init_ccxt_instance(exchange, hostname=None, private_api=False):
+    # CCXT instance
+    api_key = None
+    api_secret = None
+    if private_api:
+        with open(ROOT_DIR + '/config/api_keys.local.json') as json_file:
+            data_json = json.load(json_file)
+            for data in data_json['api_info']:
+                if exchange in data['exchange']:
+                    api_key = data['api_key']
+                    api_secret = data['api_secret']
+    if exchange in ccxt.exchanges:
+        exchange_class = getattr(ccxt, exchange)
+        if hostname:
+            instance = exchange_class({
+                'apiKey': api_key,
+                'secret': api_secret,
+                'enableRateLimit': True,
+                'rateLimit': 1000,
+                'hostname': hostname,  # 'global.bittrex.com',
+            })
+        else:
+            instance = exchange_class({
+                'apiKey': api_key,
+                'secret': api_secret,
+                'enableRateLimit': True,
+                'rateLimit': 1000,
+            })
+        done = False
+        while not done:
+            try:
+                instance.load_markets()
+            except Exception as e:
+                ccxt_manage_error(e)
+            else:
+                done = True
+        return instance
+    else:
+        return None
+
+
+def init(strategy, loadxbridgeconf=True, tokens_list=None, amount_token_to_sell=None, min_sell_price_usd=None,
+         ccxt_sell_price_upscale=None, partial_percent=None):
     global t, p, my_ccxt, config_pp
-    from definitions.classes import Token, Pair, ConfigPP, setup_logger
-    from definitions.ccxt_def import init_ccxt_instance
-    import definitions.xbridge_def as xbridge_def
 
-    setup_logger("pingpong")
-    config_pp = ConfigPP.load_config("./config/config_pingpong.yaml")
-
-    print(config_pp)
-    if loadxbridgeconf:
-        # Load xbridge configuration
-        xbridge_def.dxloadxbridgeconf()
+    setup_logger(strategy)
 
     # Initialize CCXT instance
     my_ccxt = init_ccxt_instance(
@@ -27,65 +64,60 @@ def init_pingpong(loadxbridgeconf=True):
         private_api=False
     )
 
-    # Prepare the list of active tokens, ensuring BTC is included
-    tokens = []
-    sorted_pairs = sorted(config_pp.user_pairs)
-    for pair in sorted_pairs:
-        t1, t2 = pair.split("/")
-        if t1 not in tokens:
-            tokens.append(t1)
-        if t2 not in tokens:
-            tokens.append(t2)
-    if 'BTC' not in tokens:
-        tokens.append('BTC')
-    tokens.insert(0, tokens.pop(tokens.index('BTC')))  # Ensure BTC is first in the list
+    if strategy == 'pingpong':
+        config_pp = ConfigPP.load_config("./config/config_pingpong.yaml")
+        print(config_pp)
+        if loadxbridgeconf:
+            xbridge_def.dxloadxbridgeconf()
 
-    # Initialize the token and pair dictionaries
-    t = {token: Token(token, strategy="pingpong") for token in tokens}
-    p = {
-        pair: Pair(t[t1], t[t2], strategy="pingpong", dex_enabled=True)
-        for pair in sorted_pairs
-        for t1, t2 in [pair.split("/")]
-    }
+        tokens = []
+        sorted_pairs = sorted(config_pp.user_pairs)
+        for pair in sorted_pairs:
+            t1, t2 = pair.split("/")
+            if t1 not in tokens:
+                tokens.append(t1)
+            if t2 not in tokens:
+                tokens.append(t2)
+        if 'BTC' not in tokens:
+            tokens.append('BTC')
+        tokens.insert(0, tokens.pop(tokens.index('BTC')))  # Ensure BTC is first in the list
 
+        t = {token: Token(token, strategy="pingpong") for token in tokens}
+        p = {
+            pair: Pair(t[t1], t[t2], strategy="pingpong", dex_enabled=True)
+            for pair in sorted_pairs
+            for t1, t2 in [pair.split("/")]
+        }
 
-def init_basic_seller(tokens_list, amount_token_to_sell, min_sell_price_usd, ccxt_sell_price_upscale, partial_percent):
-    global t, p, my_ccxt
-    from definitions.classes import Token, Pair, setup_logger
-    from definitions.ccxt_def import init_ccxt_instance
+    elif strategy == 'basic_seller':
+        if tokens_list is None or amount_token_to_sell is None or min_sell_price_usd is None:
+            raise ValueError("Missing required arguments for basic_seller strategy")
 
-    setup_logger("basic_seller")
+        t = {}
 
-    # Initialize CCXT instance
-    my_ccxt = init_ccxt_instance(
-        exchange=config_ccxt.ccxt_exchange,
-        hostname=config_ccxt.ccxt_hostname,
-        private_api=False
-    )
+        for token in tokens_list:
+            t[token] = Token(symbol=token, strategy="basic_seller")
 
-    # Initialize the token dictionary
-    t = {}
+        if "BTC" not in t:
+            t["BTC"] = Token(symbol='BTC', strategy="basic_seller", dex_enabled=False)
 
-    # Ensure BTC is included in the tokens dictionary
-    if "BTC" not in t:
-        t["BTC"] = Token(symbol='BTC', strategy="basic_seller", dex_enabled=False)
+        pair_key = f"{tokens_list[0]}/{tokens_list[1]}"
+        p = {
+            pair_key: Pair(
+                token1=t[tokens_list[0]],
+                token2=t[tokens_list[1]],
+                strategy="basic_seller",
+                amount_token_to_sell=amount_token_to_sell,
+                min_sell_price_usd=min_sell_price_usd,
+                ccxt_sell_price_upscale=ccxt_sell_price_upscale,
+                partial_percent=partial_percent
+            )
+        }
 
-    for token in tokens_list:
-        t[token] = Token(symbol=token, strategy="basic_seller")
+# Example usage:
+# init('pingpong')
+# init('basic_seller', tokens_list=['ETH', 'BTC'], amount_token_to_sell=1.0, min_sell_price_usd=100, ccxt_sell_price_upscale=1.01, partial_percent=0.5)
 
-    # Initialize the pair dictionary
-    pair_key = f"{tokens_list[0]}/{tokens_list[1]}"
-    p = {
-        pair_key: Pair(
-            token1=t[tokens_list[0]],
-            token2=t[tokens_list[1]],
-            strategy="basic_seller",
-            amount_token_to_sell=amount_token_to_sell,
-            min_sell_price_usd=min_sell_price_usd,
-            ccxt_sell_price_upscale=ccxt_sell_price_upscale,
-            partial_percent=partial_percent
-        )
-    }
 
 # def init_coins_dict_arbtaker():
 #     import definitions.xbridge_def as xb
