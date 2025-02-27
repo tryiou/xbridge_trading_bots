@@ -1,26 +1,17 @@
-import argparse
-import logging
-import signal
-import sys
-import time
-import traceback
-from threading import Thread
+import asyncio
+from starter import main
 
-import definitions.ccxt_def as ccxt_def
+import argparse
+import signal
+import logging
+import sys
 import definitions.init as init
 import definitions.xbridge_def as xb
 
-# Set up logging
-logging.basicConfig(
-    level=logging.DEBUG,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[
-        logging.FileHandler("logs/basic_seller.log"),
-        logging.StreamHandler(sys.stdout)
-    ]
-)
-logging.getLogger("urllib3").setLevel(logging.WARNING)
-logging.getLogger("ccxt").setLevel(logging.WARNING)
+def signal_handler(signal, frame):
+    logging.warning("Signal received: %s. Exiting...", signal)
+    xb.cancelallorders()
+    sys.exit(0)
 
 
 class ValidatePercentArg(argparse.Action):
@@ -30,196 +21,13 @@ class ValidatePercentArg(argparse.Action):
             raise argparse.ArgumentError(self, "Value must be between 0.001 (inclusive) and 1 (exclusive).")
         setattr(namespace, self.dest, values)
 
+def run_async_main():
+    """Runs the main asynchronous function using a new event loop."""
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(main())
 
-def cancel_my_order():
-    logging.info("Cancelling orders...")
-    p = init.p
-    for pair in p:
-        if p[pair].dex_order:
-            logging.debug("Cancelling order for pair: %s", pair)
-            p[pair].dex_cancel_myorder()
-
-
-def signal_handler(signal, frame):
-    logging.warning("Signal received: %s. Exiting...", signal)
-    cancel_my_order()
-    sys.exit(0)
-
-
-def update_ccxt_prices(tokens_dict, ccxt_i):
-    global ccxt_price_timer
-    ccxt_price_refresh = 2
-
-    if ccxt_price_timer is None or time.time() - ccxt_price_timer > ccxt_price_refresh:
-        try:
-            logging.debug("Fetching CCXT prices...")
-            keys = [
-                f"{token}/USDT" if token == 'BTC' else f"{token}/BTC"
-                for token in tokens_dict.keys() if token != 'BLOCK'
-            ]
-            keys.insert(0, keys.pop(keys.index('BTC/USDT')))
-
-            tickers = ccxt_def.ccxt_call_fetch_tickers(ccxt_i, keys)
-            lastprice_string = (
-                "last" if ccxt_i.id == "kucoin" else
-                "lastPrice" if ccxt_i.id == "binance" else
-                "lastTradeRate"
-            )
-
-            for token, token_data in tokens_dict.items():
-                if token == 'BLOCK':
-                    continue
-
-                symbol = (
-                    f"{token_data.symbol}/USDT"
-                    if token_data.symbol == 'BTC' else
-                    f"{token_data.symbol}/BTC"
-                )
-
-                if tickers and symbol in tickers:
-                    ccxt_price = float(tickers[symbol]['info'][lastprice_string])
-                    token_data.ccxt_price = ccxt_price if token_data.symbol != 'BTC' else 1
-                    token_data.usd_price = (
-                        ccxt_price * tokens_dict['BTC'].usd_price
-                        if token_data.symbol != 'BTC' else ccxt_price
-                    )
-                    logging.info("Updated price for %s: %f USD", token, token_data.usd_price)
-                else:
-                    logging.warning("Missing symbol in tickers: %s", symbol)
-                    token_data.ccxt_price = None
-                    token_data.usd_price = None
-
-            if "BLOCK" in tokens_dict:
-                tokens_dict["BLOCK"].update_ccxt_price()
-
-            ccxt_price_timer = time.time()
-
-        except Exception as e:
-            logging.error("Error updating CCXT prices: %s", str(e))
-            logging.debug(traceback.format_exc())
-
-
-def main_dx_update_bals(tokens_dict):
-    logging.debug("Updating DX balances...")
-    xb_tokens = xb.getlocaltokens()
-
-    for token, token_data in tokens_dict.items():
-        if xb_tokens and token_data.symbol in xb_tokens:
-            try:
-                utxos = xb.gettokenutxo(token, used=True)
-                bal = 0.0
-                bal_free = 0.0
-                for utxo in utxos:
-                    # Ensure that utxo is a dictionary
-                    if isinstance(utxo, dict):
-                        bal += float(utxo.get('amount', 0))
-                        if 'orderid' in utxo and not utxo['orderid']:
-                            bal_free += float(utxo['amount'])
-                    else:
-                        logging.warning("Unexpected utxo format: %s", utxo)
-
-                token_data.dex_total_balance = bal
-                token_data.dex_free_balance = bal_free
-                logging.info("Balance updated for %s: Total: %f, Free: %f", token, bal, bal_free)
-            except Exception as e:
-                logging.error("Failed to update balance for %s: %s", token, str(e))
-                token_data.dex_total_balance = None
-                token_data.dex_free_balance = None
-        else:
-            token_data.dex_total_balance = None
-            token_data.dex_free_balance = None
-            if token != "BTC":
-                logging.warning("Token %s not found in local DX tokens", token)
-
-
-def thread_init(p):
-    logging.debug("Initializing thread for pair: %s", p.symbol)
-    p.create_dex_virtual_sell_order()
-    p.dex_create_order(dry_mode=False)
-
-
-def main_init_loop(pairs_dict, tokens_dict, my_ccxt):
-    enable_threading = False
-    max_threads = 10
-
-    logging.debug("Entering main initialization loop")
-    for key, p in pairs_dict.items():
-        update_ccxt_prices(tokens_dict, my_ccxt)
-        p.update_pricing()
-
-        if enable_threading:
-            threads = []
-            for i in range(0, len(pairs_dict), max_threads):
-                for p in list(pairs_dict.values())[i:i + max_threads]:
-                    t = Thread(target=thread_init, args=(p,))
-                    threads.append(t)
-                    t.start()
-                for t in threads:
-                    t.join()
-                time.sleep(0.1)
-        else:
-            thread_init(p)
-
-
-def thread_loop(p):
-    logging.debug("Starting thread loop for pair: %s", p.symbol)
-    p.status_check(display=True)
-
-
-def main_loop(pairs_dict, tokens_dict, my_ccxt):
-    enable_threading = False
-    max_threads = 10
-
-    start_time = time.perf_counter()
-    logging.debug("Starting main loop")
-    main_dx_update_bals(tokens_dict)
-
-    for key, p in pairs_dict.items():
-        update_ccxt_prices(tokens_dict, my_ccxt)
-
-        if enable_threading:
-            threads = []
-            for i in range(0, len(pairs_dict), max_threads):
-                for p in list(pairs_dict.values())[i:i + max_threads]:
-                    t = Thread(target=thread_loop, args=(p,))
-                    threads.append(t)
-                    t.start()
-                for t in threads:
-                    t.join()
-                time.sleep(0.1)
-        else:
-            thread_loop(p)
-
-    end_time = time.perf_counter()
-    logging.info('Main loop completed in %0.2f second(s)', end_time - start_time)
-
-
-def start(pair, tokens):
-    flush_delay = 15 * 60
-    flush_timer = None
-
-    logging.debug("Starting main operations")
-    main_dx_update_bals(tokens)
-    main_init_loop(pair, tokens, init.my_ccxt)
-
-    while True:
-        try:
-            if flush_timer is None or time.time() - flush_timer > flush_delay:
-                logging.debug("Flushing cancelled orders...")
-                xb.dxflushcancelledorders()
-                flush_timer = time.time()
-
-            main_loop(pair, tokens, init.my_ccxt)
-            time.sleep(10)
-
-        except Exception as e:
-            logging.error("Fatal error: %s", str(e))
-            logging.debug(traceback.format_exc())
-            cancel_my_order()
-            sys.exit(1)
-
-
-def main():
+def start():
     global ccxt_price_timer
     signal.signal(signal.SIGINT, signal_handler)
 
@@ -272,12 +80,11 @@ def main():
         ccxt_sell_price_upscale=ccxt_sell_price_upscale,
         partial_percent=partial_value
     )
+    run_async_main()
 
-    tokens = init.t
-    pair = init.p
-
-    start(pair, tokens)
 
 
 if __name__ == '__main__':
-    main()
+    start()
+
+

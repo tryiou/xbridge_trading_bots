@@ -7,7 +7,7 @@ def main_dx_get_markets(tokens_dict=None, preferred_token2=None):
     # print("Listing DX markets and retrieving orderbook:")
     for o, token1 in tokens_dict.items():
         for p, token2 in tokens_dict.items():
-            if token1.symbol != token2.symbol and token1.dex_enabled and token2.dex_enabled:
+            if token1.symbol != token2.symbol and token1.enabled and token2.enabled:
                 pairing_exist = any(x for x in markets_list if (x[0] == token1.symbol and x[1] == token2.symbol) or (
                         x[0] == token2.symbol and x[1] == token1.symbol))
                 if not pairing_exist:
@@ -51,13 +51,13 @@ def main_dx_update_bals(display=False):
                         print('no orderid in utxo:\n', utxo)
                 else:
                     print('no amount in utxo:\n', utxo)
-            tokens_dict[token].dex_total_balance = bal
-            tokens_dict[token].dex_free_balance = bal_free
+            tokens_dict[token].total_balance = bal
+            tokens_dict[token].free_balance = bal_free
         else:
-            tokens_dict[token].dex_total_balance = 0
-            tokens_dict[token].dex_free_balance = 0
+            tokens_dict[token].total_balance = 0
+            tokens_dict[token].free_balance = 0
         if display:
-            print(token, tokens_dict[token].dex_total_balance, tokens_dict[token].dex_free_balance)
+            print(token, tokens_dict[token].total_balance, tokens_dict[token].free_balance)
 
 
 def main_dx_update_orderbooks(pair_dict):
@@ -134,8 +134,8 @@ def check_size(order_data, tokens_dict):
     taker = order_data['taker']
     maker_size = float(order_data['maker_size'])
     taker_size = float(order_data['taker_size'])
-    t1_tobtc = taker_size * tokens_dict[taker].ccxt_price
-    t2_tobtc = maker_size * tokens_dict[maker].ccxt_price
+    t1_tobtc = taker_size * tokens_dict[taker].cex_price
+    t2_tobtc = maker_size * tokens_dict[maker].cex_price
     if check_min_size('BTC', t1_tobtc) and check_min_size('BTC', t2_tobtc) and \
             check_min_size(maker, maker_size) and check_min_size(taker, taker_size) and \
             check_max_size(maker, maker_size) and check_max_size(taker, taker_size):
@@ -165,7 +165,7 @@ def calc_cex_depth_price(side, pair, qty):
     # side: 'bids' ( i sell into buy book )  or 'asks' ( i buy into sell book )
     # input coin1 qty
     import definitions.init as init
-    pair.update_cex_orderbook()
+    pair.update_orderbook()
     count = 0
     done = False
     while not done:
@@ -177,7 +177,7 @@ def calc_cex_depth_price(side, pair, qty):
             message = "calc_cex_depth_price(" + pair.symbol + ", " + init.my_ccxt.name + ", " + str(qty) + \
                       " ) " + side + " error, count = " + str(count) + ", " + str(final_price_cex_book)
             print(message)
-            pair.update_cex_orderbook(limit=500, ignore_timer=True)
+            pair.update_orderbook(limit=500, ignore_timer=True)
         elif count == 3:
             print("calc_cex_coin1_depth_price, not enough depth on orderbook")
             return None, None
@@ -292,11 +292,11 @@ def main():
     main_dx_update_bals()
     main_cex_update_bals()
     for x, token in tokens_dict.items():
-        print(token.symbol, token.dex_free_balance)
+        print(token.symbol, token.free_balance)
     for x, pair in list(pairs_dict.items()):
         if pair.have_dex_orderbook:
             print([pair.symbol])  # ,pair.t1.xb_address,pair.t2.xb_address)
-            pair.update_pricing()
+            pair.cex.update_pricing()
             dex_ask_order = dex_select_order('asks', pair, tokens_dict)
             dex_bid_order = dex_select_order('bids', pair, tokens_dict)
             symbols_check(pair, tokens_dict, pairs_dict)
