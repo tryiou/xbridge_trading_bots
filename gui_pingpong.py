@@ -1,4 +1,4 @@
-from definitions.guy import GUI_Main
+from definitions.gui import GUI_Main
 
 if __name__ == '__main__':
     app = GUI_Main()
