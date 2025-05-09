@@ -1,265 +1,19 @@
-# from utils import dxbottools
-import logging
 import os
 import pickle
 import time
 
-import requests
-import yaml
-
 import definitions.bcolors as bcolors
-import definitions.ccxt_def as ccxt_def
-import definitions.init as init
 import definitions.xbridge_def as xb
-from definitions.logger import setup_logging
-from definitions.yaml_mix import YamlToObject
-
-general_log = None
-trade_log = None
-
-
-def setup_logger(strategy=None):
-    global general_log, trade_log
-
-    if general_log and trade_log:
-        # Loggers are already set up, no need to do it again
-        return
-
-    if strategy:
-        general_log = setup_logging(name="GENERAL_LOG",
-                                    log_file=init.ROOT_DIR + '/logs/' + strategy + '_general.log',
-                                    level=logging.INFO, console=True)
-        general_log.propagate = False
-        trade_log = setup_logging(name="TRADE_LOG", log_file=init.ROOT_DIR + '/logs/' + strategy + '_trade.log',
-                                  level=logging.INFO,
-                                  console=False)
-    else:
-        print("setup_logger(strategy=None)")
-        os._exit(1)
-
-
-# logging.basicConfig(level=logging.INFO)
-
-star_counter = 0
-
-config_coins = YamlToObject('config/config_coins.yaml')
-
-
-class ConfigPP:
-    def __init__(self, config_data=None):
-        # Initialize with None values
-        self.debug_level = None
-        self.ttk_theme = None
-        self.user_pairs = None
-        self.price_variation_tolerance = None
-        self.sell_price_offset = None
-        self.usd_amount_default = None
-        self.usd_amount_custom = None
-        self.spread_default = None
-        self.spread_custom = None
-
-        # Override with provided config_data
-        if config_data:
-            self.update_config(config_data)
-        else:
-            # Set default values if no config_data provided
-            self.set_defaults()
-
-    def set_defaults(self):
-        self.debug_level = 2
-        self.ttk_theme = "darkly"
-        self.user_pairs = ["BLOCK/LTC", "LTC/BLOCK"]
-        self.price_variation_tolerance = 0.02
-        self.sell_price_offset = 0.05
-        self.usd_amount_default = 1
-        self.usd_amount_custom = {
-            "DASH/BLOCK": 21,
-            "BLOCK/DASH": 19
-        }
-        self.spread_default = 0.05
-        self.spread_custom = {
-            "BLOCK/LTC": 0.04,
-            "LTC/BLOCK": 0.04
-        }
-
-    def update_config(self, config_data):
-        # Update only with the provided values
-        if 'debug_level' in config_data:
-            self.debug_level = config_data['debug_level']
-        if 'ttk_theme' in config_data:
-            self.ttk_theme = config_data['ttk_theme']
-        if 'user_pairs' in config_data:
-            self.user_pairs = config_data['user_pairs']
-        if 'price_variation_tolerance' in config_data:
-            self.price_variation_tolerance = config_data['price_variation_tolerance']
-        if 'sell_price_offset' in config_data:
-            self.sell_price_offset = config_data['sell_price_offset']
-        if 'usd_amount_default' in config_data:
-            self.usd_amount_default = config_data['usd_amount_default']
-        if 'usd_amount_custom' in config_data:
-            self.usd_amount_custom = config_data['usd_amount_custom']
-        if 'spread_default' in config_data:
-            self.spread_default = config_data['spread_default']
-        if 'spread_custom' in config_data:
-            self.spread_custom = config_data['spread_custom']
-
-    def get(self, key, default=None):
-        """Return the value for the given key or a default value if the key does not exist."""
-        return getattr(self, key, default)
-
-    @staticmethod
-    def load_config(filename):
-        if not os.path.exists(filename):
-            # File does not exist, save default configuration
-            default_config = ConfigPP()
-            ConfigPP.save_config(default_config, filename)
-
-        with open(filename, 'r') as file:
-            config_data = yaml.safe_load(file)
-        return ConfigPP(config_data)
-
-    @staticmethod
-    def save_config(config, filename):
-        with open(filename, 'w') as file:
-            yaml.dump(config.__dict__, file)  # Save the instance's dictionary to file
-
-
-class Token:
-    def __init__(self, symbol, strategy, dex_enabled=True):
-        self.symbol = symbol
-        self.strategy = strategy
-        self.dex = DexToken(self, dex_enabled)
-        self.cex = CexToken(self)
-
-
-class DexToken:
-    def __init__(self, parent_token, dex_enabled=True):
-        self.token = parent_token
-        self.enabled = dex_enabled
-        self.address = None
-        self.total_balance = None
-        self.free_balance = None
-        self.read_address()
-
-    def _get_file_path(self):
-        return f"{init.ROOT_DIR}/data/{self.token.strategy}_{self.token.symbol}_addr.pic"
-
-    def read_address(self):
-        if not self.enabled:
-            return
-
-        file_path = self._get_file_path()
-        try:
-            with open(file_path, 'rb') as fp:
-                self.address = pickle.load(fp)
-        except FileNotFoundError:
-            general_log.info(f"File not found: {file_path}")
-            self.request_addr()
-        except (pickle.PickleError, Exception) as e:
-            general_log.error(f"Error reading XB address from file: {file_path} - {type(e).__name__}: {e}")
-            self.request_addr()
-
-    def write_address(self):
-        if not self.enabled:
-            return
-
-        file_path = self._get_file_path()
-        try:
-            with open(file_path, 'wb') as fp:
-                pickle.dump(self.address, fp)
-        except (pickle.PickleError, Exception) as e:
-            general_log.error(f"Error writing XB address to file: {file_path} - {type(e).__name__}: {e}")
-
-    def request_addr(self):
-        try:
-            address = xb.getnewtokenadress(self.token.symbol)[0]
-            self.address = address
-            general_log.info(f"dx_request_addr: {self.token.symbol}, {address}")
-            self.write_address()
-        except Exception as e:
-            general_log.error(f"Error requesting XB address for {self.token.symbol}: {type(e).__name__}: {e}")
-
-
-class CexToken:
-    def __init__(self, parent_token):
-        self.token = parent_token
-        self.cex_price = None
-        self.usd_price = None
-        self.cex_price_timer = None
-        self.cex_total_balance = None
-        self.cex_free_balance = None
-
-    def update_price(self, display=False):
-        if (self.cex_price_timer is not None and
-                time.time() - self.cex_price_timer <= 2):
-            if display:
-                print('Token.update_ccxt_price()', 'too fast call?', self.token.symbol)
-            return
-
-        cex_symbol = "BTC/USD" if self.token.symbol == "BTC" else f"{self.token.symbol}/BTC"
-        lastprice_string = {
-            'kucoin': 'last',
-            'binance': 'lastPrice'
-        }.get(init.my_ccxt.id, 'lastTradeRate')
-
-        def fetch_ticker(cex_symbol):
-            for _ in range(3):  # Attempt to fetch the ticker up to 3 times
-                try:
-                    result = float(ccxt_def.ccxt_call_fetch_ticker(init.my_ccxt, cex_symbol)['info'][lastprice_string])
-                    return result
-                except Exception as e:
-                    general_log.error(f"fetch_ticker: {cex_symbol} error: {type(e).__name__}: {e}")
-                    time.sleep(1)  # Sleep for a second before retrying
-            return None
-
-        if self.token.symbol in config_coins.usd_ticker_custom:
-            result = config_coins.usd_ticker_custom[self.token.symbol] / init.t['BTC'].cex.usd_price
-        elif cex_symbol in init.my_ccxt.symbols:
-            result = fetch_ticker(cex_symbol)
-        else:
-            general_log.info(f"{cex_symbol} not in cex {str(init.my_ccxt)}")
-            self.usd_price = None
-            self.cex_price = None
-            return
-
-        if result is not None:
-            self.cex_price = 1 if self.token.symbol == "BTC" else result
-            self.usd_price = result if self.token.symbol == "BTC" else result * init.t['BTC'].cex.usd_price
-            self.cex_price_timer = time.time()
-            general_log.debug(
-                f"new pricing {self.token.symbol} {self.cex_price} {self.usd_price} USD PRICE {init.t['BTC'].cex.usd_price}")
-        else:
-            self.usd_price = None
-            self.cex_price = None
-
-    def update_block_ticker(self):
-        count = 0
-        done = False
-        used_proxy = False
-        while not done:
-            count += 1
-            try:
-                if ccxt_def.isportopen("127.0.0.1", 2233):
-                    result = xb.rpc_call("fetch_ticker_block", rpc_port=2233, debug=2, display=False)
-                    used_proxy = True
-                else:
-                    response = requests.get('https://min-api.cryptocompare.com/data/price?fsym=BLOCK&tsyms=BTC')
-                    if response.status_code == 200:
-                        result = response.json().get('BTC')
-            except Exception as e:
-                general_log.error(f"update_ccxt_price: BLOCK error({count}): {type(e).__name__}: {e}")
-                time.sleep(count)
-            else:
-                if isinstance(result, float):
-                    general_log.info(f"Updated BLOCK ticker: {result} BTC proxy: {used_proxy}")
-                    return result
-                time.sleep(count)
+from definitions import ccxt_def, init
+from definitions.token import Token
 
 
 class Pair:
-    def __init__(self, token1: Token, token2: Token, amount_token_to_sell=None, min_sell_price_usd=None,
+    def __init__(self, token1: Token, token2: Token, cfg: dict, amount_token_to_sell=None, min_sell_price_usd=None,
                  ccxt_sell_price_upscale=None,
                  strategy=None, dex_enabled=True, partial_percent=None):
+        self.cfg = cfg
+        self.name = cfg['name']
         self.strategy = strategy  # e.g., arbtaker, pingpong, basic_seller
         self.t1 = token1
         self.t2 = token2
@@ -304,10 +58,10 @@ class DexPair:
         self.orderbook.pop('detail', None)
 
     def read_last_order_history(self):
-
         if not self.pair.dex_enabled:
             return
-        file_path = f"{init.ROOT_DIR}/data/{self.pair.strategy}_{self.t1.symbol}_{self.t2.symbol}_last_order.pic"
+        unique_id = self.pair.name.replace("/", "_")
+        file_path = f"{init.ROOT_DIR}/data/{self.pair.strategy}_{unique_id}_last_order.pic"
         try:
             with open(file_path, 'rb') as fp:
                 self.order_history = pickle.load(fp)
@@ -318,7 +72,10 @@ class DexPair:
             self.order_history = None
 
     def write_last_order_history(self):
-        file_path = f"{init.ROOT_DIR}/data/{self.pair.strategy}_{self.t1.symbol}_{self.t2.symbol}_last_order.pic"
+        # Get exact USD amount from our specific config entry
+
+        unique_id = self.pair.name.replace("/", "_")
+        file_path = f"{init.ROOT_DIR}/data/{self.pair.strategy}_{unique_id}_last_order.pic"
         try:
             with open(file_path, 'wb') as fp:
                 pickle.dump(self.order_history, fp)
@@ -370,9 +127,15 @@ class DexPair:
         if self.pair.strategy == 'basic_seller':
             return self.pair.amount_token_to_sell, self.pair.ccxt_sell_price_upscale
 
-        usd_amount = init.config_pp.usd_amount_custom.get(self.symbol, init.config_pp.usd_amount_default)
-        amount = usd_amount / (self.t1.cex.cex_price * init.t['BTC'].cex.usd_price)
-        spread = init.config_pp.sell_price_offset
+        usd_amount = self.pair.cfg['usd_amount']
+
+        # Calculate how many tokens needed for this USD amount using current BTC price
+        btc_usd_price = init.t['BTC'].cex.usd_price or 1  # Fallback to 1 if None
+        if self.t1.cex.cex_price and btc_usd_price:
+            amount = (usd_amount / btc_usd_price) / self.t1.cex.cex_price
+        else:
+            amount = 0  # Can't calculate without prices
+        spread = self.pair.cfg.get('spread')
         return amount, spread
 
     def create_virtual_buy_order(self, display=True, manual_dex_price=False):
@@ -392,7 +155,8 @@ class DexPair:
     def _build_buy_order(self, manual_dex_price):
         price = self._determine_buy_price(manual_dex_price)
         amount = float(self.order_history['maker_size'])
-        spread = init.config_pp.spread_custom.get(self.symbol, init.config_pp.spread_default)
+        # Get spread from pair config
+        spread = self.pair.cfg.get('spread')  # Default to 5% if not set
         return {
             'symbol': self.symbol,
             'manual_dex_price': manual_dex_price,
@@ -432,7 +196,7 @@ class DexPair:
 
     def _get_price_variation_tolerance(self):
         if self.pair.strategy == 'pingpong':
-            return init.config_pp.price_variation_tolerance
+            return self.pair.cfg.get('price_variation_tolerance')
         if self.pair.strategy == 'basic_seller':
             return self.PRICE_VARIATION_TOLERANCE_DEFAULT
         return None
@@ -677,7 +441,17 @@ class DexPair:
             self.create_order()
 
     def at_order_finished(self, disabled_coins):
-        msg = f"order FINISHED: {self.order['id']}"
+        if self.current_order['maker'] == self.pair.t1.symbol:
+            side = 'SELL'
+        else:
+            side = 'BUY'
+        dict = {
+            "name": self.pair.cfg['name'],
+            "pair": self.pair.symbol,
+            "side": side,
+            "orderid": self.order['id']
+        }
+        msg = f"order FINISHED: {dict}"
         general_log.info(msg)
         trade_log.info(msg)
         trade_log.info(self.current_order)

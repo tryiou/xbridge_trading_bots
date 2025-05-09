@@ -1,13 +1,20 @@
+import asyncio
 import concurrent.futures
 import logging
 import time
 import traceback
 from threading import Thread
-import definitions.init as init
+
 import definitions.ccxt_def as ccxt_def
+import definitions.init as init
 import definitions.xbridge_def as xb
+from definitions.logger import setup_logging
 from definitions.yaml_mix import YamlToObject
-import asyncio
+
+debug_level = 2
+
+starter_log = setup_logging(name="starter",
+                            level=logging.DEBUG, console=True)
 
 # Constants
 CCXT_PRICE_REFRESH = 2
@@ -17,8 +24,9 @@ MAX_THREADS = 5
 OPERATION_INTERVAL = 10  # Main loop operations interval (in seconds)
 SLEEP_INTERVAL = 1  # Shorter sleep interval (in seconds)
 
+
 # Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
+# logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
 
 
 class General:
@@ -72,7 +80,7 @@ class General:
     def _report_time(self, start_time):
         """Reports the time taken to complete an operation."""
         end_time = time.perf_counter()
-        logging.info(f'Operation took {end_time - start_time:0.2f} second(s) to complete.')
+        starter_log.info(f'Operation took {end_time - start_time:0.2f} second(s) to complete.')
 
     def update_ccxt_prices(self):
         """Updates CCXT prices if the refresh interval has passed."""
@@ -81,7 +89,7 @@ class General:
                 self._fetch_and_update_prices()
                 self.ccxt_price_timer = time.time()
             except Exception as e:
-                logging.error(f"Error in update_ccxt_prices: {e}", exc_info=True)
+                starter_log.error(f"Error in update_ccxt_prices: {e}", exc_info=True)
 
     def _fetch_and_update_prices(self):
         """Fetches and updates token prices from CCXT."""
@@ -92,7 +100,7 @@ class General:
             tickers = ccxt_def.ccxt_call_fetch_tickers(self.ccxt_i, keys)
             self._update_token_prices(tickers)
         except Exception as e:
-            logging.error(f"Error fetching tickers: {e}", exc_info=True)
+            starter_log.error(f"Error fetching tickers: {e}", exc_info=True)
 
     def _construct_key(self, token):
         """Constructs the ticker key for a given token."""
@@ -129,7 +137,7 @@ class General:
                 token_data.cex.cex_price = last_price
                 token_data.cex.usd_price = last_price * self.tokens_dict['BTC'].cex.usd_price
         else:
-            logging.warning(f"Missing symbol in tickers: {symbol}")
+            starter_log.warning(f"Missing symbol in tickers: {symbol}")
             token_data.cex.cex_price = None
             token_data.cex.usd_price = None
 
@@ -173,14 +181,14 @@ class General:
             pair.dex.init_virtual_order(self.disabled_coins)
             pair.dex.create_order()
         except Exception as e:
-            logging.error(f"Error in thread_init: {e}", exc_info=True)
+            starter_log.error(f"Error in thread_init: {e}", exc_info=True)
 
     def thread_loop(self, pair):
         """Thread function for checking order status."""
         try:
             pair.dex.status_check(self.disabled_coins)
         except Exception as e:
-            logging.error(f"Error in thread_loop: {e}", exc_info=True)
+            starter_log.error(f"Error in thread_loop: {e}", exc_info=True)
 
 
 async def main():
@@ -214,14 +222,14 @@ async def main():
             await asyncio.sleep(SLEEP_INTERVAL)
 
     except (SystemExit, KeyboardInterrupt):
-        logging.info("Received Stop order. Cleaning up...")
+        starter_log.info("Received Stop order. Cleaning up...")
         if general:
             general.stop_order = True
         xb.cancelallorders()
         exit()
 
     except Exception as e:
-        logging.error(f"Exception in main loop: {e}", exc_info=True)
+        starter_log.error(f"Exception in main loop: {e}", exc_info=True)
         traceback.print_exc()
         if general:
             general.stop_order = True

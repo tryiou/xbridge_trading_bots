@@ -1,12 +1,12 @@
-import asyncio
-from starter import main
-
 import argparse
-import signal
+import asyncio
 import logging
+import signal
 import sys
+
 import definitions.init as init
 import definitions.xbridge_def as xb
+from starter import main
 
 
 def signal_handler(signal, frame):

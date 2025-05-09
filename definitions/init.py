@@ -1,10 +1,15 @@
-import os
-from definitions.yaml_mix import YamlToObject
-from definitions.classes import Token, Pair, ConfigPP, setup_logger
-from definitions.ccxt_def import ccxt_manage_error
-import definitions.xbridge_def as xbridge_def
 import json
+import os
+
 import ccxt
+
+import definitions.xbridge_def as xbridge_def
+from definitions.ccxt_def import ccxt_manage_error
+from definitions.logger import setup_logger
+from definitions.pair import Pair
+from definitions.pingpong_loader import ConfigPP
+from definitions.token import Token
+from definitions.yaml_mix import YamlToObject
 
 ROOT_DIR = os.path.abspath(os.curdir)
 config_ccxt = YamlToObject("./config/config_ccxt.yaml")
@@ -51,12 +56,10 @@ def init_ccxt_instance(exchange, hostname=None, private_api=False):
         return None
 
 
-def init(strategy, loadxbridgeconf=True, tokens_list=None, amount_token_to_sell=None, min_sell_price_usd=None,
-         ccxt_sell_price_upscale=None, partial_percent=None):
+def bot_init(strategy, loadxbridgeconf=True, tokens_list=None, amount_token_to_sell=None, min_sell_price_usd=None,
+             ccxt_sell_price_upscale=None, partial_percent=None):
     global t, p, my_ccxt, config_pp
-
     setup_logger(strategy)
-
     # Initialize CCXT instance
     my_ccxt = init_ccxt_instance(
         exchange=config_ccxt.ccxt_exchange,
@@ -71,7 +74,9 @@ def init(strategy, loadxbridgeconf=True, tokens_list=None, amount_token_to_sell=
             xbridge_def.dxloadxbridgeconf()
 
         tokens = []
-        sorted_pairs = sorted(config_pp.user_pairs)
+        # Get enabled pairs from config
+        sorted_pairs = sorted([cfg['pair'] for cfg in config_pp.pair_configs if cfg.get('enabled', True)])
+        print(sorted_pairs)
         for pair in sorted_pairs:
             t1, t2 = pair.split("/")
             if t1 not in tokens:
@@ -83,21 +88,26 @@ def init(strategy, loadxbridgeconf=True, tokens_list=None, amount_token_to_sell=
         tokens.insert(0, tokens.pop(tokens.index('BTC')))  # Ensure BTC is first in the list
 
         t = {token: Token(token, strategy="pingpong") for token in tokens}
-        p = {
-            pair: Pair(t[t1], t[t2], strategy="pingpong", dex_enabled=True)
-            for pair in sorted_pairs
-            for t1, t2 in [pair.split("/")]
-        }
+        # Create pair entries with unique IDs for each config
+        p = {}
+        for cfg in [c for c in config_pp.pair_configs if c.get('enabled', True)]:
+            t1, t2 = cfg['pair'].split("/")
+            p[cfg['name']] = Pair(
+                t[t1],
+                t[t2],
+                cfg=cfg,
+                strategy="pingpong",
+                dex_enabled=True,
+                partial_percent=None
+            )
 
     elif strategy == 'basic_seller':
         if tokens_list is None or amount_token_to_sell is None or min_sell_price_usd is None:
             raise ValueError("Missing required arguments for basic_seller strategy")
 
         t = {}
-
         for token in tokens_list:
             t[token] = Token(symbol=token, strategy="basic_seller")
-
         if "BTC" not in t:
             t["BTC"] = Token(symbol='BTC', strategy="basic_seller", dex_enabled=False)
 
@@ -106,6 +116,7 @@ def init(strategy, loadxbridgeconf=True, tokens_list=None, amount_token_to_sell=
             pair_key: Pair(
                 token1=t[tokens_list[0]],
                 token2=t[tokens_list[1]],
+                cfg={'name': "basic_seller"},
                 strategy="basic_seller",
                 amount_token_to_sell=amount_token_to_sell,
                 min_sell_price_usd=min_sell_price_usd,

@@ -150,5 +150,5 @@ def dxgetorderbook(detail, maker, taker):
 
 
 if not test_rpc(user_rpc, port_rpc, password_rpc):
-    print.error(f'Blocknet core rpc server not responding ?')
+    print(f'Blocknet core rpc server not responding ?')
     exit()

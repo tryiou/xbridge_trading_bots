@@ -1,13 +1,12 @@
 import asyncio
+import os
+import signal
 import time
-from datetime import datetime
 import traceback
+from datetime import datetime
+
 import requests
 from aiohttp import web
-
-import os
-import sys
-import signal
 
 import definitions.bcolors as bcolors
 from definitions.yaml_mix import YamlToObject
