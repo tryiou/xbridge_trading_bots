@@ -15,7 +15,7 @@ from definitions import bot_init
 
 logger = logging.getLogger()
 
-WIDTH = 110
+WIDTH = 100
 
 
 def _async_raise(tid, exctype):
