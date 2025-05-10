@@ -4,9 +4,8 @@ import time
 import yaml
 
 import definitions.bcolors as bcolors
-import definitions.logger as logger
 import definitions.xbridge_def as xb
-from definitions import ccxt_def, init
+from definitions import ccxt_def, bot_init
 from definitions.token import Token
 
 
@@ -63,40 +62,42 @@ class DexPair:
         self.orderbook = xb.dxgetorderbook(detail=3, maker=self.t1.symbol, taker=self.t2.symbol)
         self.orderbook.pop('detail', None)
 
+    def _get_history_file_path(self):
+        unique_id = self.pair.name.replace("/", "_")
+        return f"{bot_init.context.ROOT_DIR}/data/{self.pair.strategy}_{unique_id}_last_order.yaml"
+
     def read_last_order_history(self):
         if not self.pair.dex_enabled:
             return
-        unique_id = self.pair.name.replace("/", "_")
-        file_path = f"{init.ROOT_DIR}/data/{self.pair.strategy}_{unique_id}_last_order.yaml"
+        file_path = self._get_history_file_path()
         try:
             with open(file_path, 'r') as fp:
                 self.order_history = yaml.safe_load(fp)
         except FileNotFoundError:
-            logger.general_log.info(f"File not found: {file_path}")
+            bot_init.context.general_log.info(f"File not found: {file_path}")
         except Exception as e:
-            logger.general_log.error(f"read_pair_last_order_history: {type(e)}, {e}")
+            bot_init.context.general_log.error(f"read_pair_last_order_history: {type(e)}, {e}")
             self.order_history = None
 
     def write_last_order_history(self):
         # Get exact USD amount from our specific config entry
 
-        unique_id = self.pair.name.replace("/", "_")
-        file_path = f"{init.ROOT_DIR}/data/{self.pair.strategy}_{unique_id}_last_order.yaml"
+        file_path = self._get_history_file_path()
         try:
             with open(file_path, 'w') as fp:
                 yaml.safe_dump(self.order_history, fp)
         except Exception as e:
-            logger.general_log.error(f"error write_pair_last_order_history: {type(e)}, {e}")
+            bot_init.context.general_log.error(f"error write_pair_last_order_history: {type(e)}, {e}")
 
     def create_virtual_sell_order(self, display=True, manual_dex_price=None):
         self.current_order = self._build_sell_order(manual_dex_price)
         if display:
-            logger.general_log.info(f"Created virtual sell order: {self.current_order}")
+            bot_init.context.general_log.info(f"Created virtual sell order: {self.current_order}")
 
     def _build_sell_order(self, manual_dex_price):
         price = self._calculate_sell_price(manual_dex_price)
         amount, offset = self._determine_amount_and_spread_sell_side()
-        logger.general_log.info(f"_build_sell_order, price: {price}, amount: {amount}, offset: {offset}")
+        bot_init.context.general_log.info(f"_build_sell_order, price: {price}, amount: {amount}, offset: {offset}")
         order = {
             'symbol': self.symbol,
             'manual_dex_price': bool(manual_dex_price),
@@ -132,7 +133,7 @@ class DexPair:
         usd_amount = self.pair.cfg['usd_amount']
 
         # Calculate how many tokens needed for this USD amount using current BTC price
-        btc_usd_price = init.t['BTC'].cex.usd_price
+        btc_usd_price = bot_init.context.t['BTC'].cex.usd_price
         if self.t1.cex.cex_price and btc_usd_price:
             amount = (usd_amount / btc_usd_price) / self.t1.cex.cex_price
         else:
@@ -142,16 +143,16 @@ class DexPair:
 
     def create_virtual_buy_order(self, display=True, manual_dex_price=False):
         if self.pair.strategy != 'pingpong':
-            logger.general_log.error(
+            bot_init.context.general_log.error(
                 f"Bot strategy is {self.pair.strategy}, no rule for this strat on create_dex_virtual_buy_order")
             return
 
         try:
             self.current_order = self._build_buy_order(manual_dex_price)
             if display:
-                logger.general_log.info(f"Created virtual buy order: {self.current_order}")
+                bot_init.context.general_log.info(f"Created virtual buy order: {self.current_order}")
         except Exception as e:
-            logger.general_log.error(f"Error in create_virtual_buy_order: {type(e).__name__}, {e}")
+            bot_init.context.general_log.error(f"Error in create_virtual_buy_order: {type(e).__name__}, {e}")
             os._exit(1)
 
     def _build_buy_order(self, manual_dex_price):
@@ -223,7 +224,7 @@ class DexPair:
             float(f"{self.pair.cex.price / self.current_order['org_pprice']:.3f}")]
 
     def _log_price_check(self, var):
-        logger.general_log.info(
+        bot_init.context.general_log.info(
             f"check_price_in_range - {self.symbol} - var: {var:.4f}, "
             f"s.variation: {self.variation:.4f}, Price: {self.pair.cex.price:.4f}, "
             f"Org PPrice: {self.current_order['org_pprice']:.4f}, "
@@ -236,7 +237,7 @@ class DexPair:
     def init_virtual_order(self, disabled_coins=None, display=True):
         if self._is_pair_disabled(disabled_coins):
             self.disabled = True
-            logger.general_log.info(f"{self.symbol} disabled due to cc checks: {disabled_coins}")
+            bot_init.context.general_log.info(f"{self.symbol} disabled due to cc checks: {disabled_coins}")
             return
 
         if not self.disabled:
@@ -254,16 +255,16 @@ class DexPair:
         elif 'side' in self.order_history and self.order_history['side'] == 'SELL':
             self.create_virtual_buy_order(manual_dex_price=True)
         else:
-            logger.general_log.error(f"error during init_order\n{self.order_history}")
+            bot_init.context.general_log.error(f"error during init_order\n{self.order_history}")
             os._exit(1)
 
     def _log_virtual_order(self):
-        logger.general_log.info(
+        bot_init.context.general_log.info(
             f"init_virtual_order, Prices: {self.symbol}{['{:.8f}'.format(self.pair.cex.price)]}, "
             f"{self.t1.symbol}/USD{['{:.2f}'.format(self.t1.cex.usd_price)]}, "
             f"{self.t2.symbol}/USD{['{:.2f}'.format(self.t2.cex.usd_price)]}"
         )
-        logger.general_log.info(f"current_order: {self.current_order}")
+        bot_init.context.general_log.info(f"current_order: {self.current_order}")
 
     def cancel_myorder(self):
         if self.order and 'id' in self.order:
@@ -281,7 +282,7 @@ class DexPair:
         if self._is_balance_valid(bal, maker_size):
             self._create_order(dry_mode, maker_size)
         else:
-            logger.general_log.error(
+            bot_init.context.general_log.error(
                 f"dex_create_order, balance too low: {bal}, need: {maker_size} {self.current_order['maker']}")
 
     def _get_balance(self):
@@ -300,7 +301,7 @@ class DexPair:
             else:
                 self._log_dry_mode_order(order)
         else:
-            logger.general_log.error(
+            bot_init.context.general_log.error(
                 f"dex_create_order, balance too low: {self._get_balance()}, need: {maker_size} {self.current_order['maker']}")
 
     def _generate_order(self, dry_mode):
@@ -319,11 +320,12 @@ class DexPair:
     def _handle_order_error(self):
         if 'code' in self.order and self.order['code'] not in {1019, 1018, 1026, 1032}:
             self.disabled = True
-        logger.general_log.error(f"Error making order on Pair {self.symbol}, disabled: {self.disabled}, {self.order}")
+        bot_init.context.general_log.error(
+            f"Error making order on Pair {self.symbol}, disabled: {self.disabled}, {self.order}")
 
     def _log_dry_mode_order(self, order):
         msg = f"xb.makeorder({self.current_order['maker']}, {self.current_order['maker_size']:.6f}, {self.current_order['maker_address']}, {self.current_order['taker']}, {self.current_order['taker_size']:.6f}, {self.current_order['taker_address']})"
-        logger.general_log.info(f"dex_create_order, Dry mode enabled. {msg}")
+        bot_init.context.general_log.info(f"dex_create_order, Dry mode enabled. {msg}")
         print(f"{bcolors.mycolor.OKBLUE}{msg}{bcolors.mycolor.ENDC}")
 
     def check_order_status(self) -> int:
@@ -337,7 +339,8 @@ class DexPair:
                     self.order = local_dex_order
                     return self._map_order_status()
             except Exception as e:
-                logger.general_log.error(f"Error in dex_check_order_status: {type(e).__name__}, {e}\n{self.order}")
+                bot_init.context.general_log.error(
+                    f"Error in dex_check_order_status: {type(e).__name__}, {e}\n{self.order}")
             counter += 1
             time.sleep(counter)
 
@@ -362,7 +365,7 @@ class DexPair:
         return status_mapping.get(self.order.get('status'), self.STATUS_OPEN)
 
     def _handle_order_status_error(self):
-        logger.general_log.error(f"Error in dex_check_order_status: 'status' not in order. {self.order}")
+        bot_init.context.general_log.error(f"Error in dex_check_order_status: 'status' not in order. {self.order}")
         if self.pair.strategy in ['pingpong', 'basic_seller']:
             self.order = None
 
@@ -394,7 +397,7 @@ class DexPair:
     def status_check(self, disabled_coins=None, display=False, partial_percent=None):
         self.pair.cex.update_pricing(display)
         if self.disabled:
-            logger.general_log.info(f"Pair {self.symbol} Disabled, error: {self.order}")
+            bot_init.context.general_log.info(f"Pair {self.symbol} Disabled, error: {self.order}")
             return
 
         status = self._check_order_status(disabled_coins)
@@ -426,12 +429,12 @@ class DexPair:
 
     def _cancel_order_due_to_disabled_coins(self, disabled_coins):
         if self.order:
-            logger.general_log.info(f"Disabled pairs due to cc_height_check {self.symbol}, {disabled_coins}")
-            logger.general_log.info(f"status_check, dex cancel {self.order['id']}")
+            bot_init.context.general_log.info(f"Disabled pairs due to cc_height_check {self.symbol}, {disabled_coins}")
+            bot_init.context.general_log.info(f"status_check, dex cancel {self.order['id']}")
             self.cancel_myorder()
 
     def handle_status_error_swap(self):
-        logger.general_log.error(f"Order Error:\n{self.current_order}\n{self.order}")
+        bot_init.context.general_log.error(f"Order Error:\n{self.current_order}\n{self.order}")
         if self.pair.strategy == 'pingpong':
             self.disabled = True
             # xb.cancelallorders()
@@ -439,7 +442,7 @@ class DexPair:
 
     def handle_status_default(self):
         if not self.disabled:
-            logger.general_log.error(f"status_check, no valid status: {self.symbol}, {self.order}")
+            bot_init.context.general_log.error(f"status_check, no valid status: {self.symbol}, {self.order}")
             self.create_order()
 
     def at_order_finished(self, disabled_coins):
@@ -454,10 +457,10 @@ class DexPair:
             "orderid": self.order['id']
         }
         msg = f"order FINISHED: {dict}"
-        logger.general_log.info(msg)
-        logger.trade_log.info(msg)
-        logger.trade_log.info(self.current_order)
-        logger.trade_log.info(self.order)
+        bot_init.context.general_log.info(msg)
+        bot_init.context.trade_log.info(msg)
+        bot_init.context.trade_log.info(self.current_order)
+        bot_init.context.trade_log.info(self.order)
         self.order_history = self.current_order
         self.write_last_order_history()
 
@@ -470,7 +473,7 @@ class DexPair:
             self.init_virtual_order(disabled_coins)
             self.create_order()
         elif self.pair.strategy == 'basic_seller':
-            logger.general_log.info('order sold, terminate!')
+            bot_init.context.general_log.info('order sold, terminate!')
             os._exit(1)
 
 
@@ -488,7 +491,7 @@ class CexPair:
         self._update_token_prices()
         self.price = self.t1.cex.cex_price / self.t2.cex.cex_price
         if display:
-            logger.general_log.info(
+            bot_init.context.general_log.info(
                 f"update_pricing: {self.t1.symbol} btc_p: {self.t1.cex.cex_price}, "
                 f"{self.t2.symbol} btc_p: {self.t2.cex.cex_price}, "
                 f"{self.symbol} price: {self.price}"
@@ -503,5 +506,5 @@ class CexPair:
     def update_orderbook(self, limit=25, ignore_timer=False):
         update_cex_orderbook_timer_delay = 2
         if ignore_timer or not self.cex_orderbook_timer or time.time() - self.cex_orderbook_timer > update_cex_orderbook_timer_delay:
-            self.cex_orderbook = ccxt_def.ccxt_call_fetch_order_book(init.my_ccxt, self.symbol, self.symbol)
+            self.cex_orderbook = ccxt_def.ccxt_call_fetch_order_book(bot_init.context.my_ccxt, self.symbol, self.symbol)
             self.cex_orderbook_timer = time.time()

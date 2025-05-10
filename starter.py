@@ -5,8 +5,8 @@ import time
 import traceback
 from threading import Thread
 
+import definitions.bot_init as bot_init
 import definitions.ccxt_def as ccxt_def
-import definitions.init as init
 import definitions.xbridge_def as xb
 from definitions.logger import setup_logging
 from definitions.yaml_mix import YamlToObject
@@ -21,7 +21,7 @@ CCXT_PRICE_REFRESH = 2
 UPDATE_BALANCES_DELAY = 0.5
 FLUSH_DELAY = 15 * 60
 MAX_THREADS = 5
-OPERATION_INTERVAL = 10  # Main loop operations interval (in seconds)
+OPERATION_INTERVAL = 30  # Main loop operations interval (in seconds)
 SLEEP_INTERVAL = 1  # Shorter sleep interval (in seconds)
 
 
@@ -124,7 +124,7 @@ class General:
         return {
             "kucoin": "last",
             "binance": "lastPrice"
-        }.get(init.my_ccxt.id, "lastTradeRate")
+        }.get(bot_init.context.my_ccxt.id, "lastTradeRate")
 
     def _update_token_price(self, tickers, symbol, lastprice_string, token_data):
         """Updates the price of a specific token."""
@@ -195,7 +195,8 @@ async def main():
     """Main asynchronous function to start the trading operations."""
     general = None  # Initialize general to avoid reference before assignment warning
     try:
-        general = General(pairs_dict=init.p, tokens_dict=init.t, ccxt_i=init.my_ccxt)
+        general = General(pairs_dict=bot_init.context.p, tokens_dict=bot_init.context.t,
+                          ccxt_i=bot_init.context.my_ccxt)
         xb.cancelallorders()
         xb.dxflushcancelledorders()
 

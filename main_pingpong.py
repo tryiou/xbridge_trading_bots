@@ -7,7 +7,7 @@
 
 import asyncio
 
-from definitions.init import bot_init
+from definitions.bot_init import initialize
 from starter import main
 
 
@@ -20,7 +20,7 @@ def run_async_main():
 
 def start():
     """Initializes the application and starts the main process."""
-    bot_init(strategy="pingpong")
+    initialize(strategy="pingpong")
     run_async_main()
 
 

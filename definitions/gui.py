@@ -11,7 +11,7 @@ from ruamel.yaml import YAML
 from ttkbootstrap import Style
 
 import main_pingpong
-from definitions import init
+from definitions import bot_init
 
 logger = logging.getLogger()
 
@@ -56,7 +56,7 @@ class GUI_Orders:
     def create_orders_treeview(self):
         # Get enabled pairs from config
         self.sortedpairs = sorted(
-            [cfg['name'] for cfg in init.config_pp.pair_configs if cfg.get('enabled', True)]
+            [cfg['name'] for cfg in bot_init.context.config_pp.pair_configs if cfg.get('enabled', True)]
         )
         columns = ("Pair", "Status", "Side", "Flag", "Variation")
         self.orders_frame = ttk.LabelFrame(self.parent.root, text="Orders")
@@ -80,7 +80,7 @@ class GUI_Orders:
 
     def update_order_display(self):
         if self.parent.started:
-            for key, pair in init.p.items():
+            for key, pair in bot_init.context.p.items():
                 for item_id in self.orders_treeview.get_children():
                     values = self.orders_treeview.item(item_id, 'values')
 
@@ -118,7 +118,7 @@ class GUI_Balances:
         self.balances_frame = ttk.LabelFrame(self.parent.root, text="Balances")
         self.balances_frame.grid(row=2, padx=5, pady=5, sticky='ew', columnspan=4)
 
-        height = len(init.t.keys())
+        height = len(bot_init.context.t.keys())
         self.balances_treeview = ttk.Treeview(self.balances_frame, columns=columns, show="headings",
                                               height=height, selectmode="none")
         self.balances_treeview.grid(padx=5, pady=5)
@@ -127,7 +127,7 @@ class GUI_Balances:
             self.balances_treeview.heading(col, text=col, anchor="w")
             self.balances_treeview.column(col, width=100)
 
-        for token in init.t:
+        for token in bot_init.context.t:
             data = (token, str(None), str(None), str(None), str(None))
             self.balances_treeview.insert("", tk.END, values=data)
 
@@ -135,9 +135,9 @@ class GUI_Balances:
         for item_id in self.balances_treeview.get_children():
             values = self.balances_treeview.item(item_id, 'values')
             token = values[0]
-            usd_price = init.t[token].cex.usd_price
-            dex_total_balance = init.t[token].dex.total_balance
-            dex_free_balance = init.t[token].dex.free_balance
+            usd_price = bot_init.context.t[token].cex.usd_price
+            dex_total_balance = bot_init.context.t[token].dex.total_balance
+            dex_free_balance = bot_init.context.t[token].dex.free_balance
 
             new_values = [
                 token,
@@ -219,12 +219,12 @@ class GUI_Config:
         ttk.Label(content_frame, text="Debug Level:").grid(row=0, column=0, padx=5, pady=5, sticky='w')
         self.debug_level_entry = ttk.Entry(content_frame)
         self.debug_level_entry.grid(row=0, column=1, padx=5, pady=5, sticky='ew')
-        self.debug_level_entry.insert(0, init.config_pp.get('debug_level', ''))
+        self.debug_level_entry.insert(0, bot_init.context.config_pp.get('debug_level', ''))
 
         ttk.Label(content_frame, text="TTK Theme:").grid(row=1, column=0, padx=5, pady=5, sticky='w')
         self.ttk_theme_entry = ttk.Entry(content_frame)
         self.ttk_theme_entry.grid(row=1, column=1, padx=5, pady=5, sticky='ew')
-        self.ttk_theme_entry.insert(0, init.config_pp.get('ttk_theme', ''))
+        self.ttk_theme_entry.insert(0, bot_init.context.config_pp.get('ttk_theme', ''))
 
         # Pair configurations table
         ttk.Label(content_frame, text="Pair Configurations:").grid(row=2, column=0, columnspan=2, padx=5, pady=5,
@@ -263,7 +263,7 @@ class GUI_Config:
         self.pairs_treeview.pack(fill="both", expand=True)
 
         # Populate with existing configs
-        for cfg in init.config_pp.pair_configs:
+        for cfg in bot_init.context.config_pp.pair_configs:
             self.pairs_treeview.insert('', 'end', values=(
                 cfg.get('name', ''),
                 'Yes' if cfg.get('enabled', True) else 'No',
@@ -558,7 +558,7 @@ class GUI_Main:
         self.started = False
         self.initialize()
 
-        self.style = Style(init.config_pp.ttk_theme)
+        self.style = Style(bot_init.context.config_pp.ttk_theme)
         self.status_var = tk.StringVar(value="Idle")
 
         self.gui_orders = GUI_Orders(self)
@@ -595,7 +595,7 @@ class GUI_Main:
         status_label.grid(row=0, column=0, padx=5, pady=5, sticky='ew')
 
     def initialize(self, loadxbridgeconf=True):
-        init.bot_init(strategy="pingpong", loadxbridgeconf=loadxbridgeconf)
+        bot_init.initialize(strategy="pingpong", loadxbridgeconf=loadxbridgeconf)
 
     def start(self):
         self.status_var.set("Bot is running...")
@@ -657,7 +657,7 @@ class GUI_Main:
         self.root.destroy()
 
     def reload_configuration(self, loadxbridgeconf=True):
-        init.bot_init(strategy="pingpong", loadxbridgeconf=loadxbridgeconf)
+        bot_init.initialize(strategy="pingpong", loadxbridgeconf=loadxbridgeconf)
         self.gui_orders.purge_treeview()
         self.gui_balances.purge_treeview()
         self.gui_orders.create_orders_treeview()

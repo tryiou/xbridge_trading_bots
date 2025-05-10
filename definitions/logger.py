@@ -1,11 +1,7 @@
-import builtins
 import logging
 import os
 
-# formatter = logging.Formatter('[%(asctime)s] %(levelname)s - %(message)s')  # '%(asctime)s %(levelname)s %(message)s')
 formatter = logging.Formatter('[%(asctime)s] [%(module)s] %(levelname)s - %(message)s')
-general_log = None
-trade_log = None
 
 
 def setup_logging(name, log_file=None, level=logging.INFO, console=False):
@@ -37,21 +33,22 @@ def setup_logging(name, log_file=None, level=logging.INFO, console=False):
 
 
 def setup_logger(strategy=None):
+    from definitions.bot_init import context
     if strategy:
-        from definitions.init import ROOT_DIR
         general_log = setup_logging(name="GENERAL_LOG",
-                                    log_file=ROOT_DIR + '/logs/' + strategy + '_general.log',
-                                    level=logging.INFO, console=True)
+                                    log_file=context.ROOT_DIR + '/logs/' + strategy + '_general.log',
+                                    level=logging.INFO,
+                                    console=True)
         general_log.propagate = False
-        trade_log = setup_logging(name="TRADE_LOG", log_file=ROOT_DIR + '/logs/' + strategy + '_trade.log',
+        trade_log = setup_logging(name="TRADE_LOG",
+                                  log_file=context.ROOT_DIR + '/logs/' + strategy + '_trade.log',
                                   level=logging.INFO,
                                   console=False)
-        # Add them to builtins so they're accessible everywhere
-        builtins.general_log = general_log
-        builtins.trade_log = trade_log
-        # Also make them available as module attributes
-        globals()['general_log'] = general_log
-        globals()['trade_log'] = trade_log
+        ccxt_log = setup_logging(name="CCXT_LOG",
+                                 log_file=context.ROOT_DIR + '/logs/' + strategy + '_ccxt.log',
+                                 level=logging.INFO,
+                                 console=True)
+        return general_log, trade_log, ccxt_log
 
     else:
         print("setup_logger(strategy=None)")

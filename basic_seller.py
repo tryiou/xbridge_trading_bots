@@ -4,7 +4,7 @@ import logging
 import signal
 import sys
 
-import definitions.init as init
+import definitions.bot_init as bot_init
 import definitions.xbridge_def as xb
 from starter import main
 
@@ -72,13 +72,13 @@ def start():
                  amount_token_to_sell, token_to_sell, token_to_buy, min_sell_price_usd, sell_price_offset,
                  partial_value)
 
-    init.init(strategy="basic_seller",
-              tokens_list=[token_to_sell, token_to_buy],
-              amount_token_to_sell=amount_token_to_sell,
-              min_sell_price_usd=min_sell_price_usd,
-              sell_price_offset=sell_price_offset,
-              partial_percent=partial_value
-              )
+    bot_init.initialize(strategy="basic_seller",
+                        tokens_list=[token_to_sell, token_to_buy],
+                        amount_token_to_sell=amount_token_to_sell,
+                        min_sell_price_usd=min_sell_price_usd,
+                        sell_price_offset=sell_price_offset,
+                        partial_percent=partial_value
+                        )
     run_async_main()
 
 
