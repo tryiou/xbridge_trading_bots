@@ -15,6 +15,8 @@ from definitions import bot_init
 
 logger = logging.getLogger()
 
+WIDTH = 110
+
 
 def _async_raise(tid, exctype):
     if not inspect.isclass(exctype):
@@ -72,8 +74,14 @@ class GUI_Orders:
         self.orders_treeview.grid(padx=5, pady=5)
 
         for label_text in columns:
-            self.orders_treeview.heading(label_text, text=label_text, anchor="w")
-            self.orders_treeview.column(label_text, width=100, anchor="w")
+            if label_text == "Pair":
+                anchor = "w"
+            elif label_text == "Variation":
+                anchor = "e"
+            else:
+                anchor = "center"
+            self.orders_treeview.heading(label_text, text=label_text, anchor=anchor)
+            self.orders_treeview.column(label_text, width=WIDTH, anchor=anchor)
 
         for pair in self.sortedpairs:
             self.orders_treeview.insert("", tk.END, values=[pair, "None", "None", "X", "None"])
@@ -124,8 +132,12 @@ class GUI_Balances:
         self.balances_treeview.grid(padx=5, pady=5)
 
         for col in columns:
-            self.balances_treeview.heading(col, text=col, anchor="w")
-            self.balances_treeview.column(col, width=100)
+            if col == "Coin":
+                anchor = "w"
+            else:
+                anchor = "e"
+            self.balances_treeview.heading(col, text=col, anchor=anchor)
+            self.balances_treeview.column(col, width=WIDTH, anchor=anchor)
 
         for token in bot_init.context.t:
             data = (token, str(None), str(None), str(None), str(None))
@@ -141,10 +153,10 @@ class GUI_Balances:
 
             new_values = [
                 token,
-                f"{usd_price:.2f}$" if usd_price else "0.00$",
-                f"{dex_total_balance:.4f}" if dex_total_balance else "0.00",
-                f"{dex_free_balance:.4f}" if dex_free_balance else "0.00",
-                f"{usd_price * dex_total_balance:.2f}$" if usd_price and dex_total_balance else "0.00$"
+                f"{usd_price:.3f}$" if usd_price else f"{0:.3f}$",
+                f"{dex_total_balance:.4f}" if dex_total_balance else f"{0:.4f}",
+                f"{dex_free_balance:.4f}" if dex_free_balance else f"{0:.4f}",
+                f"{usd_price * dex_total_balance:.3f}$" if usd_price and dex_total_balance else f"{0:.3f}$"
             ]
 
             if list(new_values) != list(values):
@@ -188,8 +200,8 @@ class GUI_Config:
         canvas = tk.Canvas(main_frame)
         canvas.pack(side='left', fill='both', expand=True)
 
-        scrollbar = ttk.Scrollbar(main_frame, orient='vertical', command=canvas.yview)
-        scrollbar.pack(side='right', fill='y')
+        # scrollbar = ttk.Scrollbar(main_frame, orient='vertical', command=canvas.yview)
+        # scrollbar.pack(side='right', fill='y')
 
         content_frame = ttk.Frame(canvas)
         canvas.create_window((0, 0), window=content_frame, anchor='nw')
@@ -292,8 +304,10 @@ class GUI_Config:
         self.status_label.pack(fill='x')
 
         # Configure window size and position
-        self.config_window.minsize(800, 600)
-        self.config_window.geometry("800x800")
+        x = 900
+        y = 450
+        self.config_window.minsize(x, y)
+        self.config_window.geometry(f"{x}x{y}")
         self.config_window.update_idletasks()
 
         # Add status bar at bottom
