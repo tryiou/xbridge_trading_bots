@@ -5,6 +5,7 @@ import yaml
 
 import definitions.xbridge_def as xb
 from definitions import bot_init, ccxt_def
+from definitions.rpc import rpc_call
 from definitions.yaml_mix import YamlToObject
 
 config_coins = YamlToObject('config/config_coins.yaml')
@@ -126,11 +127,12 @@ class CexToken:
         count = 0
         done = False
         used_proxy = False
+        result = None
         while not done:
             count += 1
             try:
                 if ccxt_def.isportopen("127.0.0.1", 2233):
-                    result = xb.rpc_call("fetch_ticker_block", rpc_port=2233, debug=2, display=False)
+                    result = rpc_call("fetch_ticker_block", rpc_port=2233, debug=2, display=False)
                     used_proxy = True
                 else:
                     response = requests.get('https://min-api.cryptocompare.com/data/price?fsym=BLOCK&tsyms=BTC')

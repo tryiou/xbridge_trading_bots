@@ -7,7 +7,7 @@ import ccxt
 
 import definitions.bcolors as bcolors
 from definitions import bot_init
-from definitions.xbridge_def import rpc_call
+from definitions.rpc import rpc_call
 
 
 def init_ccxt_instance(exchange, hostname=None, private_api=False, debug_level=1):
