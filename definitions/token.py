@@ -1,8 +1,9 @@
-import pickle
 import time
 
 import requests
+import yaml
 
+import definitions.logger as logger
 import definitions.xbridge_def as xb
 from definitions import init, ccxt_def
 from definitions.yaml_mix import YamlToObject
@@ -28,7 +29,7 @@ class DexToken:
         self.read_address()
 
     def _get_file_path(self):
-        return f"{init.ROOT_DIR}/data/{self.token.strategy}_{self.token.symbol}_addr.pic"
+        return f"{init.ROOT_DIR}/data/{self.token.strategy}_{self.token.symbol}_addr.yaml"
 
     def read_address(self):
         if not self.enabled:
@@ -36,13 +37,13 @@ class DexToken:
 
         file_path = self._get_file_path()
         try:
-            with open(file_path, 'rb') as fp:
-                self.address = pickle.load(fp)
+            with open(file_path, 'r') as fp:
+                self.address = yaml.safe_load(fp)
         except FileNotFoundError:
-            general_log.info(f"File not found: {file_path}")
+            logger.general_log.info(f"File not found: {file_path}")
             self.request_addr()
-        except (pickle.PickleError, Exception) as e:
-            general_log.error(f"Error reading XB address from file: {file_path} - {type(e).__name__}: {e}")
+        except (yaml.YAMLError, Exception) as e:
+            logger.general_log.error(f"Error reading XB address from file: {file_path} - {type(e).__name__}: {e}")
             self.request_addr()
 
     def write_address(self):
@@ -51,19 +52,19 @@ class DexToken:
 
         file_path = self._get_file_path()
         try:
-            with open(file_path, 'wb') as fp:
-                pickle.dump(self.address, fp)
-        except (pickle.PickleError, Exception) as e:
-            general_log.error(f"Error writing XB address to file: {file_path} - {type(e).__name__}: {e}")
+            with open(file_path, 'w') as fp:
+                yaml.safe_dump(self.address, fp)
+        except (yaml.YAMLError, Exception) as e:
+            logger.general_log.error(f"Error writing XB address to file: {file_path} - {type(e).__name__}: {e}")
 
     def request_addr(self):
         try:
             address = xb.getnewtokenadress(self.token.symbol)[0]
             self.address = address
-            general_log.info(f"dx_request_addr: {self.token.symbol}, {address}")
+            logger.general_log.info(f"dx_request_addr: {self.token.symbol}, {address}")
             self.write_address()
         except Exception as e:
-            general_log.error(f"Error requesting XB address for {self.token.symbol}: {type(e).__name__}: {e}")
+            logger.general_log.error(f"Error requesting XB address for {self.token.symbol}: {type(e).__name__}: {e}")
 
 
 class CexToken:
@@ -94,7 +95,7 @@ class CexToken:
                     result = float(ccxt_def.ccxt_call_fetch_ticker(init.my_ccxt, cex_symbol)['info'][lastprice_string])
                     return result
                 except Exception as e:
-                    general_log.error(f"fetch_ticker: {cex_symbol} error: {type(e).__name__}: {e}")
+                    logger.general_log.error(f"fetch_ticker: {cex_symbol} error: {type(e).__name__}: {e}")
                     time.sleep(1)  # Sleep for a second before retrying
             return None
 
@@ -103,7 +104,7 @@ class CexToken:
         elif cex_symbol in init.my_ccxt.symbols:
             result = fetch_ticker(cex_symbol)
         else:
-            general_log.info(f"{cex_symbol} not in cex {str(init.my_ccxt)}")
+            logger.general_log.info(f"{cex_symbol} not in cex {str(init.my_ccxt)}")
             self.usd_price = None
             self.cex_price = None
             return
@@ -112,7 +113,7 @@ class CexToken:
             self.cex_price = 1 if self.token.symbol == "BTC" else result
             self.usd_price = result if self.token.symbol == "BTC" else result * init.t['BTC'].cex.usd_price
             self.cex_price_timer = time.time()
-            general_log.debug(
+            logger.general_log.debug(
                 f"new pricing {self.token.symbol} {self.cex_price} {self.usd_price} USD PRICE {init.t['BTC'].cex.usd_price}")
         else:
             self.usd_price = None
@@ -133,10 +134,10 @@ class CexToken:
                     if response.status_code == 200:
                         result = response.json().get('BTC')
             except Exception as e:
-                general_log.error(f"update_ccxt_price: BLOCK error({count}): {type(e).__name__}: {e}")
+                logger.general_log.error(f"update_ccxt_price: BLOCK error({count}): {type(e).__name__}: {e}")
                 time.sleep(count)
             else:
                 if isinstance(result, float):
-                    general_log.info(f"Updated BLOCK ticker: {result} BTC proxy: {used_proxy}")
+                    logger.general_log.info(f"Updated BLOCK ticker: {result} BTC proxy: {used_proxy}")
                     return result
                 time.sleep(count)

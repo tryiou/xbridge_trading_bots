@@ -4,6 +4,8 @@ import os
 
 # formatter = logging.Formatter('[%(asctime)s] %(levelname)s - %(message)s')  # '%(asctime)s %(levelname)s %(message)s')
 formatter = logging.Formatter('[%(asctime)s] [%(module)s] %(levelname)s - %(message)s')
+general_log = None
+trade_log = None
 
 
 def setup_logging(name, log_file=None, level=logging.INFO, console=False):
@@ -47,6 +49,9 @@ def setup_logger(strategy=None):
         # Add them to builtins so they're accessible everywhere
         builtins.general_log = general_log
         builtins.trade_log = trade_log
+        # Also make them available as module attributes
+        globals()['general_log'] = general_log
+        globals()['trade_log'] = trade_log
 
     else:
         print("setup_logger(strategy=None)")
