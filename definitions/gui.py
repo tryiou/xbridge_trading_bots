@@ -15,7 +15,7 @@ from definitions import bot_init
 
 logger = logging.getLogger()
 
-WIDTH = 100
+TOTAL_WIDTH = 500
 
 
 def _async_raise(tid, exctype):
@@ -73,15 +73,22 @@ class GUI_Orders:
         )
         self.orders_treeview.grid(padx=5, pady=5)
 
+        pair_weight = 2
+        other_weight = 1
+        weights = [pair_weight if col == "Pair" else other_weight for col in columns]
+        total_weight = sum(weights)
+        unit_width = TOTAL_WIDTH / total_weight
+
         for label_text in columns:
             if label_text == "Pair":
                 anchor = "w"
-            elif label_text == "Variation":
-                anchor = "e"
+                width = int(unit_width * pair_weight)
             else:
-                anchor = "center"
+                anchor = "center" if label_text != "Variation" else "e"
+                width = int(unit_width * other_weight)
+
             self.orders_treeview.heading(label_text, text=label_text, anchor=anchor)
-            self.orders_treeview.column(label_text, width=WIDTH, anchor=anchor)
+            self.orders_treeview.column(label_text, width=width, anchor=anchor)
 
         for pair in self.sortedpairs:
             self.orders_treeview.insert("", tk.END, values=[pair, "None", "None", "X", "None"])
@@ -130,14 +137,14 @@ class GUI_Balances:
         self.balances_treeview = ttk.Treeview(self.balances_frame, columns=columns, show="headings",
                                               height=height, selectmode="none")
         self.balances_treeview.grid(padx=5, pady=5)
-
+        width = int(TOTAL_WIDTH / len(columns))
         for col in columns:
             if col == "Coin":
                 anchor = "w"
             else:
                 anchor = "e"
             self.balances_treeview.heading(col, text=col, anchor=anchor)
-            self.balances_treeview.column(col, width=WIDTH, anchor=anchor)
+            self.balances_treeview.column(col, width=width, anchor=anchor)
 
         for token in bot_init.context.t:
             data = (token, str(None), str(None), str(None), str(None))
