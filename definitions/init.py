@@ -57,7 +57,7 @@ def init_ccxt_instance(exchange, hostname=None, private_api=False):
 
 
 def bot_init(strategy, loadxbridgeconf=True, tokens_list=None, amount_token_to_sell=None, min_sell_price_usd=None,
-             ccxt_sell_price_upscale=None, partial_percent=None):
+             sell_price_offset=None, partial_percent=None):
     global t, p, my_ccxt, config_pp
     setup_logger(strategy)
     # Initialize CCXT instance
@@ -120,14 +120,14 @@ def bot_init(strategy, loadxbridgeconf=True, tokens_list=None, amount_token_to_s
                 strategy="basic_seller",
                 amount_token_to_sell=amount_token_to_sell,
                 min_sell_price_usd=min_sell_price_usd,
-                ccxt_sell_price_upscale=ccxt_sell_price_upscale,
+                sell_price_offset=sell_price_offset,
                 partial_percent=partial_percent
             )
         }
 
 # Example usage:
 # init('pingpong')
-# init('basic_seller', tokens_list=['ETH', 'BTC'], amount_token_to_sell=1.0, min_sell_price_usd=100, ccxt_sell_price_upscale=1.01, partial_percent=0.5)
+# init('basic_seller', tokens_list=['ETH', 'BTC'], amount_token_to_sell=1.0, min_sell_price_usd=100, sell_price_offset=1.01, partial_percent=0.5)
 
 
 # def init_coins_dict_arbtaker():

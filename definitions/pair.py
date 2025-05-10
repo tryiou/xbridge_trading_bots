@@ -12,7 +12,7 @@ from definitions.token import Token
 
 class Pair:
     def __init__(self, token1: Token, token2: Token, cfg: dict, amount_token_to_sell=None, min_sell_price_usd=None,
-                 ccxt_sell_price_upscale=None,
+                 sell_price_offset=None,
                  strategy=None, dex_enabled=True, partial_percent=None):
         self.cfg = cfg
         self.name = cfg['name']
@@ -25,7 +25,11 @@ class Pair:
         self.dex_enabled = dex_enabled
         self.amount_token_to_sell = amount_token_to_sell
         self.min_sell_price_usd = min_sell_price_usd
-        self.ccxt_sell_price_upscale = ccxt_sell_price_upscale
+        if 'sell_price_offset' in self.cfg:
+            offset = self.cfg['sell_price_offset']
+        else:
+            offset = sell_price_offset
+        self.sell_price_offset = offset
         self.dex = DexPair(self, partial_percent)
         self.cex = CexPair(self)
 
@@ -90,10 +94,9 @@ class DexPair:
             logger.general_log.info(f"Created virtual sell order: {self.current_order}")
 
     def _build_sell_order(self, manual_dex_price):
-        # try:
         price = self._calculate_sell_price(manual_dex_price)
-        amount, spread = self._determine_amount_and_spread()
-        logger.general_log.info(f"_build_sell_order: {price} {amount} {spread}")
+        amount, offset = self._determine_amount_and_spread_sell_side()
+        logger.general_log.info(f"_build_sell_order, price: {price}, amount: {amount}, offset: {offset}")
         order = {
             'symbol': self.symbol,
             'manual_dex_price': bool(manual_dex_price),
@@ -104,8 +107,8 @@ class DexPair:
             'taker_address': self.t2.dex.address,
             'type': 'partial' if self.partial_percent else 'exact',
             'maker_size': amount,
-            'taker_size': amount * (price * (1 + spread)),
-            'dex_price': (amount * (price * (1 + spread))) / amount,
+            'taker_size': amount * (price * (1 + offset)),
+            'dex_price': (amount * (price * (1 + offset))) / amount,
             'org_pprice': price,
             'org_t1price': self.t1.cex.cex_price,
             'org_t2price': self.t2.cex.cex_price,
@@ -113,9 +116,6 @@ class DexPair:
         if self.partial_percent:
             order['minimum_size'] = amount * self.partial_percent
         return order
-        # except Exception as e:
-        #     logger.general_log.error(f"Error in create_virtual_sell_order: {type(e).__name__}, {e}")
-        #     exit()
 
     def _calculate_sell_price(self, manual_dex_price):
         if manual_dex_price:
@@ -125,20 +125,20 @@ class DexPair:
                 return self.pair.min_sell_price_usd / self.t2.cex.usd_price
         return self.pair.cex.price
 
-    def _determine_amount_and_spread(self):
+    def _determine_amount_and_spread_sell_side(self):
         if self.pair.strategy == 'basic_seller':
-            return self.pair.amount_token_to_sell, self.pair.ccxt_sell_price_upscale
+            return self.pair.amount_token_to_sell, self.pair.sell_price_offset
 
         usd_amount = self.pair.cfg['usd_amount']
 
         # Calculate how many tokens needed for this USD amount using current BTC price
-        btc_usd_price = init.t['BTC'].cex.usd_price or 1  # Fallback to 1 if None
+        btc_usd_price = init.t['BTC'].cex.usd_price
         if self.t1.cex.cex_price and btc_usd_price:
             amount = (usd_amount / btc_usd_price) / self.t1.cex.cex_price
         else:
             amount = 0  # Can't calculate without prices
-        spread = self.pair.cfg.get('spread')
-        return amount, spread
+        offset = self.pair.sell_price_offset
+        return amount, offset
 
     def create_virtual_buy_order(self, display=True, manual_dex_price=False):
         if self.pair.strategy != 'pingpong':
@@ -158,7 +158,7 @@ class DexPair:
         price = self._determine_buy_price(manual_dex_price)
         amount = float(self.order_history['maker_size'])
         # Get spread from pair config
-        spread = self.pair.cfg.get('spread')  # Default to 5% if not set
+        spread = self.pair.cfg.get('spread')
         return {
             'symbol': self.symbol,
             'manual_dex_price': manual_dex_price,

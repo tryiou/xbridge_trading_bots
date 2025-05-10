@@ -65,18 +65,18 @@ def start():
     token_to_buy = args.TokenToBuy
     amount_token_to_sell = args.AmountTokenToSell
     min_sell_price_usd = args.MinUsdPrice
-    ccxt_sell_price_upscale = args.SellPriceUpscale
+    sell_price_offset = args.SellPriceUpscale
     partial_value = args.partial
 
-    logging.info("Sell %f %s to %s // min_sell_price_usd: %f // ccxt_sell_price_upscale: %f // partial value: %s",
-                 amount_token_to_sell, token_to_sell, token_to_buy, min_sell_price_usd, ccxt_sell_price_upscale,
+    logging.info("Sell %f %s to %s // min_sell_price_usd: %f // sell_price_offset: %f // partial value: %s",
+                 amount_token_to_sell, token_to_sell, token_to_buy, min_sell_price_usd, sell_price_offset,
                  partial_value)
 
     init.init(strategy="basic_seller",
               tokens_list=[token_to_sell, token_to_buy],
               amount_token_to_sell=amount_token_to_sell,
               min_sell_price_usd=min_sell_price_usd,
-              ccxt_sell_price_upscale=ccxt_sell_price_upscale,
+              sell_price_offset=sell_price_offset,
               partial_percent=partial_value
               )
     run_async_main()
