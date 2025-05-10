@@ -69,6 +69,15 @@ class ConfigPP:
 
         with open(filename, 'r') as file:
             config_data = yaml.safe_load(file)
+
+        # Validate config - ensure all names are unique
+        if 'pair_configs' in config_data:
+            names = [cfg.get('name') for cfg in config_data['pair_configs']]
+            if len(names) != len(set(names)):
+                duplicate_names = [n for n in names if names.count(n) > 1]
+                raise ValueError(
+                    f"Duplicate pair names found in config: {', '.join(set(duplicate_names))}. Each name must be unique.")
+
         return ConfigPP(config_data)
 
     @staticmethod
