@@ -20,6 +20,7 @@ class BotContext:
         self.ccxt_log = None
         self.general_log = None
         self.trade_log = None
+        self.controller = None
 
 
 # Global context instance (temporary during transition)

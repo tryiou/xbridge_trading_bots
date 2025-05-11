@@ -1,51 +1,23 @@
-import ctypes
-import inspect
 import logging
 import re
 import threading
-import time
 import tkinter as tk
 from tkinter import ttk
 
 from ruamel.yaml import YAML
 from ttkbootstrap import Style
 
+import definitions.xbridge_def as xb
 import main_pingpong
 from definitions import bot_init
+from definitions.logger import setup_logging
 
-logger = logging.getLogger()
+gui_logger = setup_logging(name="GUI_LOG",
+                           # log_file=context.ROOT_DIR + '/logs/' + strategy + '_general.log',
+                           level=logging.DEBUG,
+                           console=True)
 
 TOTAL_WIDTH = 500
-
-
-def _async_raise(tid, exctype):
-    if not inspect.isclass(exctype):
-        raise TypeError("Only types can be raised (not instances)")
-    res = ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_long(tid), ctypes.py_object(exctype))
-    if res == 0:
-        raise ValueError("invalid thread id")
-    elif res != 1:
-        ctypes.pythonapi.PyThreadState_SetAsyncExc(tid, 0)
-        raise SystemError("PyThreadState_SetAsyncExc failed")
-
-
-class ThreadWithExc(threading.Thread):
-    def _get_my_tid(self):
-        if not self.is_alive():
-            raise threading.ThreadError("the thread is not active")
-        if hasattr(self, "_thread_id"):
-            return self._thread_id
-        for tid, tobj in threading._active.items():
-            if tobj is self:
-                self._thread_id = tid
-                return tid
-        raise AssertionError("could not determine the thread's id")
-
-    def raise_exc(self, exctype):
-        _async_raise(self._get_my_tid(), exctype)
-
-    def terminate(self):
-        self.raise_exc(SystemExit)
 
 
 class GUI_Orders:
@@ -565,7 +537,6 @@ class PairConfigDialog(tk.Toplevel):
             self.destroy()
         except ValueError as e:
             self.config.update_status(f"Invalid numeric value: {str(e)}", 'red')
-            print('test')
             self.result = None  # Prevent saving invalid values
 
 
@@ -620,42 +591,47 @@ class GUI_Main:
 
     def start(self):
         self.status_var.set("Bot is running...")
-        self.send_process = ThreadWithExc(target=main_pingpong.run_async_main)
+        self.send_process = threading.Thread(target=main_pingpong.run_async_main, daemon=True)
         self.send_process.start()
         self.started = True
         self.btn_start.config(state="disabled")
         self.btn_stop.config(state="active")
         self.btn_configure.config(state="disabled")
-        print("start done")
+        gui_logger.info("start done")
 
     def stop(self):
-        if self.send_process and self.send_process.is_alive():
-            self.cancel_all()
-            self.status_var.set("Stopping bot...")
-            self.send_process.terminate()
-            print("Stopping bot...")
-            while self.send_process.is_alive():
-                print("Wait for process end...")
-                time.sleep(1)
+        is_closing = False
+        if bot_init.context.controller and bot_init.context.controller.stop_order == False:
+            bot_init.context.controller.stop_order = True
+            is_closing = True
+        if self.send_process:
+            self.send_process.join(timeout=5)  # Wait up to 5 seconds
+            if self.send_process.is_alive():
+                gui_logger.error("process is still running despite stop_order = True...")
+                # time.sleep(1)
+
+        if is_closing and not self.send_process.is_alive():
+            self.status_var.set("Bot stopped.")
+            gui_logger.info("Bot stopped")
+
+        self.cancel_all()
+
         self.started = False
         self.btn_stop.config(state="disabled")
         self.btn_start.config(state="active")
         self.btn_configure.config(state="active")
         self.reload_configuration(loadxbridgeconf=False)
-        self.status_var.set("Bot stopped.")
-        print("Bot stopped")
 
     def cancel_all(self):
-        import definitions.xbridge_def as xb
-        self.status_var.set("Cancelling all orders...")
+        self.status_var.set("Cancelling all open orders...")
         xb.cancelallorders()
-        print("Cancel All orders done")
-        self.status_var.set("All orders cancelled.")
+        gui_logger.info("Cancelled all open orders")
+        self.status_var.set("Cancelled all open orders")
 
     def refresh_gui(self):
         if self.started:
             if not self.send_process.is_alive():
-                print("pingpong bot crashed!")
+                gui_logger.error("pingpong bot crashed!")
                 self.status_var.set("pingpong bot crashed!")
                 self.stop()
                 self.cancel_all()
@@ -673,7 +649,7 @@ class GUI_Main:
 
     def on_closing(self):
         # Perform any necessary cleanup before closing the app
-        print("Closing application...")
+        gui_logger.info("Closing application...")
         self.stop()
         self.root.destroy()
 

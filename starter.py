@@ -213,6 +213,8 @@ async def main():
         xb.dxflushcancelledorders()
 
         controller = MainController(pairs_dict, tokens_dict, ccxt_i)
+        bot_init.context.controller = controller
+
         controller.main_init_loop()
 
         flush_timer = time.time()
@@ -222,6 +224,7 @@ async def main():
             current_time = time.time()
 
             if controller and controller.stop_order:
+                starter_log.info("Received stop_order")
                 break
 
             if current_time - flush_timer > FLUSH_DELAY:
