@@ -459,8 +459,10 @@ class DexPair:
         msg = f"order FINISHED: {dict}"
         bot_init.context.general_log.info(msg)
         bot_init.context.trade_log.info(msg)
-        bot_init.context.trade_log.info(self.current_order)
-        bot_init.context.trade_log.info(self.order)
+        msg = f"virtual order: {self.current_order}"
+        bot_init.context.trade_log.info(msg)
+        msg = f"xbridge order: {self.order}"
+        bot_init.context.trade_log.info(msg)
         self.order_history = self.current_order
         self.write_last_order_history()
 
