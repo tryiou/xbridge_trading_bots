@@ -7,14 +7,11 @@ user_rpc, port_rpc, password_rpc = detect_rpc()
 def rpc_wrapper(method, params=None):
     if params is None:
         params = []
-    rpc_user = user_rpc
-    rpc_port = port_rpc
-    rpc_password = password_rpc
     result = rpc_call(method=method,
                       params=params,
-                      rpc_user=rpc_user,
-                      rpc_port=rpc_port,
-                      rpc_password=rpc_password)
+                      rpc_user=user_rpc,
+                      rpc_port=port_rpc,
+                      rpc_password=password_rpc)
     return result
 
 
