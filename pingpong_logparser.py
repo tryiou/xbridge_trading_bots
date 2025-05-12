@@ -30,7 +30,9 @@ def extract_dict_from_line(line):
     return None
 
 
-def read_log_file(log_file_path):
+def parse_log_file(log_file_path):
+    """Read and parse the log file into finished_orders and xbridge_orders."""
+
     finished_orders = defaultdict(list)
     xbridge_orders = defaultdict(list)
 
@@ -54,110 +56,132 @@ def read_log_file(log_file_path):
     return finished_orders, xbridge_orders
 
 
-def main():
-    # Specify the path to your log file
-    log_file_path = "logs/pingpong_trade.log"
-    logger.info(log_file_path)
-    finished_orders, xbridge_orders = read_log_file(log_file_path)
-
-    completed_table_data = []
-    inprogress_table_data = []
-    profit_info = defaultdict(lambda: {'total_profit': 0.0, 'asset': None})
+def process_orders(finished_orders, xbridge_orders):
+    """Process orders to identify completed and in-progress cycles."""
+    completed_cycles = []
+    in_progress_cycle = []
 
     for instance_name, orders_list in finished_orders.items():
-        completed_cycles = []
-        in_progress_cycle = []
         current_sell = None
-        current_buy = None
-
         for order in orders_list:
             if order['side'] == 'SELL':
                 id = order['orderid']
                 xbridge_order = xbridge_orders.get(id)[0]
                 xbridge_order['instance_name'] = instance_name
                 current_sell = xbridge_order
-                current_buy = None
             elif order['side'] == 'BUY' and current_sell is not None:
-                id = order['orderid']
-                current_buy = xbridge_orders.get(id)[0]
+                current_buy = xbridge_orders.get(order['orderid'])[0]
                 current_buy['instance_name'] = instance_name
                 completed_cycles.append((current_sell, current_buy))
-                current_sell = None  # reset after pairing.
+                current_sell = None
 
-        if current_sell and not current_buy:
+        if current_sell:
             in_progress_cycle.append(current_sell)
 
-        for sell_order, buy_order in completed_cycles:
-            instance_name = sell_order.get('instance_name', '')
+    return completed_cycles, in_progress_cycle
 
-            # Row for SELL part
-            symbol_sell = f"{sell_order['maker']}/{sell_order['taker']}"
-            row1 = [
-                instance_name,
-                symbol_sell,
-                sell_order.get('created_at', ''),
-                'SELL',
-                float(sell_order['maker_size']),
-                sell_order['maker'],
-                reverse_side('SELL'),  # 'BUY'
-                float(sell_order['taker_size']),
-                sell_order['taker'],
-                "", ""  # Profit and Exec Time (empty for first row)
-            ]
 
-            # Row for BUY part
-            symbol_buy = f"{buy_order['maker']}/{buy_order['taker']}"
-            try:
-                sell_time = datetime.strptime(sell_order.get('updated_at', '1970-01-01T00:00:00Z'),
-                                              "%Y-%m-%dT%H:%M:%S.%fZ")
-                buy_time = datetime.strptime(buy_order.get('created_at', '1970-01-01T00:00:00Z'),
-                                             "%Y-%m-%dT%H:%M:%S.%fZ")
-                delta = buy_time - sell_time
-                delta_str = f"{delta.days} days {delta.seconds // 3600}:{(delta.seconds // 60) % 60}:{delta.seconds % 60}"
-            except:
-                delta_str = ""
+def generate_completed_table(completed_cycles):
+    """Generate table data for completed cycles."""
+    completed_table_data = []
+    profit_info = defaultdict(lambda: {'total_profit': 0.0, 'asset': None})
 
-            profit = float(sell_order['taker_size']) - float(buy_order['maker_size'])
-            row2 = [
-                instance_name,
-                symbol_buy,
-                buy_order.get('created_at', ''),
-                'BUY',
-                float(buy_order['maker_size']),
-                buy_order['maker'],
-                reverse_side('BUY'),  # 'SELL'
-                float(buy_order['taker_size']),
-                buy_order['taker'],
-                f"{profit:.6f} {buy_order['maker']}",
-                delta_str
-            ]
+    for sell_order, buy_order in completed_cycles:
+        instance_name = sell_order.get('instance_name', '')
 
-            completed_table_data.extend([row1, row2])
+        # Row for SELL part
+        symbol_sell = f"{sell_order['maker']}/{sell_order['taker']}"
+        row1 = [
+            instance_name,
+            symbol_sell,
+            sell_order.get('created_at', ''),
+            'SELL',
+            float(sell_order['maker_size']),
+            sell_order['maker'],
+            reverse_side('SELL'),  # 'BUY'
+            float(sell_order['taker_size']),
+            sell_order['taker'],
+            "", ""  # Profit and Exec Time (empty for first row)
+        ]
 
-            # Update profit_info with instance_name as key
-            profit_info[instance_name]['total_profit'] += profit
-            profit_info[instance_name]['asset'] = buy_order['maker']
+        # Row for BUY part
+        symbol_buy = f"{buy_order['maker']}/{buy_order['taker']}"
+        try:
+            sell_time = datetime.strptime(sell_order.get('updated_at', '1970-01-01T00:00:00Z'),
+                                          "%Y-%m-%dT%H:%M:%S.%fZ")
+            buy_time = datetime.strptime(buy_order.get('created_at', '1970-01-01T00:00:00Z'),
+                                         "%Y-%m-%dT%H:%M:%S.%fZ")
+            delta = buy_time - sell_time
+            delta_str = f"{delta.days} days {delta.seconds // 3600}:{(delta.seconds // 60) % 60}:{delta.seconds % 60}"
+        except:
+            delta_str = ""
 
-        for sell in in_progress_cycle:
-            instance_name = sell.get('instance_name', '')
-            symbol = f"{sell['maker']}/{sell['taker']}"
+        profit = float(sell_order['taker_size']) - float(buy_order['maker_size'])
+        row2 = [
+            instance_name,
+            symbol_buy,
+            buy_order.get('created_at', ''),
+            'BUY',
+            float(buy_order['maker_size']),
+            buy_order['maker'],
+            reverse_side('BUY'),  # 'SELL'
+            float(buy_order['taker_size']),
+            buy_order['taker'],
+            f"{profit:.6f} {buy_order['maker']}",
+            delta_str
+        ]
 
-            row = [
-                instance_name,
-                symbol,
-                sell.get('created_at', ''),
-                'SELL',
-                float(sell['maker_size']),
-                sell['maker'],
-                reverse_side('SELL'),  # 'BUY'
-                float(sell['taker_size']),
-                sell['taker']
-            ]
+        completed_table_data.extend([row1, row2])
 
-            inprogress_table_data.append(row)
+        # Update profit_info with instance_name as key
+        profit_info[instance_name]['total_profit'] += profit
+        profit_info[instance_name]['asset'] = buy_order['maker']
 
+    return completed_table_data, profit_info
+
+
+def generate_inprogress_table(in_progress_cycle):
+    """Generate table data for in-progress cycles."""
+    inprogress_table_data = []
+
+    for sell in in_progress_cycle:
+        instance_name = sell.get('instance_name', '')
+        symbol = f"{sell['maker']}/{sell['taker']}"
+
+        row = [
+            instance_name,
+            symbol,
+            sell.get('created_at', ''),
+            'SELL',
+            float(sell['maker_size']),
+            sell['maker'],
+            reverse_side('SELL'),  # 'BUY'
+            float(sell['taker_size']),
+            sell['taker']
+        ]
+
+        inprogress_table_data.append(row)
+
+    return inprogress_table_data
+
+
+def calculate_profit_summary(completed_cycles):
+    """Calculate profit summary from completed cycles."""
+    profit_info = defaultdict(lambda: {'total_profit': 0.0, 'asset': None})
+
+    for sell_order, buy_order in completed_cycles:
+        instance_name = sell_order.get('instance_name', '')
+        profit = float(sell_order['taker_size']) - float(buy_order['maker_size'])
+        profit_info[instance_name]['total_profit'] += profit
+        profit_info[instance_name]['asset'] = buy_order['maker']
+
+    return profit_info
+
+
+def display_tables(completed_data, inprogress_data, profit_info):
+    """Display the completed, in-progress, and profit summary tables."""
     # Display Completed Cycles Table
-    if completed_table_data:
+    if completed_data:
         headers = [
             "Name", "Symbol", "Timestamp",
             "Side", "Size T1", "Token1",
@@ -166,12 +190,12 @@ def main():
         ]
         colalign = ("left", "left", "left", "left", "right", "left", "left", "right", "left", "right", "right")
         print("\nCompleted Traded:")
-        print(tabulate(completed_table_data, headers=headers, tablefmt="pretty", colalign=colalign))
+        print(tabulate(completed_data, headers=headers, tablefmt="pretty", colalign=colalign))
     else:
         logger.info("No completed cycles found")
 
     # Display In-Progress Cycles
-    if inprogress_table_data:
+    if inprogress_data:
         in_progress_headers = [
             "Name", "Symbol", "Timestamp",
             "Side", "Size T1", "Token1",
@@ -181,7 +205,7 @@ def main():
         colalign_inprog[in_progress_headers.index("Size T1")] = "right"
         colalign_inprog[in_progress_headers.index("Size T2")] = "right"
         print("\nIn-Progress Cycles:")
-        print(tabulate(inprogress_table_data, headers=in_progress_headers, tablefmt="pretty", colalign=colalign_inprog))
+        print(tabulate(inprogress_data, headers=in_progress_headers, tablefmt="pretty", colalign=colalign_inprog))
     else:
         logger.info("No in-progress cycles found")
 
@@ -200,6 +224,20 @@ def main():
                        colalign=("left", "right", "left")))
     else:
         logger.info("No profit data available")
+
+
+def main():
+    """Main function orchestrating the log parsing and reporting."""
+    log_file_path = "logs/pingpong_trade.log"
+    logger.info(log_file_path)
+
+    finished_orders, xbridge_orders = parse_log_file(log_file_path)
+    completed_cycles, in_progress_cycle = process_orders(finished_orders, xbridge_orders)
+
+    completed_table_data, profit_info = generate_completed_table(completed_cycles)
+    inprogress_table_data = generate_inprogress_table(in_progress_cycle)
+
+    display_tables(completed_table_data, inprogress_table_data, profit_info)
 
 
 if __name__ == "__main__":
