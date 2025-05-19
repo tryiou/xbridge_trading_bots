@@ -87,26 +87,28 @@ Note: Python 3 for Windows already includes Tkinter.
     ```
 
    Options:
-   - `-tts, --TokenToSell`  
-     Required. The token you wish to sell (e.g., BLOCK).  
-     Type: string
+    - `-tts, --TokenToSell`  
+      Required. The token you wish to sell (e.g., BLOCK).  
+      Type: string
 
-   - `-ttb, --TokenToBuy`  
-     Required. The token you want to buy (e.g., LTC).  
-     Type: string
+    - `-ttb, --TokenToBuy`  
+      Required. The token you want to buy (e.g., LTC).  
+      Type: string
 
-   - `-atts, --AmountTokenToSell`  
-     Required. The amount of the token you want to sell.  
-     Type: float
+    - `-atts, --AmountTokenToSell`  
+      Required. The amount of the token you want to sell.  
+      Type: float
 
-   - `-mup, --MinUsdPrice`  
-     Required. The minimum USD price at which you want to sell the token.  
-     Type: float
+    - `-mup, --MinUsdPrice`  
+      Required. The minimum USD price at which you want to sell the token.  
+      Type: float
 
-   - `-spu, --SellPriceUpscale`  
-     Optional. Percentage upscale applied to the CCXT ticker price for the token sale. For example, 0.015 represents a 1.5% upscale. The default value is 0.015.  
-     Type: float
+    - `-spu, --SellPriceUpscale`  
+      Optional. Percentage upscale applied to the CCXT ticker price for the token sale. For example, 0.015 represents a
+      1.5% upscale. The default value is 0.015.  
+      Type: float
 
-   - `-p, --partial`  
-     Optional. Minimum size of the partial sell as a percentage of the total size (between 0.001 (inclusive) and 1 (exclusive)). For example, --partial 0.5 means selling 50% of the specified amount. The default is None.  
-     Type: float
+    - `-p, --partial`  
+      Optional. Minimum size of the partial sell as a percentage of the total size (between 0.001 (inclusive) and 1 (
+      exclusive)). For example, --partial 0.5 means selling 50% of the specified amount. The default is None.  
+      Type: float

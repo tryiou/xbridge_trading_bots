@@ -1,6 +1,11 @@
 .idea/
 config/
+config/*
 data/
 logs/
 .history
 .python-version
+.aider*
+.env
+.venv
+.aider.chat.history.md

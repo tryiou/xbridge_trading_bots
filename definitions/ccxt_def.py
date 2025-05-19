@@ -1,15 +1,59 @@
+import json
 import socket
 import sys
 import time
 
+import ccxt
+
 import definitions.bcolors as bcolors
-from definitions.xbridge_def import rpc_call
-from definitions.yaml_mix import YamlToObject
-
-config = YamlToObject('config/config_ccxt.yaml')
+from definitions import bot_init
+from definitions.rpc import rpc_call
 
 
-def debug_display(func, params, result, debug=config.debug_level, timer=None):
+def init_ccxt_instance(exchange, hostname=None, private_api=False, debug_level=1):
+    # CCXT instance
+    api_key = None
+    api_secret = None
+    if private_api:
+        with open(bot_init.context.ROOT_DIR + '/config/api_keys.local.json') as json_file:
+            data_json = json.load(json_file)
+            for data in data_json['api_info']:
+                if exchange in data['exchange']:
+                    api_key = data['api_key']
+                    api_secret = data['api_secret']
+    if exchange in ccxt.exchanges:
+        exchange_class = getattr(ccxt, exchange)
+        if hostname:
+            instance = exchange_class({
+                'apiKey': api_key,
+                'secret': api_secret,
+                'enableRateLimit': True,
+                'rateLimit': 1000,
+                'hostname': hostname,  # 'global.bittrex.com',
+            })
+        else:
+            instance = exchange_class({
+                'apiKey': api_key,
+                'secret': api_secret,
+                'enableRateLimit': True,
+                'rateLimit': 1000,
+            })
+        done = False
+        while not done:
+            try:
+                instance.load_markets()
+            except Exception as e:
+                ccxt_manage_error(e)
+            else:
+                done = True
+        return instance
+    else:
+        return None
+
+
+def debug_display(func, params, result, debug=None, timer=None):
+    if debug is None:
+        debug = 2  # default value if not provided
     if debug >= 2:
         if timer is None:
             timer = ''
@@ -23,12 +67,11 @@ def debug_display(func, params, result, debug=config.debug_level, timer=None):
 
 
 def ccxt_manage_error(error, err_count=1):
-    from definitions.classes import general_log
     err_type = type(error).__name__
     msg = f"parent: {str(sys._getframe(1).f_code.co_name)},error: {str(type(error))}, {str(error)}, {str(err_type)}"
     # print('parent:', sys._getframe(1).f_code.co_name, type(error), error, err_type)
-    if general_log:
-        general_log.error(msg)
+    if bot_init.context.ccxt_log:
+        bot_init.context.ccxt_log.error(msg)
     else:
         print(msg)
     if (err_type == "NetworkError" or
@@ -94,7 +137,7 @@ def ccxt_call_fetch_tickers(ccxt_o, symbols_list, proxy=True):
             if isportopen("127.0.0.1", 2233) and proxy:  # CCXT PROXY
                 # print('aaa',tuple(symbols_list))
                 result = rpc_call("ccxt_call_fetch_tickers", tuple(symbols_list), rpc_port=2233,
-                                  debug=config.debug_level, display=False)
+                                  debug=bot_init.context.config_ccxt.debug_level, display=False)
                 used_proxy = True
             else:
                 result = ccxt_o.fetchTickers(symbols_list)
