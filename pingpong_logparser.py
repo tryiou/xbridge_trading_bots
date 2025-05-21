@@ -182,7 +182,7 @@ def display_tables(completed_data, inprogress_data, profit_info):
             "Profit", "Exec time (D, h:m:s)"
         ]
         colalign = ("left", "left", "left", "left", "right", "left", "left", "right", "left", "right", "right")
-        print("\nCompleted Traded:")
+        print("\nCompleted Trades:")
         print(tabulate(completed_data, headers=headers, tablefmt="pretty", colalign=colalign))
     else:
         logger.info("No completed cycles found")
