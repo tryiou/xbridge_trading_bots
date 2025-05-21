@@ -13,15 +13,8 @@ logger = setup_logging(name="GENERAL_LOG",
                        console=True)
 
 
-def reverse_side(s):
-    if s == "BUY":
-        return "SELL"
-    elif s == "SELL":
-        return "BUY"
-
-
 def extract_dict_from_line(line):
-    match = re.search(r'\{.*\}', line)
+    match = re.search(r'\{.*}', line)
     if match:
         try:
             return ast.literal_eval(match.group(0))
@@ -98,14 +91,14 @@ def generate_completed_table(completed_cycles):
             'SELL',
             float(sell_order['maker_size']),
             sell_order['maker'],
-            reverse_side('SELL'),  # 'BUY'
+            'BUY',
             float(sell_order['taker_size']),
             sell_order['taker'],
             "", ""  # Profit and Exec Time (empty for first row)
         ]
 
-        # Row for BUY part
-        symbol_buy = f"{buy_order['maker']}/{buy_order['taker']}"
+        # Row for BUY part, keep symbol stable
+        symbol_buy = f"{buy_order['taker']}/{buy_order['maker']}"
         try:
             sell_time = datetime.strptime(sell_order.get('updated_at', '1970-01-01T00:00:00Z'),
                                           "%Y-%m-%dT%H:%M:%S.%fZ")
@@ -122,11 +115,11 @@ def generate_completed_table(completed_cycles):
             symbol_buy,
             buy_order.get('created_at', ''),
             'BUY',
-            float(buy_order['maker_size']),
-            buy_order['maker'],
-            reverse_side('BUY'),  # 'SELL'
             float(buy_order['taker_size']),
             buy_order['taker'],
+            'SELL',
+            float(buy_order['maker_size']),
+            buy_order['maker'],
             f"{profit:.6f} {buy_order['maker']}",
             delta_str
         ]
@@ -155,7 +148,7 @@ def generate_inprogress_table(in_progress_cycle):
             'SELL',
             float(sell['maker_size']),
             sell['maker'],
-            reverse_side('SELL'),  # 'BUY'
+            'BUY',
             float(sell['taker_size']),
             sell['taker']
         ]
