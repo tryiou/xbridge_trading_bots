@@ -605,7 +605,7 @@ class GUI_Main:
             bot_init.context.controller.stop_order = True
             is_closing = True
         if self.send_process:
-            self.send_process.join(timeout=5)  # Wait up to 5 seconds
+            self.send_process.join(timeout=60)  # Wait up to 5 seconds
             if self.send_process.is_alive():
                 gui_logger.error("process is still running despite stop_order = True...")
                 # time.sleep(1)

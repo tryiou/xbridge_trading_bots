@@ -43,7 +43,7 @@ def get_default_config_path():
 
 
 def prompt_user_for_config_path():
-    max_attempts = 2
+    max_attempts = 1
     attempt_count = 0
 
     def _prompt_with_dialog():
