@@ -33,8 +33,7 @@ def setup_logging(name, log_file=None, level=logging.INFO, console=False):
     return log_handle
 
 
-
-def setup_logger(strategy=None, ROOT_DIR = None):
+def setup_logger(strategy=None, ROOT_DIR=None):
     if strategy:
         general_log = setup_logging(name="GENERAL_LOG",
                                     log_file=ROOT_DIR + '/logs/' + strategy + '_general.log',

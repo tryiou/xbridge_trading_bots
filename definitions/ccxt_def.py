@@ -4,6 +4,7 @@ import sys
 import time
 
 import ccxt
+
 import definitions.bcolors as bcolors
 from definitions.rpc import rpc_call
 
@@ -46,6 +47,7 @@ class CCXTManager:
                     instance.load_markets()
                 except Exception as e:
                     self._manage_error(e)
+                    exit()
                 else:
                     done = True
             return instance
@@ -101,7 +103,8 @@ class CCXTManager:
                 self._manage_error(error, err_count)
             else:
                 stop = time.time()
-                self._debug_display('ccxt_call_fetch_tickers', str(symbols_list) + ' used_proxy? ' + str(used_proxy), result,
+                self._debug_display('ccxt_call_fetch_tickers', str(symbols_list) + ' used_proxy? ' + str(used_proxy),
+                                    result,
                                     timer=stop - start)
                 return result
 
@@ -134,8 +137,8 @@ class CCXTManager:
         else:
             print(msg)
         if err_type in ["NetworkError", "DDoSProtection", "RateLimitExceeded", "InvalidNonce",
-                       "RequestTimeout", "ExchangeNotAvailable", "Errno -3", "AuthenticationError",
-                       "Temporary failure in name resolution", "ExchangeError", "BadResponse", "KeyError"]:
+                        "RequestTimeout", "ExchangeNotAvailable", "Errno -3", "AuthenticationError",
+                        "Temporary failure in name resolution", "ExchangeError", "BadResponse", "KeyError"]:
             time.sleep(err_count * 1)
         else:
             time.sleep(err_count * 1)
