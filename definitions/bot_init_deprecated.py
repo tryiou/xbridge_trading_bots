@@ -3,16 +3,16 @@ import os
 import definitions.xbridge_def as xbridge_def
 from definitions.ccxt_def import init_ccxt_instance
 from definitions.logger import setup_logger
-from definitions.pair import Pair
-from definitions.pingpong_loader import ConfigPP
-from definitions.token import Token
-from definitions.yaml_mix import YamlToObject
+from config_manager import ConfigManager  # Import ConfigManager
+from definitions.yaml_mix import YamlToObject  # Import YamlToObject
+from definitions.token import Token  # Import Token
+from definitions.pair import Pair  # Import Pair
 
 
 class BotContext:
     def __init__(self):
         self.ROOT_DIR = os.path.abspath(os.curdir)
-        self.config_ccxt = YamlToObject("./config/config_ccxt.yaml")
+        self.config_ccxt = None  # CCXT config
         self.t = None  # Tokens dict
         self.p = None  # Pairs dict
         self.my_ccxt = None  # CCXT instance
@@ -30,7 +30,7 @@ context = BotContext()
 def initialize(strategy, loadxbridgeconf=True, tokens_list=None, amount_token_to_sell=None, min_sell_price_usd=None,
                sell_price_offset=None, partial_percent=None):
     context.general_log, context.trade_log, context.ccxt_log = setup_logger(strategy)
-    context.config_pp = ConfigPP.load_config("./config/config_pingpong.yaml") if strategy == 'pingpong' else None
+    context.config_pp = YamlToObject("./config/config_pingpong.yaml") if strategy == 'pingpong' else None
 
     # Initialize CCXT instance
     context.my_ccxt = init_ccxt_instance(
@@ -68,9 +68,9 @@ def initialize(strategy, loadxbridgeconf=True, tokens_list=None, amount_token_to
         for cfg in [c for c in context.config_pp.pair_configs if c.get('enabled', True)]:
             t1, t2 = cfg['pair'].split("/")
             context.p[cfg['name']] = Pair(
-                context.t[t1],
-                context.t[t2],
-                cfg=cfg,
+                token1=context.t[t1],
+                token2=context.t[t2],
+                config_manager=None,
                 strategy="pingpong",
                 dex_enabled=True,
                 partial_percent=None
@@ -91,6 +91,7 @@ def initialize(strategy, loadxbridgeconf=True, tokens_list=None, amount_token_to
             pair_key: Pair(
                 token1=context.t[tokens_list[0]],
                 token2=context.t[tokens_list[1]],
+                config_manager=None,
                 cfg={'name': "basic_seller"},
                 strategy="basic_seller",
                 amount_token_to_sell=amount_token_to_sell,

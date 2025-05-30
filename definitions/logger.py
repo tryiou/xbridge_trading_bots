@@ -34,20 +34,19 @@ def setup_logging(name, log_file=None, level=logging.INFO, console=False):
 
 
 
-def setup_logger(strategy=None):
-    from definitions.bot_init import context
+def setup_logger(strategy=None, ROOT_DIR = None):
     if strategy:
         general_log = setup_logging(name="GENERAL_LOG",
-                                    log_file=context.ROOT_DIR + '/logs/' + strategy + '_general.log',
+                                    log_file=ROOT_DIR + '/logs/' + strategy + '_general.log',
                                     level=logging.INFO,
                                     console=True)
         general_log.propagate = False
         trade_log = setup_logging(name="TRADE_LOG",
-                                  log_file=context.ROOT_DIR + '/logs/' + strategy + '_trade.log',
+                                  log_file=ROOT_DIR + '/logs/' + strategy + '_trade.log',
                                   level=logging.INFO,
                                   console=False)
         ccxt_log = setup_logging(name="CCXT_LOG",
-                                 log_file=context.ROOT_DIR + '/logs/' + strategy + '_ccxt.log',
+                                 log_file=ROOT_DIR + '/logs/' + strategy + '_ccxt.log',
                                  level=logging.INFO,
                                  console=True)
         return general_log, trade_log, ccxt_log

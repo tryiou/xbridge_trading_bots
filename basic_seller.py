@@ -3,10 +3,10 @@ import asyncio
 import logging
 import signal
 import sys
+import time
 
-import definitions.bot_init as bot_init
 import definitions.xbridge_def as xb
-from starter import main
+from definitions.config_manager import ConfigManager  # Import ConfigManager
 
 
 def signal_handler(signal, frame):
@@ -23,11 +23,61 @@ class ValidatePercentArg(argparse.Action):
         setattr(namespace, self.dest, values)
 
 
-def run_async_main():
+def run_async_main(config_manager):
     """Runs the main asynchronous function using a new event loop."""
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    loop.run_until_complete(main())
+    loop.run_until_complete(main(config_manager))
+
+
+async def main(config_manager):
+    """Main asynchronous function to start the trading operations."""
+    controller = None  # Initialize controller to avoid reference before assignment warning
+    try:
+
+        xb.cancelallorders()
+        xb.dxflushcancelledorders()
+
+        from starter import MainController
+        controller = MainController(config_manager)
+
+        controller.main_init_loop()
+
+        flush_timer = time.time()
+        operation_timer = time.time()
+
+        while True:
+            current_time = time.time()
+
+            if controller and controller.stop_order:
+                print("Received stop_order")
+                break
+
+            if current_time - flush_timer > 15 * 60:
+                xb.dxflushcancelledorders()
+                flush_timer = current_time
+
+            if current_time - operation_timer > 15:  # Main loop operations interval (in seconds)
+                controller.main_loop()
+                operation_timer = current_time
+
+            await asyncio.sleep(1)  # Shorter sleep interval (in seconds)
+
+    except (SystemExit, KeyboardInterrupt):
+        print("Received Stop order. Cleaning up...")
+        if controller:
+            controller.stop_order = True
+        xb.cancelallorders()
+        exit()
+
+    except Exception as e:
+        logging.error(f"Exception in main loop: {e}")
+        import traceback
+        traceback.print_exc()
+        if controller:
+            controller.stop_order = True
+        xb.cancelallorders()
+        exit()
 
 
 def start():
@@ -67,19 +117,16 @@ def start():
     min_sell_price_usd = args.MinUsdPrice
     sell_price_offset = args.SellPriceUpscale
     partial_value = args.partial
-
-    logging.info("Sell %f %s to %s // min_sell_price_usd: %f // sell_price_offset: %f // partial value: %s",
-                 amount_token_to_sell, token_to_sell, token_to_buy, min_sell_price_usd, sell_price_offset,
-                 partial_value)
-
-    bot_init.initialize(strategy="basic_seller",
-                        tokens_list=[token_to_sell, token_to_buy],
-                        amount_token_to_sell=amount_token_to_sell,
-                        min_sell_price_usd=min_sell_price_usd,
-                        sell_price_offset=sell_price_offset,
-                        partial_percent=partial_value
-                        )
-    run_async_main()
+    msg = f"Sell {amount_token_to_sell} {token_to_sell} to {token_to_buy} // min_sell_price_usd: {min_sell_price_usd} // sell_price_offset: {sell_price_offset} // partial value: {partial_value}"
+    logging.info(msg)
+    config_manager = ConfigManager(strategy="basic_seller")
+    config_manager.initialize(token_to_sell=token_to_sell,
+                              token_to_buy=token_to_buy,
+                              amount_token_to_sell=amount_token_to_sell,
+                              min_sell_price_usd=min_sell_price_usd,
+                              sell_price_offset=sell_price_offset,
+                              partial_percent=partial_value)
+    run_async_main(config_manager)
 
 
 if __name__ == '__main__':

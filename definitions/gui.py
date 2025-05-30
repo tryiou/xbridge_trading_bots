@@ -9,7 +9,8 @@ from ttkbootstrap import Style
 
 import definitions.xbridge_def as xb
 import main_pingpong
-from definitions import bot_init
+# from definitions import bot_init
+from definitions.config_manager import ConfigManager
 from definitions.logger import setup_logging
 
 gui_logger = setup_logging(name="GUI_LOG",
@@ -587,7 +588,8 @@ class GUI_Main:
         status_label.grid(row=0, column=0, padx=5, pady=5, sticky='ew')
 
     def initialize(self, loadxbridgeconf=True):
-        bot_init.initialize(strategy="pingpong", loadxbridgeconf=loadxbridgeconf)
+        self.config_manager = ConfigManager(strategy="pingpong")
+        self.config_manager.initialize()
 
     def start(self):
         self.status_var.set("Bot is running...")
@@ -654,7 +656,7 @@ class GUI_Main:
         self.root.destroy()
 
     def reload_configuration(self, loadxbridgeconf=True):
-        bot_init.initialize(strategy="pingpong", loadxbridgeconf=loadxbridgeconf)
+        self.config_manager.initialize(loadxbridgeconf=loadxbridgeconf)
         self.gui_orders.purge_treeview()
         self.gui_balances.purge_treeview()
         self.gui_orders.create_orders_treeview()

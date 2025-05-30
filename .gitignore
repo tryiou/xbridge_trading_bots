@@ -9,3 +9,4 @@ logs/
 .env
 .venv
 .aider.chat.history.md
+__pycache__
