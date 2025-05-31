@@ -34,12 +34,12 @@ class ConfigManager:
             "config_pingpong.yaml": os.path.join(self.ROOT_DIR, "config", "config_pingpong.yaml"),
             "api_keys.local.json": os.path.join(self.ROOT_DIR, "config", "api_keys.local.json")
         }
-        self.general_log.info(f"create_configs_from_templates, config_files: {config_files}")
         for target_name, target_path in config_files.items():
             # Check if target file exists
             if not os.path.exists(target_path):
                 # Check if template file exists
-                template_path = target_path + ".template"
+                template_path = os.path.join(self.ROOT_DIR, "config", "templates",
+                                             os.path.basename(target_path) + ".template")
                 if os.path.exists(template_path):
                     try:
                         shutil.copy(template_path, target_path)
