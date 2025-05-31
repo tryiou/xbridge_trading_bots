@@ -101,6 +101,11 @@ class DexPair:
         if display:
             self.pair.config_manager.general_log.info(f"Created virtual sell order: {self.current_order}")
 
+    def truncate(self, value, digits=8):
+        format_str = f"{{:.{digits}f}}"
+        truncated_float = float(format_str.format(value))
+        return truncated_float
+
     def _build_sell_order(self, manual_dex_price):
         price = self._calculate_sell_price(manual_dex_price)
         amount, offset = self._determine_amount_and_spread_sell_side()
@@ -115,12 +120,12 @@ class DexPair:
             'taker': self.t2.symbol,
             'taker_address': self.t2.dex.address,
             'type': 'partial' if self.partial_percent else 'exact',
-            'maker_size': amount,
-            'taker_size': amount * (price * (1 + offset)),
-            'dex_price': (amount * (price * (1 + offset))) / amount,
-            'org_pprice': price,
-            'org_t1price': self.t1.cex.cex_price,
-            'org_t2price': self.t2.cex.cex_price,
+            'maker_size': self.truncate(amount),
+            'taker_size': self.truncate(amount * (price * (1 + offset))),
+            'dex_price': self.truncate((amount * (price * (1 + offset))) / amount),
+            'org_pprice': self.truncate(price),
+            'org_t1price': self.truncate(self.t1.cex.cex_price),
+            'org_t2price': self.truncate(self.t2.cex.cex_price),
         }
         if self.partial_percent:
             order['minimum_size'] = amount * self.partial_percent
@@ -173,16 +178,16 @@ class DexPair:
             'manual_dex_price': manual_dex_price,
             'side': 'BUY',
             'maker': self.t2.symbol,
-            'maker_size': amount * price * (1 - spread),
             'maker_address': self.t2.dex.address,
             'taker': self.t1.symbol,
-            'taker_size': amount,
             'taker_address': self.t1.dex.address,
             'type': 'exact',
-            'dex_price': (amount * price * (1 - spread)) / amount,
-            'org_pprice': price,
-            'org_t1price': self.t1.cex.cex_price,
-            'org_t2price': self.t2.cex.cex_price,
+            'maker_size': self.truncate(amount * price * (1 - spread)),
+            'taker_size': self.truncate(amount),
+            'dex_price': self.truncate((amount * price * (1 - spread)) / amount),
+            'org_pprice': self.truncate(price),
+            'org_t1price': self.truncate(self.t1.cex.cex_price),
+            'org_t2price': self.truncate(self.t2.cex.cex_price),
         }
 
     def _determine_buy_price(self, manual_dex_price):
@@ -228,8 +233,8 @@ class DexPair:
         return float(self.pair.cex.price / self.current_order['org_pprice'])
 
     def _set_variation(self, var):
-        self.variation = float(f"{var:.3f}") if isinstance(var, float) else [
-            float(f"{self.pair.cex.price / self.current_order['org_pprice']:.3f}")]
+        self.variation = self.truncate(var, 3) if isinstance(var, float) else [
+            self.truncate(self.pair.cex.price / self.current_order['org_pprice'], 3)]
 
     def _log_price_check(self, var):
         self.pair.config_manager.general_log.info(
