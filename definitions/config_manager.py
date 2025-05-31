@@ -22,6 +22,7 @@ class ConfigManager:
         self.xbridge_conf = None  # XBridge configuration
         self.logger = setup_logger(strategy, self.ROOT_DIR)
         self.disabled_coins = []  # Centralized disabled coins tracking
+        self.controller = None
         self.general_log, self.trade_log, self.ccxt_log = setup_logger(strategy, self.ROOT_DIR)
 
     def _init_tokens(self, token_to_sell=None, token_to_buy=None):
@@ -110,7 +111,7 @@ class ConfigManager:
         # Initialize pairs based on strategy
         self._init_pairs(token_to_sell, token_to_buy, amount_token_to_sell, min_sell_price_usd, sell_price_offset,
                          partial_percent)
-
-        self._init_ccxt()
+        if self.my_ccxt is None:
+            self._init_ccxt()
         if loadxbridgeconf:
             self._init_xbridge()

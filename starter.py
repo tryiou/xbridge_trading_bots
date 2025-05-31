@@ -208,6 +208,9 @@ def run_async_main(config_manager):
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
+
+        controller = MainController(config_manager)
+        config_manager.controller = controller
         loop.run_until_complete(main(config_manager))
 
     except (SystemExit, KeyboardInterrupt):
@@ -224,8 +227,7 @@ def run_async_main(config_manager):
 
 async def main(config_manager):
     """Generic main loop that works with any strategy."""
-    controller = MainController(config_manager)
-    controller.main_init_loop()
+    config_manager.controller.main_init_loop()
 
     flush_timer = time.time()
     operation_timer = time.time()
@@ -233,7 +235,7 @@ async def main(config_manager):
     while True:
         current_time = time.time()
 
-        if controller and controller.stop_order:
+        if config_manager.controller and config_manager.controller.stop_order:
             starter_log.info("Received stop_order")
             break
 
@@ -242,7 +244,7 @@ async def main(config_manager):
             flush_timer = current_time
 
         if current_time - operation_timer > OPERATION_INTERVAL:
-            controller.main_loop()
+            config_manager.controller.main_loop()
             operation_timer = current_time
 
         await asyncio.sleep(SLEEP_INTERVAL)
