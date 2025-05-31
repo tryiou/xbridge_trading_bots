@@ -1,31 +1,35 @@
 debug_level: 2
 ttk_theme: darkly
 pair_configs:
+
   - name: LTC_BLOCK_1
     enabled: true
     pair: LTC/BLOCK
     price_variation_tolerance: 0.02
-    sell_price_offset: 0.07
-    usd_amount: 0.1
+    sell_price_offset: 0.05
+    usd_amount: 1
     spread: 0.1
+
   - name: LTC_BLOCK_2
-    enabled: true
+    enabled: false
     pair: LTC/BLOCK
     price_variation_tolerance: 0.02
-    sell_price_offset: 0.075
-    usd_amount: 0.075
+    sell_price_offset: 0.05
+    usd_amount: 2
     spread: 0.1
+
   - name: BLOCK_LTC_1
-    enabled: false
+    enabled: true
     pair: BLOCK/LTC
     price_variation_tolerance: 0.02
-    sell_price_offset: 0.07
-    usd_amount: 0.07
+    sell_price_offset: 0.05
+    usd_amount: 1
     spread: 0.1
+
   - name: BLOCK_LTC_2
     enabled: false
     pair: BLOCK/LTC
     price_variation_tolerance: 0.02
-    sell_price_offset: 0.075
-    usd_amount: 0.075
+    sell_price_offset: 0.05
+    usd_amount: 2
     spread: 0.1
