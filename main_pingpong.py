@@ -5,23 +5,19 @@
 #
 # ONLY ONE AT A TIME, BOT RECORD THE LAST SELL ORDER ON A FILE, LOAD AT START
 
-import asyncio
-
-from definitions.bot_init import initialize
-from starter import main
-
-
-def run_async_main():
-    """Runs the main asynchronous function using a new event loop."""
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    loop.run_until_complete(main())
+import definitions.xbridge_def as xb
+from definitions.config_manager import ConfigManager
+from starter import run_async_main
 
 
 def start():
-    """Initializes the application and starts the main process."""
-    initialize(strategy="pingpong")
-    run_async_main()
+    """Initialize ConfigManager and run the centralized main loop."""
+    config_manager = ConfigManager(strategy="pingpong")
+    config_manager.initialize()
+    xb.cancelallorders()
+    xb.dxflushcancelledorders()
+
+    run_async_main(config_manager)
 
 
 if __name__ == '__main__':

@@ -1,4 +1,4 @@
-import logging
+
 import re
 import threading
 import tkinter as tk
@@ -9,13 +9,8 @@ from ttkbootstrap import Style
 
 import definitions.xbridge_def as xb
 import main_pingpong
-from definitions import bot_init
-from definitions.logger import setup_logging
+from definitions.config_manager import ConfigManager
 
-gui_logger = setup_logging(name="GUI_LOG",
-                           # log_file=context.ROOT_DIR + '/logs/' + strategy + '_general.log',
-                           level=logging.DEBUG,
-                           console=True)
 
 TOTAL_WIDTH = 500
 
@@ -30,7 +25,7 @@ class GUI_Orders:
     def create_orders_treeview(self):
         # Get enabled pairs from config
         self.sortedpairs = sorted(
-            [cfg['name'] for cfg in bot_init.context.config_pp.pair_configs if cfg.get('enabled', True)]
+            [cfg['name'] for cfg in self.parent.config_manager.config_pp.pair_configs if cfg.get('enabled', True)]
         )
         columns = ("Pair", "Status", "Side", "Flag", "Variation")
         self.orders_frame = ttk.LabelFrame(self.parent.root, text="Orders")
@@ -67,7 +62,7 @@ class GUI_Orders:
 
     def update_order_display(self):
         if self.parent.started:
-            for key, pair in bot_init.context.p.items():
+            for key, pair in self.parent.config_manager.pairs.items():
                 for item_id in self.orders_treeview.get_children():
                     values = self.orders_treeview.item(item_id, 'values')
 
@@ -105,7 +100,7 @@ class GUI_Balances:
         self.balances_frame = ttk.LabelFrame(self.parent.root, text="Balances")
         self.balances_frame.grid(row=2, padx=5, pady=5, sticky='ew', columnspan=4)
 
-        height = len(bot_init.context.t.keys())
+        height = len(self.parent.config_manager.tokens.keys())
         self.balances_treeview = ttk.Treeview(self.balances_frame, columns=columns, show="headings",
                                               height=height, selectmode="none")
         self.balances_treeview.grid(padx=5, pady=5)
@@ -118,7 +113,7 @@ class GUI_Balances:
             self.balances_treeview.heading(col, text=col, anchor=anchor)
             self.balances_treeview.column(col, width=width, anchor=anchor)
 
-        for token in bot_init.context.t:
+        for token in self.parent.config_manager.tokens:
             data = (token, str(None), str(None), str(None), str(None))
             self.balances_treeview.insert("", tk.END, values=data)
 
@@ -126,9 +121,9 @@ class GUI_Balances:
         for item_id in self.balances_treeview.get_children():
             values = self.balances_treeview.item(item_id, 'values')
             token = values[0]
-            usd_price = bot_init.context.t[token].cex.usd_price
-            dex_total_balance = bot_init.context.t[token].dex.total_balance
-            dex_free_balance = bot_init.context.t[token].dex.free_balance
+            usd_price = self.parent.config_manager.tokens[token].cex.usd_price
+            dex_total_balance = self.parent.config_manager.tokens[token].dex.total_balance
+            dex_free_balance = self.parent.config_manager.tokens[token].dex.free_balance
 
             new_values = [
                 token,
@@ -179,9 +174,6 @@ class GUI_Config:
         canvas = tk.Canvas(main_frame)
         canvas.pack(side='left', fill='both', expand=True)
 
-        # scrollbar = ttk.Scrollbar(main_frame, orient='vertical', command=canvas.yview)
-        # scrollbar.pack(side='right', fill='y')
-
         content_frame = ttk.Frame(canvas)
         canvas.create_window((0, 0), window=content_frame, anchor='nw')
 
@@ -210,12 +202,12 @@ class GUI_Config:
         ttk.Label(content_frame, text="Debug Level:").grid(row=0, column=0, padx=5, pady=5, sticky='w')
         self.debug_level_entry = ttk.Entry(content_frame)
         self.debug_level_entry.grid(row=0, column=1, padx=5, pady=5, sticky='ew')
-        self.debug_level_entry.insert(0, bot_init.context.config_pp.get('debug_level', ''))
+        self.debug_level_entry.insert(0, self.parent.config_manager.config_pp.debug_level)
 
         ttk.Label(content_frame, text="TTK Theme:").grid(row=1, column=0, padx=5, pady=5, sticky='w')
         self.ttk_theme_entry = ttk.Entry(content_frame)
         self.ttk_theme_entry.grid(row=1, column=1, padx=5, pady=5, sticky='ew')
-        self.ttk_theme_entry.insert(0, bot_init.context.config_pp.get('ttk_theme', ''))
+        self.ttk_theme_entry.insert(0, self.parent.config_manager.config_pp.ttk_theme)
 
         # Pair configurations table
         ttk.Label(content_frame, text="Pair Configurations:").grid(row=2, column=0, columnspan=2, padx=5, pady=5,
@@ -254,7 +246,7 @@ class GUI_Config:
         self.pairs_treeview.pack(fill="both", expand=True)
 
         # Populate with existing configs
-        for cfg in bot_init.context.config_pp.pair_configs:
+        for cfg in self.parent.config_manager.config_pp.pair_configs:
             self.pairs_treeview.insert('', 'end', values=(
                 cfg.get('name', ''),
                 'Yes' if cfg.get('enabled', True) else 'No',
@@ -391,7 +383,7 @@ class GUI_Config:
             with open(config_file_path, 'w') as file:
                 yaml.dump(new_config, file)
             self.update_status("Configuration saved successfully.", 'lightgreen')
-            self.parent.reload_configuration()
+            self.parent.reload_configuration(loadxbridgeconf=True)
 
         except Exception as e:
             self.update_status(f"Failed to save configuration: {e}", 'lightcoral')
@@ -542,15 +534,17 @@ class PairConfigDialog(tk.Toplevel):
 
 class GUI_Main:
     def __init__(self):
+        self.config_manager = None
+        self.initialize(loadxbridgeconf=True)
+
         self.config_window = None
         self.root = tk.Tk()
         self.root.title("PingPong")
         self.root.resizable(width=False, height=False)
         self.send_process = None
         self.started = False
-        self.initialize()
 
-        self.style = Style(bot_init.context.config_pp.ttk_theme)
+        self.style = Style(self.config_manager.config_pp.ttk_theme)
         self.status_var = tk.StringVar(value="Idle")
 
         self.gui_orders = GUI_Orders(self)
@@ -587,32 +581,35 @@ class GUI_Main:
         status_label.grid(row=0, column=0, padx=5, pady=5, sticky='ew')
 
     def initialize(self, loadxbridgeconf=True):
-        bot_init.initialize(strategy="pingpong", loadxbridgeconf=loadxbridgeconf)
+        self.config_manager = ConfigManager(strategy="pingpong")
+        self.config_manager.initialize(loadxbridgeconf=loadxbridgeconf)
 
     def start(self):
         self.status_var.set("Bot is running...")
-        self.send_process = threading.Thread(target=main_pingpong.run_async_main, daemon=True)
+        self.send_process = threading.Thread(target=main_pingpong.run_async_main,
+                                             args=(self.config_manager,),
+                                             daemon=True)
         self.send_process.start()
         self.started = True
         self.btn_start.config(state="disabled")
         self.btn_stop.config(state="active")
         self.btn_configure.config(state="disabled")
-        gui_logger.info("start done")
+        self.config_manager.general_log.info("start done")
 
     def stop(self):
         is_closing = False
-        if bot_init.context.controller and bot_init.context.controller.stop_order == False:
-            bot_init.context.controller.stop_order = True
+        if self.config_manager.controller and self.config_manager.controller.stop_order == False:
+            self.config_manager.controller.stop_order = True
             is_closing = True
         if self.send_process:
             self.send_process.join(timeout=60)  # Wait up to 5 seconds
             if self.send_process.is_alive():
-                gui_logger.error("process is still running despite stop_order = True...")
+                self.config_manager.general_log.error("process is still running despite stop_order = True...")
                 # time.sleep(1)
 
         if is_closing and not self.send_process.is_alive():
             self.status_var.set("Bot stopped.")
-            gui_logger.info("Bot stopped")
+            self.config_manager.general_log.info("Bot stopped")
 
         self.cancel_all()
 
@@ -625,13 +622,13 @@ class GUI_Main:
     def cancel_all(self):
         self.status_var.set("Cancelling all open orders...")
         xb.cancelallorders()
-        gui_logger.info("Cancelled all open orders")
+        self.config_manager.general_log.info("Cancelled all open orders")
         self.status_var.set("Cancelled all open orders")
 
     def refresh_gui(self):
         if self.started:
             if not self.send_process.is_alive():
-                gui_logger.error("pingpong bot crashed!")
+                self.config_manager.general_log.error("pingpong bot crashed!")
                 self.status_var.set("pingpong bot crashed!")
                 self.stop()
                 self.cancel_all()
@@ -649,12 +646,13 @@ class GUI_Main:
 
     def on_closing(self):
         # Perform any necessary cleanup before closing the app
-        gui_logger.info("Closing application...")
+        self.config_manager.general_log.info("Closing application...")
         self.stop()
         self.root.destroy()
 
     def reload_configuration(self, loadxbridgeconf=True):
-        bot_init.initialize(strategy="pingpong", loadxbridgeconf=loadxbridgeconf)
+        self.config_manager.load_configs()
+        self.config_manager.initialize(loadxbridgeconf=loadxbridgeconf)
         self.gui_orders.purge_treeview()
         self.gui_balances.purge_treeview()
         self.gui_orders.create_orders_treeview()
