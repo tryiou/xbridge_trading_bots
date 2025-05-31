@@ -6,10 +6,8 @@ import traceback
 from threading import Thread
 
 import definitions.xbridge_def as xb
-from definitions.logger import setup_logging
 
 debug_level = 2
-starter_log = setup_logging(name="starter", level=logging.DEBUG, console=True)
 
 CCXT_PRICE_REFRESH = 2
 UPDATE_BALANCES_DELAY = 0.5
@@ -187,7 +185,7 @@ class MainController:
 
     def _report_time(self, start_time):
         end_time = time.perf_counter()
-        starter_log.info(f'Operation took {end_time - start_time:0.2f} second(s) to complete.')
+        self.config_manager.general_log.info(f'Operation took {end_time - start_time:0.2f} second(s) to complete.')
 
     def thread_init(self, pair):
         try:
@@ -236,7 +234,7 @@ async def main(config_manager):
         current_time = time.time()
 
         if config_manager.controller and config_manager.controller.stop_order:
-            starter_log.info("Received stop_order")
+            config_manager.general_log.info("Received stop_order")
             break
 
         if current_time - flush_timer > FLUSH_DELAY:

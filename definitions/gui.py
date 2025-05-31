@@ -1,4 +1,4 @@
-import logging
+
 import re
 import threading
 import tkinter as tk
@@ -10,11 +10,7 @@ from ttkbootstrap import Style
 import definitions.xbridge_def as xb
 import main_pingpong
 from definitions.config_manager import ConfigManager
-from definitions.logger import setup_logging
 
-gui_logger = setup_logging(name="GUI_LOG",
-                           level=logging.DEBUG,
-                           console=True)
 
 TOTAL_WIDTH = 500
 
@@ -598,7 +594,7 @@ class GUI_Main:
         self.btn_start.config(state="disabled")
         self.btn_stop.config(state="active")
         self.btn_configure.config(state="disabled")
-        gui_logger.info("start done")
+        self.config_manager.general_log.info("start done")
 
     def stop(self):
         is_closing = False
@@ -608,12 +604,12 @@ class GUI_Main:
         if self.send_process:
             self.send_process.join(timeout=60)  # Wait up to 5 seconds
             if self.send_process.is_alive():
-                gui_logger.error("process is still running despite stop_order = True...")
+                self.config_manager.general_log.error("process is still running despite stop_order = True...")
                 # time.sleep(1)
 
         if is_closing and not self.send_process.is_alive():
             self.status_var.set("Bot stopped.")
-            gui_logger.info("Bot stopped")
+            self.config_manager.general_log.info("Bot stopped")
 
         self.cancel_all()
 
@@ -626,13 +622,13 @@ class GUI_Main:
     def cancel_all(self):
         self.status_var.set("Cancelling all open orders...")
         xb.cancelallorders()
-        gui_logger.info("Cancelled all open orders")
+        self.config_manager.general_log.info("Cancelled all open orders")
         self.status_var.set("Cancelled all open orders")
 
     def refresh_gui(self):
         if self.started:
             if not self.send_process.is_alive():
-                gui_logger.error("pingpong bot crashed!")
+                self.config_manager.general_log.error("pingpong bot crashed!")
                 self.status_var.set("pingpong bot crashed!")
                 self.stop()
                 self.cancel_all()
@@ -650,11 +646,12 @@ class GUI_Main:
 
     def on_closing(self):
         # Perform any necessary cleanup before closing the app
-        gui_logger.info("Closing application...")
+        self.config_manager.general_log.info("Closing application...")
         self.stop()
         self.root.destroy()
 
     def reload_configuration(self, loadxbridgeconf=True):
+        self.config_manager.load_configs()
         self.config_manager.initialize(loadxbridgeconf=loadxbridgeconf)
         self.gui_orders.purge_treeview()
         self.gui_balances.purge_treeview()

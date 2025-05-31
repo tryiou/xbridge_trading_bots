@@ -3,7 +3,6 @@ import time
 
 import yaml
 
-import definitions.bcolors as bcolors
 import definitions.xbridge_def as xb
 from definitions.token import Token
 
@@ -33,10 +32,12 @@ class Pair:
         self.dex = DexPair(self, partial_percent)
         self.cex = CexPair(self)
         self.config_manager.general_log.info(
-            f"__init__ pair {self.symbol}, "
-            f"self.amount_token_to_sell: {self.amount_token_to_sell},"
-            f" self.min_sell_price_usd: {self.min_sell_price_usd},"
-            f" self.sell_price_offset: {self.sell_price_offset}"
+            f"Pair initialized: {self.name} | "
+            f"Symbol: {self.symbol} | "
+            f"Strategy: {self.strategy} | "
+            f"Amount to sell: {self.amount_token_to_sell} | "
+            f"Min sell price (USD): {self.min_sell_price_usd} | "
+            f"Sell price offset: {self.sell_price_offset}"
         )
 
 
@@ -96,10 +97,17 @@ class DexPair:
         except Exception as e:
             self.pair.config_manager.general_log.error(f"error write_pair_last_order_history: {type(e)}, {e}")
 
-    def create_virtual_sell_order(self, display=True, manual_dex_price=None):
+    def create_virtual_sell_order(self, manual_dex_price=None):
         self.current_order = self._build_sell_order(manual_dex_price)
-        if display:
-            self.pair.config_manager.general_log.info(f"Created virtual sell order: {self.current_order}")
+        self.pair.config_manager.general_log.info(
+            f"Virtual sell order created for {self.pair.name} | "
+            f"Symbol: {self.symbol} | "
+            f"Maker: {self.t1.symbol} | "
+            f"Taker: {self.t2.symbol} | "
+            f"Maker size: {self.current_order['maker_size']:.6f} | "
+            f"Taker size: {self.current_order['taker_size']:.6f} | "
+            f"Price: {self.current_order['dex_price']:.8f}"
+        )
 
     def truncate(self, value, digits=8):
         format_str = f"{{:.{digits}f}}"
@@ -109,8 +117,6 @@ class DexPair:
     def _build_sell_order(self, manual_dex_price):
         price = self._calculate_sell_price(manual_dex_price)
         amount, offset = self._determine_amount_and_spread_sell_side()
-        self.pair.config_manager.general_log.info(
-            f"_build_sell_order, price: {price}, amount: {amount}, offset: {offset}")
         order = {
             'symbol': self.symbol,
             'manual_dex_price': bool(manual_dex_price),
@@ -154,26 +160,28 @@ class DexPair:
         offset = self.pair.sell_price_offset
         return amount, offset
 
-    def create_virtual_buy_order(self, display=True, manual_dex_price=False):
+    def create_virtual_buy_order(self, manual_dex_price=False):
         if self.pair.strategy != 'pingpong':
             self.pair.config_manager.general_log.error(
                 f"Bot strategy is {self.pair.strategy}, no rule for this strat on create_dex_virtual_buy_order")
             return
-
-        try:
-            self.current_order = self._build_buy_order(manual_dex_price)
-            if display:
-                self.pair.config_manager.general_log.info(f"Created virtual buy order: {self.current_order}")
-        except Exception as e:
-            self.pair.config_manager.general_log.error(f"Error in create_virtual_buy_order: {type(e).__name__}, {e}")
-            os._exit(1)
+        self.current_order = self._build_buy_order(manual_dex_price)
+        self.pair.config_manager.general_log.info(
+            f"Virtual buy order created for {self.pair.name} | "
+            f"Symbol: {self.symbol} | "
+            f"Maker: {self.t2.symbol} | "
+            f"Taker: {self.t1.symbol} | "
+            f"Maker size: {self.current_order['maker_size']:.6f} | "
+            f"Taker size: {self.current_order['taker_size']:.6f} | "
+            f"Price: {self.current_order['dex_price']:.8f}"
+        )
 
     def _build_buy_order(self, manual_dex_price):
         price = self._determine_buy_price(manual_dex_price)
         amount = float(self.order_history['maker_size'])
         # Get spread from pair config
         spread = self.pair.cfg.get('spread')
-        return {
+        order = {
             'symbol': self.symbol,
             'manual_dex_price': manual_dex_price,
             'side': 'BUY',
@@ -189,6 +197,7 @@ class DexPair:
             'org_t1price': self.truncate(self.t1.cex.cex_price),
             'org_t2price': self.truncate(self.t2.cex.cex_price),
         }
+        return order
 
     def _determine_buy_price(self, manual_dex_price):
         if manual_dex_price:
@@ -238,10 +247,10 @@ class DexPair:
 
     def _log_price_check(self, var):
         self.pair.config_manager.general_log.info(
-            f"check_price_in_range - {self.symbol} - var: {var:.4f}, "
-            f"s.variation: {self.variation:.4f}, Price: {self.pair.cex.price:.4f}, "
-            f"Org PPrice: {self.current_order['org_pprice']:.4f}, "
-            f"Ratio: {self.pair.cex.price / self.current_order['org_pprice']:.4f}"
+            f"Price variation check for {self.symbol}: "
+            f"Variation: {var:.4f}, Stored variation: {self.variation:.4f}, "
+            f"Live price: {self.pair.cex.price:.8f}, Original price: {self.current_order['org_pprice']:.8f}, "
+            f"Price ratio: {self.pair.cex.price / self.current_order['org_pprice']:.4f}"
         )
 
     def _is_price_in_range(self, var, price_variation_tolerance):
@@ -273,11 +282,11 @@ class DexPair:
 
     def _log_virtual_order(self):
         self.pair.config_manager.general_log.info(
-            f"init_virtual_order, Prices: {self.symbol}{['{:.8f}'.format(self.pair.cex.price)]}, "
-            f"{self.t1.symbol}/USD{['{:.2f}'.format(self.t1.cex.usd_price)]}, "
-            f"{self.t2.symbol}/USD{['{:.2f}'.format(self.t2.cex.usd_price)]}"
+            f"live pair prices : {self.truncate(self.pair.cex.price)} {self.symbol} | "
+            f"{self.t1.symbol}/USD: {self.truncate(self.t1.cex.usd_price, 3)} | "
+            f"{self.t2.symbol}/USD: {self.truncate(self.t2.cex.usd_price, 3)}"
         )
-        self.pair.config_manager.general_log.info(f"current_order: {self.current_order}")
+        self.pair.config_manager.general_log.info(f"Current virtual order details: {self.current_order}")
 
     def cancel_myorder(self):
         if self.order and 'id' in self.order:
@@ -334,12 +343,16 @@ class DexPair:
         if 'code' in self.order and self.order['code'] not in {1019, 1018, 1026, 1032}:
             self.disabled = True
         self.pair.config_manager.general_log.error(
-            f"Error making order on Pair {self.symbol}, disabled: {self.disabled}, {self.order}")
+            f"Error making order on Pair: {self.pair.name} | "
+            f"Symbol: {self.symbol} | "
+            f"disabled: {self.disabled} | "
+            f"{self.order}")
 
     def _log_dry_mode_order(self, order):
-        msg = f"xb.makeorder({self.current_order['maker']}, {self.current_order['maker_size']:.6f}, {self.current_order['maker_address']}, {self.current_order['taker']}, {self.current_order['taker_size']:.6f}, {self.current_order['taker_address']})"
+        msg = (f"xb.makeorder({self.current_order['maker']}, {self.current_order['maker_size']:.6f}, "
+               f"{self.current_order['maker_address']}, {self.current_order['taker']}, "
+               f"{self.current_order['taker_size']:.6f}, {self.current_order['taker_address']})")
         self.pair.config_manager.general_log.info(f"dex_create_order, Dry mode enabled. {msg}")
-        print(f"{bcolors.mycolor.OKBLUE}{msg}{bcolors.mycolor.ENDC}")
 
     def check_order_status(self) -> int:
         counter = 0
@@ -391,12 +404,13 @@ class DexPair:
             self._reinit_virtual_order(disabled_coins)
 
     def _log_price_variation(self):
-        msg = (f"check_price_variation, {self.symbol}, variation: {self.variation}, {self.order['status']}, "
-               f"live_price: {self.pair.cex.price:.8f}, order_price: {self.current_order['dex_price']:.8f}")
-        print(f"{bcolors.mycolor.WARNING}{msg}{bcolors.mycolor.ENDC}")
+        msg = (f"check_price_variation, {self.symbol}, variation: {self.variation}, "
+               f"{self.order['status']}, live_price: {self.pair.cex.price:.8f}, "
+               f"order_price: {self.current_order['dex_price']:.8f}")
+        self.pair.config_manager.general_log.warning(msg)
         if self.order:
             msg = f"check_price_variation, dex cancel: {self.order['id']}"
-            print(f"{bcolors.mycolor.WARNING}{msg}{bcolors.mycolor.ENDC}")
+            self.pair.config_manager.general_log.warning(msg)
 
     def _reinit_virtual_order(self, disabled_coins):
         if self.pair.strategy == 'pingpong':

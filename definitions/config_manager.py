@@ -12,18 +12,23 @@ class ConfigManager:
     def __init__(self, strategy):
         self.strategy = strategy
         self.ROOT_DIR = os.path.abspath(os.curdir)
-        self.config_ccxt = YamlToObject("./config/config_ccxt.yaml")
-        self.config_coins = YamlToObject("config/config_coins.yaml")
-        self.config_pp = YamlToObject("config/config_pingpong.yaml") if strategy == "pingpong" else None
+        self.config_ccxt = None
+        self.config_coins = None
+        self.config_pp = None
+        self.load_configs()
         self.tokens = {}  # Token data
         self.pairs = {}  # Pair data
         self.my_ccxt = None  # CCXT instance
         self.ccxt_manager = CCXTManager(self)
         self.xbridge_conf = None  # XBridge configuration
-        self.logger = setup_logger(strategy, self.ROOT_DIR)
         self.disabled_coins = []  # Centralized disabled coins tracking
         self.controller = None
         self.general_log, self.trade_log, self.ccxt_log = setup_logger(strategy, self.ROOT_DIR)
+
+    def load_configs(self):
+        self.config_ccxt = YamlToObject("./config/config_ccxt.yaml")
+        self.config_coins = YamlToObject("config/config_coins.yaml")
+        self.config_pp = YamlToObject("config/config_pingpong.yaml") if self.strategy == "pingpong" else None
 
     def _init_tokens(self, token_to_sell=None, token_to_buy=None):
         """Initialize token objects based on strategy configuration"""
