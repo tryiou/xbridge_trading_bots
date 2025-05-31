@@ -1,6 +1,8 @@
 .idea/
-config/
-config/*
+config/api_keys.local.json
+config/config_ccxt.yaml
+config/config_coins.yaml
+config/config_pingpong.yaml
 data/
 logs/
 .history
