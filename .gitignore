@@ -3,6 +3,7 @@ config/api_keys.local.json
 config/config_ccxt.yaml
 config/config_coins.yaml
 config/config_pingpong.yaml
+config/config_blocknet.yaml
 data/
 logs/
 .history
