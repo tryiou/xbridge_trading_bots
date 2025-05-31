@@ -5,9 +5,6 @@ import yaml
 
 import definitions.xbridge_def as xb
 from definitions.rpc import rpc_call
-from definitions.yaml_mix import YamlToObject
-
-config_coins = YamlToObject('config/config_coins.yaml')
 
 
 class Token:
@@ -106,9 +103,10 @@ class CexToken:
                     time.sleep(1)  # Sleep for a second before retrying
             return None
 
-        if self.token.symbol in config_coins.usd_ticker_custom:
-            result = config_coins.usd_ticker_custom[self.token.symbol] / self.token.config_manager.tokens[
-                'BTC'].cex.usd_price
+        if self.token.symbol in self.token.config_manager.config_coins.usd_ticker_custom:
+            result = self.token.config_manager.config_coins.usd_ticker_custom[self.token.symbol] / \
+                     self.token.config_manager.tokens[
+                         'BTC'].cex.usd_price
         elif cex_symbol in self.token.config_manager.my_ccxt.symbols:
             result = fetch_ticker(cex_symbol)
         else:

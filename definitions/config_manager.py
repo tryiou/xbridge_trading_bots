@@ -1,4 +1,5 @@
 import os
+import shutil
 
 from definitions import xbridge_def
 from definitions.ccxt_def import CCXTManager
@@ -12,6 +13,7 @@ class ConfigManager:
     def __init__(self, strategy):
         self.strategy = strategy
         self.ROOT_DIR = os.path.abspath(os.curdir)
+        self.general_log, self.trade_log, self.ccxt_log = setup_logger(strategy, self.ROOT_DIR)
         self.config_ccxt = None
         self.config_coins = None
         self.config_pp = None
@@ -23,12 +25,39 @@ class ConfigManager:
         self.xbridge_conf = None  # XBridge configuration
         self.disabled_coins = []  # Centralized disabled coins tracking
         self.controller = None
-        self.general_log, self.trade_log, self.ccxt_log = setup_logger(strategy, self.ROOT_DIR)
+
+    def create_configs_from_templates(self):
+        # Check and create config files if they don't exist
+        config_files = {
+            "config_ccxt.yaml": os.path.join(self.ROOT_DIR, "config", "config_ccxt.yaml"),
+            "config_coins.yaml": os.path.join(self.ROOT_DIR, "config", "config_coins.yaml"),
+            "config_pingpong.yaml": os.path.join(self.ROOT_DIR, "config", "config_pingpong.yaml"),
+            "api_keys.local.json": os.path.join(self.ROOT_DIR, "config", "api_keys.local.json")
+        }
+        for target_name, target_path in config_files.items():
+            # Check if target file exists
+            if not os.path.exists(target_path):
+                # Check if template file exists
+                template_path = os.path.join(self.ROOT_DIR, "config", "templates",
+                                             os.path.basename(target_path) + ".template")
+                if os.path.exists(template_path):
+                    try:
+                        shutil.copy(template_path, target_path)
+                        self.general_log.info(f"Created config file: {target_name} from template")
+                    except Exception as e:
+                        self.general_log.error(f"Failed to create config file {target_name}: {str(e)}")
+                else:
+                    self.general_log.error(f"Template file {template_path} not found in config directory")
+            else:
+                # Target file exists
+                self.general_log.info(f"{target_name}: Already exists")
 
     def load_configs(self):
+        self.create_configs_from_templates()
+
         self.config_ccxt = YamlToObject("./config/config_ccxt.yaml")
-        self.config_coins = YamlToObject("config/config_coins.yaml")
-        self.config_pp = YamlToObject("config/config_pingpong.yaml") if self.strategy == "pingpong" else None
+        self.config_coins = YamlToObject("./config/config_coins.yaml")
+        self.config_pp = YamlToObject("./config/config_pingpong.yaml") if self.strategy == "pingpong" else None
 
     def _init_tokens(self, token_to_sell=None, token_to_buy=None):
         """Initialize token objects based on strategy configuration"""
