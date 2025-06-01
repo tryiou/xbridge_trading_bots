@@ -1,114 +1,254 @@
-# xbridge_trading_bots
+# Xbridge Trading Bots
 
-Trading bots for Blocknet Xbridge.  
-[Blocknet GitHub](https://github.com/blocknetdx/)  
-[Blocknet Documentation](https://docs.blocknet.org/protocol/xbridge/introduction/)
+Automated trading bots for Blocknet's Xbridge decentralized exchange protocol, enabling cross-chain cryptocurrency
+trading without intermediaries.
 
-Tested on Python 3.10.
+[![Python Version](https://img.shields.io/badge/python-3.10+-blue.svg)](https://python.org)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-## Installation
+## 🔗 Resources
 
-1. Clone the repository:
-    ```sh
-    git clone https://github.com/tryiou/xbridge_trading_bots.git
-    cd xbridge_trading_bots
-    ```
+- **[Blocknet GitHub](https://github.com/blocknetdx/)** - Official repository
+- **[Xbridge Documentation](https://docs.blocknet.org/protocol/xbridge/introduction/)** - Protocol specifications
 
-2. (Optional) Create and activate a Python virtual environment:
-    ```sh
-    python -m venv venv
-    source venv/bin/activate   # On Windows use `venv\Scripts\activate`
-    ```
+## 📋 Prerequisites
 
-3. Install the required packages:
-    ```sh
-    pip install -r requirements.txt
-    ```
+- **Python 3.10+** - Required for all functionality
+- **Blocknet Core** - Must be running and synchronized
+- **Tkinter** (GUI components) - Pre-installed on Windows, see [GUI requirements](#gui-requirements) for other platforms
 
-## Update
+## 🚀 Quick Start
 
-1. Navigate to the project directory:
-    ```sh
-    cd xbridge_trading_bots
-    ```
+### Installation
 
-2. (Optional) Activate the Python virtual environment:
-    ```sh
-    source venv/bin/activate   # On Windows use `venv\Scripts\activate`
-    ```
+1. **Clone the repository**
+   ```bash
+   git clone https://github.com/tryiou/xbridge_trading_bots.git
+   cd xbridge_trading_bots
+   ```
 
-3. Pull the latest changes and update dependencies:
-    ```sh
-    git pull
-    pip install -r requirements.txt
-    ```
+2. **Set up virtual environment** (recommended)
+   ```bash
+   # Create virtual environment
+   python -m venv venv
+   
+   # Activate environment
+   source venv/bin/activate          # Linux/Mac
+   venv\Scripts\activate             # Windows
+   ```
 
-## Connection with Blocknet Core
+3. **Install dependencies**
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-The bot will automatically attempt to grab `blocknet.conf` RPC credentials and port when starting one of the scripts.
+### Updates
 
-- If the default chain directory path is used, it will pick from it and start.
-- If a custom path is used, a prompt box will appear asking for the `blocknet.conf` path, or a console prompt if Tkinter
-  is not installed.
-- This custom path will be stored in the config folder for subsequent uses.
+Keep your installation current with the latest features and fixes:
 
-## Pingpong Bot
+```bash
+cd xbridge_trading_bots
+source venv/bin/activate    # Linux/Mac
+venv\Scripts\activate       # Windows
+git pull
+pip install -r requirements.txt
+```
 
-The GUI version requires the Tkinter package. Installation guides can be found here:
+## ⚙️ Initial Configuration
 
-- [Tkinter for Mac](https://www.pythonguis.com/installation/install-tkinter-mac/)
-- [Tkinter for Linux](https://www.pythonguis.com/installation/install-tkinter-linux/)
+### Blocknet Core Connection
 
-Note: Python 3 for Windows already includes Tkinter.
+The bots automatically detect and connect to your Blocknet Core instance:
 
-1. Edit the configuration:
-    ```python
-    # Edit config/config_pingpong.yaml
-    # Set desired user_pairs / usd_amount_default / spread_default
-    # Optional: customize per pair
-    ```
+- **Default setup**: Automatically locates `blocknet.conf` in the standard data directory
+- **Custom setup**: Interactive prompt requests the path to your `blocknet.conf` file
+- **Path persistence**: Custom paths are saved for future sessions
 
-2. Run the GUI version:
-    ```sh
-    python gui_pingpong.py 
-    ```
+> **Note**: Ensure Blocknet Core is running, fully synchronized, and unlocked.
 
-3. Or run the console version:
-    ```sh
-    python main_pingpong.py
-    ```
+### Configuration Templates
 
-## BasicSeller Bot
+Before using any trading bot, you'll need to configure the relevant template files. Each bot uses different combinations
+of these templates:
 
-1. Example usage:
-    ```sh
-    python basic_seller.py --help
-    python basic_seller.py -tts BLOCK -ttb PIVX -atts 200 -mup 0.33 -spu 0.015
-    ```
+#### Available Templates
 
-   Options:
-    - `-tts, --TokenToSell`  
-      Required. The token you wish to sell (e.g., BLOCK).  
-      Type: string
+| Template File                   | Purpose                                              | Used By      |
+|---------------------------------|------------------------------------------------------|--------------|
+| `config_pingpong.yaml.template` | Trading pairs, amounts, and strategy parameters      | PingPong Bot |
+| `config_coins.yaml.template`    | Static USD prices for coins without live market data | Both Bots    |
+| `config_ccxt.yaml.template`     | Exchange API configuration for real-time price feeds | Both Bots    |
 
-    - `-ttb, --TokenToBuy`  
-      Required. The token you want to buy (e.g., LTC).  
-      Type: string
+#### Setup Commands
 
-    - `-atts, --AmountTokenToSell`  
-      Required. The amount of the token you want to sell.  
-      Type: float
+**Linux/macOS:**
 
-    - `-mup, --MinUsdPrice`  
-      Required. The minimum USD price at which you want to sell the token.  
-      Type: float
+```bash
+# Copy all templates (recommended)
+cp config/templates/config_pingpong.yaml.template config/config_pingpong.yaml
+cp config/templates/config_coins.yaml.template config/config_coins.yaml
+cp config/templates/config_ccxt.yaml.template config/config_ccxt.yaml
+```
 
-    - `-spu, --SellPriceUpscale`  
-      Optional. Percentage upscale applied to the CCXT ticker price for the token sale. For example, 0.015 represents a
-      1.5% upscale. The default value is 0.015.  
-      Type: float
+**Windows:**
 
-    - `-p, --partial`  
-      Optional. Minimum size of the partial sell as a percentage of the total size (between 0.001 (inclusive) and 1 (
-      exclusive)). For example, --partial 0.5 means selling 50% of the specified amount. The default is None.  
-      Type: float
+```cmd
+REM Copy all templates (recommended)
+copy config\templates\config_pingpong.yaml.template config\config_pingpong.yaml
+copy config\templates\config_coins.yaml.template config\config_coins.yaml
+copy config\templates\config_ccxt.yaml.template config\config_ccxt.yaml
+```
+
+> **Note**: You can copy only the templates needed for your chosen trading strategy, but copying all is recommended for
+> flexibility.
+
+## 🤖 Trading Strategies
+
+## Strategy 1: PingPong Bot
+
+A market-making bot that places buy and sell orders around current market prices, profiting from spread on
+ping-SELL/pong-BUY cycles.
+
+### Required Configuration
+
+- ✅ `config_pingpong.yaml` - Primary bot configuration
+- ✅ `config_coins.yaml` - Price fallback data
+- ✅ `config_ccxt.yaml` - Market data source
+
+### GUI Requirements
+
+| Platform    | Installation                                                                         |
+|-------------|--------------------------------------------------------------------------------------|
+| **Windows** | Pre-installed with Python 3                                                          |
+| **macOS**   | [Installation Guide](https://www.pythonguis.com/installation/install-tkinter-mac/)   |
+| **Linux**   | [Installation Guide](https://www.pythonguis.com/installation/install-tkinter-linux/) |
+
+### Usage
+
+**Config**:
+- define your `pairs` in `config_pingpong.yaml`
+- define static usd tickers if needed in `config_coins.yaml`
+- GUI offer a configuration panel to define `pairs`.
+
+**GUI Interface** (recommended for beginners):
+
+```bash
+python gui_pingpong.py
+```
+
+**Console Interface** (for automation/servers):
+
+```bash
+python main_pingpong.py
+```
+
+---
+
+## Strategy 2: BasicSeller Bot
+
+A straightforward selling bot that places sell orders at specified price targets with market-based pricing.
+
+### Required Configuration
+
+- ✅ `config_coins.yaml` - Price fallback data
+- ✅ `config_ccxt.yaml` - Market data source
+
+### Usage
+
+**View all options:**
+
+```bash
+python basic_seller.py --help
+```
+
+**Basic Example** - Sell 200 BLOCK for PIVX at minimum $0.33 per BLOCK with 1.5% upscale on live price:
+
+```bash
+python basic_seller.py -tts BLOCK -ttb PIVX -atts 200 -mup 0.33 -spu 0.015
+```
+
+**Partial Sell Example** - Sell only 50% of the specified amount:
+
+```bash
+python basic_seller.py -tts BLOCK -ttb PIVX -atts 200 -mup 0.33 -spu 0.015 --partial 0.5
+```
+
+### Command Line Parameters
+
+| Parameter             | Short   | Required | Type   | Description                                       |
+|-----------------------|---------|----------|--------|---------------------------------------------------|
+| `--TokenToSell`       | `-tts`  | ✅        | string | Cryptocurrency to sell (e.g., BLOCK, LTC)         |
+| `--TokenToBuy`        | `-ttb`  | ✅        | string | Cryptocurrency to receive (e.g., PIVX, BTC)       |
+| `--AmountTokenToSell` | `-atts` | ✅        | float  | Quantity of tokens to sell                        |
+| `--MinUsdPrice`       | `-mup`  | ✅        | float  | Minimum acceptable USD price per token            |
+| `--SellPriceUpscale`  | `-spu`  | ❌        | float  | Price markup percentage (default: 0.015 = 1.5%)   |
+| `--partial`           | `-p`    | ❌        | float  | Partial sell ratio (0.001-0.999, e.g., 0.5 = 50%) |
+
+### Parameter Details
+
+- **SellPriceUpscale**: Adds a percentage markup to the current pair price. For example, `0.015` adds 1.5% above the calculated pair price
+- **Partial**: Enables selling a fraction of the total amount.
+
+## 🛠️ Troubleshooting
+
+### Common Issues
+
+**Connection Problems:**
+
+- Verify Blocknet Core is running, synchronized, unlocked
+- Check that RPC credentials in `blocknet.conf` are correct
+- Ensure firewall allows local RPC connections
+
+**GUI Issues:**
+
+- Install Tkinter using the platform-specific guides above
+- Try the console version if GUI fails to start
+
+**Configuration Errors:**
+
+- Verify YAML syntax in configuration files
+- Ensure all required parameters are specified
+- Check that coin symbols match Xbridge supported assets
+
+## 📁 Project Structure
+
+```
+xbridge_trading_bots/
+├── config/
+│   ├── templates/          # Configuration templates
+│   └── [generated configs] # Your customized configurations
+├── definitions/            # Core functionality definitions
+│   ├── bcolors.py          # Color definitions for console output
+│   ├── ccxt_def.py         # CCXT exchange API wrappers
+│   ├── config_manager.py   # Configuration loading and management
+│   ├── detect_rpc.py       # RPC connection detection utilities
+│   ├── gui.py              # GUI components and dialogs
+│   ├── logger.py           # Logging configuration and handlers
+│   ├── pair.py             # Trading pair management
+│   ├── pingpong_loader.py  # Configuration loading utilities
+│   ├── rpc.py              # RPC communication wrappers
+│   ├── token.py            # Token management
+│   └── xbridge_def.py      # Xbridge protocol API wrappers
+├── data/                   # Store trades history and generated addresses
+├── logs/                   # Store logs
+├── gui_pingpong.py         # PingPong bot GUI interface
+├── main_pingpong.py        # PingPong bot console interface
+├── basic_seller.py         # BasicSeller bot
+├── pingpong_logparser.py   # PingPong bot Trade log parsing and analysis tool
+├── requirements.txt        # Python dependencies
+└── README.md               # This file
+```
+
+## 🤝 Contributing
+
+Contributions are welcome! Please feel free to submit issues, feature requests, or pull requests to help improve the
+trading bots.
+
+## ⚠️ Disclaimer
+
+**Use at your own risk.** Cryptocurrency trading involves substantial risk of loss. These bots are provided as-is
+without warranty. Always test with small amounts first and understand the risks involved in automated trading.
+
+---
+
+*Built for the Blocknet ecosystem - Enabling truly decentralized cross-chain trading*
