@@ -161,13 +161,13 @@ A straightforward selling bot that places sell orders at specified price targets
 python basic_seller.py --help
 ```
 
-**Basic Example** - Sell 200 BLOCK for PIVX at minimum $0.33 per BLOCK with 1.5% upscale on live price:
+**Basic Example** - Sell 200 BLOCK for PIVX at minimum $0.33 per BLOCK with 1.5% upscale on live pair price:
 
 ```bash
 python basic_seller.py -tts BLOCK -ttb PIVX -atts 200 -mup 0.33 -spu 0.015
 ```
 
-**Partial Sell Example** - Sell only 50% of the specified amount:
+**Partial Sell Example** - Partial order allows selling a fraction of the total amount:
 
 ```bash
 python basic_seller.py -tts BLOCK -ttb PIVX -atts 200 -mup 0.33 -spu 0.015 --partial 0.5
@@ -175,14 +175,14 @@ python basic_seller.py -tts BLOCK -ttb PIVX -atts 200 -mup 0.33 -spu 0.015 --par
 
 ### Command Line Parameters
 
-| Parameter             | Short   | Required | Type   | Description                                       |
-|-----------------------|---------|----------|--------|---------------------------------------------------|
-| `--TokenToSell`       | `-tts`  | ✅        | string | Cryptocurrency to sell (e.g., BLOCK, LTC)         |
-| `--TokenToBuy`        | `-ttb`  | ✅        | string | Cryptocurrency to receive (e.g., PIVX, BTC)       |
-| `--AmountTokenToSell` | `-atts` | ✅        | float  | Quantity of tokens to sell                        |
-| `--MinUsdPrice`       | `-mup`  | ✅        | float  | Minimum acceptable USD price per token            |
-| `--SellPriceUpscale`  | `-spu`  | ❌        | float  | Price markup percentage (default: 0.015 = 1.5%)   |
-| `--partial`           | `-p`    | ❌        | float  | Partial sell ratio (0.001-0.999, e.g., 0.5 = 50%) |
+| Parameter             | Short   | Required | Type   | Description                                           |
+|-----------------------|---------|----------|--------|-------------------------------------------------------|
+| `--TokenToSell`       | `-tts`  | ✅        | string | Cryptocurrency to sell (e.g., BLOCK, LTC)             |
+| `--TokenToBuy`        | `-ttb`  | ✅        | string | Cryptocurrency to receive (e.g., PIVX, BTC)           |
+| `--AmountTokenToSell` | `-atts` | ✅        | float  | Quantity of tokens to sell                            |
+| `--MinUsdPrice`       | `-mup`  | ✅        | float  | Minimum acceptable USD price per token                |
+| `--SellPriceUpscale`  | `-spu`  | ❌        | float  | Pair price upscale percentage (default: 0.015 = 1.5%) |
+| `--partial`           | `-p`    | ❌        | float  | Partial sell ratio (0.001-0.999, e.g., 0.5 = 50%)     |
 
 ### Parameter Details
 
