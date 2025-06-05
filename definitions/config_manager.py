@@ -139,6 +139,9 @@ class ConfigManager:
 
     def initialize(self, token_to_sell=None, token_to_buy=None, amount_token_to_sell=None, min_sell_price_usd=None,
                    sell_price_offset=None, partial_percent=None, loadxbridgeconf=True):
+
+        self.tokens = {}  # Token data
+        self.pairs = {}  # Pair data
         # Initialize tokens based on strategy
         self._init_tokens(token_to_sell, token_to_buy)
 
