@@ -1,4 +1,3 @@
-import os
 import time
 
 import yaml
@@ -14,7 +13,7 @@ class Pair:
                  strategy=None, dex_enabled=True, partial_percent=None):
         self.cfg = cfg
         self.name = cfg['name']
-        self.strategy = strategy  # e.g., arbtaker, pingpong, basic_seller
+        self.strategy = strategy  # e.g.,  pingpong, basic_seller
         self.t1 = token1
         self.t2 = token2
         self.symbol = f'{self.t1.symbol}/{self.t2.symbol}'
@@ -88,7 +87,7 @@ class DexPair:
             self.order_history = None
 
     def write_last_order_history(self):
-        # Get exact USD amount from our specific config entry
+        # Get exact USD amount from our specific config entry # TODO: This comment seems misplaced.
 
         file_path = self._get_history_file_path()
         try:
@@ -110,13 +109,11 @@ class DexPair:
         )
 
     def truncate(self, value, digits=8):
-        format_str = f"{{:.{digits}f}}"
-        truncated_float = float(format_str.format(value))
-        return truncated_float
+        return float(f"{{:.{digits}f}}".format(value))
 
     def _build_sell_order(self, manual_dex_price):
-        price = self._calculate_sell_price(manual_dex_price)
-        amount, offset = self._determine_amount_and_spread_sell_side()
+        price = self.pair.config_manager.strategy_instance.calculate_sell_price(self, manual_dex_price)
+        amount, offset = self.pair.config_manager.strategy_instance.build_sell_order_details(self, manual_dex_price)
         order = {
             'symbol': self.symbol,
             'manual_dex_price': bool(manual_dex_price),
@@ -137,34 +134,7 @@ class DexPair:
             order['minimum_size'] = amount * self.partial_percent
         return order
 
-    def _calculate_sell_price(self, manual_dex_price):
-        if manual_dex_price:
-            return manual_dex_price
-        if self.pair.strategy == 'basic_seller':
-            if self.pair.min_sell_price_usd and self.t1.cex.usd_price < self.pair.min_sell_price_usd:
-                return self.pair.min_sell_price_usd / self.t2.cex.usd_price
-        return self.pair.cex.price
-
-    def _determine_amount_and_spread_sell_side(self):
-        if self.pair.strategy == 'basic_seller':
-            return self.pair.amount_token_to_sell, self.pair.sell_price_offset
-
-        usd_amount = self.pair.cfg['usd_amount']
-
-        # Calculate how many tokens needed for this USD amount using current BTC price
-        btc_usd_price = self.pair.config_manager.tokens['BTC'].cex.usd_price
-        if self.t1.cex.cex_price and btc_usd_price:
-            amount = (usd_amount / btc_usd_price) / self.t1.cex.cex_price
-        else:
-            amount = 0  # Can't calculate without prices
-        offset = self.pair.sell_price_offset
-        return amount, offset
-
     def create_virtual_buy_order(self, manual_dex_price=False):
-        if self.pair.strategy != 'pingpong':
-            self.pair.config_manager.general_log.error(
-                f"Bot strategy is {self.pair.strategy}, no rule for this strat on create_dex_virtual_buy_order")
-            return
         self.current_order = self._build_buy_order(manual_dex_price)
         self.pair.config_manager.general_log.info(
             f"Virtual buy order created for {self.pair.name} | "
@@ -177,10 +147,9 @@ class DexPair:
         )
 
     def _build_buy_order(self, manual_dex_price):
-        price = self._determine_buy_price(manual_dex_price)
-        amount = float(self.order_history['maker_size'])
-        # Get spread from pair config
-        spread = self.pair.cfg.get('spread')
+        price = self.pair.config_manager.strategy_instance.determine_buy_price(self, manual_dex_price)
+        amount, spread = self.pair.config_manager.strategy_instance.build_buy_order_details(self, manual_dex_price)
+
         order = {
             'symbol': self.symbol,
             'manual_dex_price': manual_dex_price,
@@ -199,47 +168,23 @@ class DexPair:
         }
         return order
 
-    def _determine_buy_price(self, manual_dex_price):
-        if manual_dex_price:
-            return min(self.pair.cex.price, self.order_history['dex_price'])
-        return self.pair.cex.price
-
     def check_price_in_range(self, display=False):
         self.variation = None
-        price_variation_tolerance = self._get_price_variation_tolerance()
+        price_variation_tolerance = self.pair.config_manager.strategy_instance.get_price_variation_tolerance(self)
 
         if self.current_order.get('side') and self.current_order['manual_dex_price']:
-            var = self._calculate_variation_based_on_side()
+            var = self.pair.config_manager.strategy_instance.calculate_variation_based_on_side(self, self.current_order[
+                'side'], self.pair.cex.price, self.current_order['org_pprice'])
         else:
-            var = self._calculate_default_variation(price_variation_tolerance)
+            var = self.pair.config_manager.strategy_instance.calculate_default_variation(self, self.pair.cex.price,
+                                                                                         self.current_order[
+                                                                                             'org_pprice'])
 
         self._set_variation(var)
         if display:
             self._log_price_check(var)
 
         return self._is_price_in_range(var, price_variation_tolerance)
-
-    def _get_price_variation_tolerance(self):
-        if self.pair.strategy == 'pingpong':
-            return self.pair.cfg.get('price_variation_tolerance')
-        if self.pair.strategy == 'basic_seller':
-            return self.PRICE_VARIATION_TOLERANCE_DEFAULT
-        return None
-
-    def _calculate_variation_based_on_side(self):
-        # LOCK PRICE TO POSITIVE ACTION ONLY, PINGPONG DO NOT REBUY UNDER SELL PRICE
-        if self.current_order['side'] == 'BUY' and self.pair.cex.price < self.order_history['org_pprice']:
-            return float(self.pair.cex.price / self.current_order['org_pprice'])
-        # SELL SIDE FLOAT ON CURRENT PRICE
-        if self.current_order['side'] == 'SELL':  # and self.price > self.order_history['org_pprice'] TO PRUNE ? DEBUG ?
-            return float(self.pair.cex.price / self.current_order['org_pprice'])
-        else:
-            return 1
-
-    def _calculate_default_variation(self, price_variation_tolerance):
-        if self.pair.strategy == 'basic_seller' and self.t1.cex.usd_price < self.pair.min_sell_price_usd:
-            return (self.pair.min_sell_price_usd / self.t2.cex.usd_price) / self.current_order['org_pprice']
-        return float(self.pair.cex.price / self.current_order['org_pprice'])
 
     def _set_variation(self, var):
         self.variation = self.truncate(var, 3) if isinstance(var, float) else [
@@ -263,22 +208,12 @@ class DexPair:
             return
 
         if not self.disabled:
-            self._initialize_order()
+            self.pair.config_manager.strategy_instance.init_virtual_order_logic(self, self.order_history)
             if display:
                 self._log_virtual_order()
 
-    def _is_pair_disabled(self, disabled_coins):
+    def _is_pair_disabled(self, disabled_coins):  # Moved here from _initialize_order
         return disabled_coins and (self.t1.symbol in disabled_coins or self.t2.symbol in disabled_coins)
-
-    def _initialize_order(self):
-        if not self.order_history or "basic_seller" in self.pair.strategy or (
-                'side' in self.order_history and self.order_history['side'] == 'BUY'):
-            self.create_virtual_sell_order()
-        elif 'side' in self.order_history and self.order_history['side'] == 'SELL':
-            self.create_virtual_buy_order(manual_dex_price=True)
-        else:
-            self.pair.config_manager.general_log.error(f"error during init_order\n{self.order_history}")
-            os._exit(1)
 
     def _log_virtual_order(self):
         self.pair.config_manager.general_log.info(
@@ -341,8 +276,9 @@ class DexPair:
 
     def _handle_order_error(self):
         if 'code' in self.order and self.order['code'] not in {1019, 1018, 1026, 1032}:
-            self.disabled = True
-        self.pair.config_manager.general_log.error(
+            self.disabled = True  # This line was already here, keep it.
+        self.pair.config_manager.strategy_instance.handle_order_status_error(self)
+        self.pair.config_manager.general_log.error(  # This log was already here, keep it.
             f"Error making order on Pair: {self.pair.name} | "
             f"Symbol: {self.symbol} | "
             f"disabled: {self.disabled} | "
@@ -413,14 +349,7 @@ class DexPair:
             self.pair.config_manager.general_log.warning(msg)
 
     def _reinit_virtual_order(self, disabled_coins):
-        if self.pair.strategy == 'pingpong':
-            self.init_virtual_order(disabled_coins)
-            if not self.order:
-                self.create_order()
-        elif self.pair.strategy == 'basic_seller':
-            self.create_virtual_sell_order()
-            if self.order is None:
-                self.create_order(dry_mode=False)
+        self.pair.config_manager.strategy_instance.reinit_virtual_order_after_price_variation(self, disabled_coins)
 
     def status_check(self, disabled_coins=None, display=False, partial_percent=None):
         self.pair.cex.update_pricing(display)
@@ -456,6 +385,7 @@ class DexPair:
             self.check_price_variation(disabled_coins, display=display)
 
     def _cancel_order_due_to_disabled_coins(self, disabled_coins):
+        # This method was already here, keep it.
         if self.order:
             self.pair.config_manager.general_log.info(
                 f"Disabled pairs due to cc_height_check {self.symbol}, {disabled_coins}")
@@ -463,11 +393,7 @@ class DexPair:
             self.cancel_myorder()
 
     def handle_status_error_swap(self):
-        self.pair.config_manager.general_log.error(f"Order Error:\n{self.current_order}\n{self.order}")
-        if self.pair.strategy == 'pingpong':
-            self.disabled = True
-            # xb.cancelallorders()
-            # os._exit(1)
+        self.pair.config_manager.strategy_instance.handle_error_swap_status(self)
 
     def handle_status_default(self):
         if not self.disabled:
@@ -500,12 +426,7 @@ class DexPair:
         elif self.order['taker'] == self.t2.symbol:
             self.t2.dex.request_addr()
 
-        if self.pair.strategy == 'pingpong':
-            self.init_virtual_order(disabled_coins)
-            self.create_order()
-        elif self.pair.strategy == 'basic_seller':
-            self.pair.config_manager.general_log.info('order sold, terminate!')
-            os._exit(1)
+        self.pair.config_manager.strategy_instance.handle_finished_order(self, disabled_coins)
 
 
 class CexPair:

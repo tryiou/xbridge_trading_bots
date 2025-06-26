@@ -26,7 +26,7 @@ class DexToken:
         self.read_address()
 
     def _get_address_file_path(self):
-        return f"{self.token.config_manager.ROOT_DIR}/data/{self.token.strategy}_{self.token.symbol}_addr.yaml"
+        return self.token.config_manager.strategy_instance.get_dex_token_address_file_path(self.token.symbol)
 
     def read_address(self):
         if not self.enabled:

@@ -1,4 +1,5 @@
 import argparse
+import asyncio
 import logging
 
 import definitions.xbridge_def as xb
@@ -45,7 +46,8 @@ def start():
     xb.cancelallorders()
     xb.dxflushcancelledorders()
 
-    run_async_main(config_manager)
+    loop = asyncio.get_event_loop()  # Get the current event loop
+    run_async_main(config_manager, loop)  # Pass the loop to run_async_main
 
 
 if __name__ == '__main__':
