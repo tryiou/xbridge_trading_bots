@@ -1,284 +1,317 @@
 import asyncio
+import logging
 import os
 import signal
-import time
-import traceback
-from datetime import datetime
+from functools import wraps
 
-import requests
-from aiohttp import web
+import ccxt.async_support as ccxt
+from aiohttp import ClientSession, web
 
-import definitions.bcolors as bcolors
 from definitions.yaml_mix import YamlToObject
 
 if os.name == 'nt':
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
+# Setup logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
 
-class CCXTServer:
-    def __init__(self):
-        self.must_refresh_tickers = None
-        self.refresh_interval = 15
-        self.config_ccxt = None
-        self.symbols_list: list[str] = []
-        self.tickers: dict = {}
-        self.ccxt_call_count: int = 0
-        self.ccxt_cache_hit: int = 0
-        self.print_delay: int = 5
-        self.print_timer: float = time.time()
-        self.total_exec_time: float = time.time()
-        self.ccxt_call_fetch_tickers_timer: float = time.time()
+
+# --- Retry Decorator ---
+def async_retry(max_retries=5, delay=1, backoff=2):
+    """
+    A decorator for retrying an async function with exponential backoff.
+    """
+    def decorator(f):
+        @wraps(f)
+        async def wrapper(*args, **kwargs):
+            _delay = delay
+            for i in range(max_retries):
+                try:
+                    return await f(*args, **kwargs)
+                except Exception as e:
+                    logging.error(
+                        f"Attempt {i + 1}/{max_retries} for {f.__name__} failed: {e}",
+                        exc_info=True
+                    )
+                    if i == max_retries - 1:
+                        raise
+                    await asyncio.sleep(_delay)
+                    _delay *= backoff
+        return wrapper
+    return decorator
+
+
+# --- Price Fetcher ---
+class PriceFetcher:
+    def __init__(self, config, session: ClientSession):
+        self.config = config
+        self.session = session
         self.ccxt_i = None
-        self.task = None  # Initialize task to None
-        self.custom_ticker: dict[str, float] = {}
-        self.custom_ticker_call_count: int = 0
-        self.custom_ticker_cache_count: int = 0
+        self.tickers = {}
+        self.custom_tickers = {}
+        self.symbols_list = []
+        self.active_custom_tickers = set()
         self.fetch_timeout = 10  # Timeout for fetchTickers in seconds
 
-    def _setup_signal_handler(self):
-        if os.name == 'nt':  # Windows
-            import atexit
-            def signal_handler():
-                print('Exiting...')
-                self.shutdown()
+        # For stats
+        self.ccxt_call_count = 0
+        self.ccxt_cache_hit = 0
+        self.custom_ticker_call_count = 0
+        self.custom_ticker_cache_hit = 0
 
-            atexit.register(signal_handler)
-        else:
-            # Register signal handlers for graceful shutdown
-            loop = asyncio.get_running_loop()
-            loop.add_signal_handler(signal.SIGINT, lambda: asyncio.create_task(self.shutdown()))
-            loop.add_signal_handler(signal.SIGTERM, lambda: asyncio.create_task(self.shutdown()))
+        self._refresh_lock = asyncio.Lock()
 
-    def now(self) -> str:
-        return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    async def initialize(self):
+        """Initializes the CCXT instance and loads markets."""
+        exchange_name = self.config.ccxt_exchange
+        hostname = self.config.ccxt_hostname
 
-    async def run_periodically(self, interval: int):
-        last_refresh = 0
-        while True:
-            try:
-                now = time.time()
-                if self.must_refresh_tickers:
-                    # self._log_info("Must refresh tickers")
-                    await self.refresh_tickers()
-                    last_refresh = now
-                    self.must_refresh_tickers = False  # Reset the flag after refreshing
+        if exchange_name not in ccxt.exchanges:
+            raise ValueError(f"Exchange {exchange_name} not supported by ccxt")
 
-                if (now - last_refresh) >= interval:
-                    # self._log_info("Periodic refresh tickers")
-                    await self.refresh_tickers()
-                    last_refresh = now
+        exchange_class = getattr(ccxt, exchange_name)
 
-                await asyncio.sleep(0.1)
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                self._log_error(f"Error in periodic task: {e} {type(e)}")
+        config = {'enableRateLimit': True}
+        if hostname:
+            config['hostname'] = hostname
 
-    async def init_task(self):
-        self._log_info("Initializing CCXT task...")
-        try:
-            self.ccxt_i = await self.init_ccxt_instance(self.config_ccxt.ccxt_exchange, self.config_ccxt.ccxt_hostname)
-            self._log_info("CCXT instance initialized.")
-            self.task = asyncio.create_task(self.run_periodically(self.refresh_interval))
+        self.ccxt_i = exchange_class(config)
 
-        except asyncio.CancelledError:
-            self._log_info("Periodic task cancelled. Exiting run_periodically.")
-            await self.shutdown()
-            exit()
-        except Exception as e:
-            self._log_error(f"Error during init_task: {e}")
-            traceback.print_exc()
+        await self._load_markets_with_retry()
 
-    async def refresh_tickers(self):
-        self._log_info("Starting refresh_tickers task...")
+    @async_retry()
+    async def _load_markets_with_retry(self):
+        logging.info(f"Loading markets for exchange: {self.ccxt_i.id}")
+        await self.ccxt_i.load_markets()
+        logging.info(f"Markets loaded successfully for exchange: {self.ccxt_i.id}")
+
+    async def close(self):
+        if self.ccxt_i:
+            await self.ccxt_i.close()
+            logging.info("CCXT instance closed.")
+
+    def _needs_refresh(self, symbols=None):
+        """Check if a refresh is needed for the given symbols."""
+        if symbols is None:
+            symbols = self.symbols_list
+        return any(s not in self.tickers for s in symbols)
+
+    @async_retry(max_retries=3, delay=2)
+    async def refresh_ccxt_tickers(self):
+        """Refreshes tickers from CCXT for all registered symbols."""
         if not self.symbols_list:
             return
-        done = False
-        retry_count = 0
-        while not done:
-            retry_count += 1
-            if self.symbols_list:
-                self.ccxt_call_count += 1
-                self._log_info(f"Attempting to refresh tickers for: {self.symbols_list}, retry: {retry_count}")
-                try:
-                    temp_tickers = await asyncio.wait_for(self.ccxt_i.fetchTickers(self.symbols_list),
-                                                          timeout=self.fetch_timeout)
-                    self.tickers = temp_tickers
-                    done = True
-                    self._log_info("Successfully refreshed tickers.")
-                except asyncio.TimeoutError:
-                    self._log_error(f"Timeout fetching tickers after {self.fetch_timeout} seconds, retrying...")
-                    await asyncio.sleep(retry_count)  # Delay before retrying
-                except Exception as e:
-                    self._log_error(f"refresh_tickers error: {e} {type(e)}, retrying...")
-                    traceback.print_exc()
-                    await asyncio.sleep(retry_count)
 
-        if 'BLOCK' in self.custom_ticker:
-            await self.update_ticker_block()
+        logging.info(f"Refreshing CCXT tickers for: {self.symbols_list}")
+        self.ccxt_call_count += 1
+        self.tickers = await asyncio.wait_for(
+            self.ccxt_i.fetchTickers(self.symbols_list),
+            timeout=self.fetch_timeout
+        )
+        logging.info("Successfully refreshed CCXT tickers.")
+
+    @async_retry(max_retries=3, delay=2)
+    async def update_custom_ticker_block(self):
+        """Updates the BLOCK ticker from CryptoCompare."""
+        logging.info("Fetching BLOCK ticker from external API...")
+        self.custom_ticker_call_count += 1
+        url = 'https://min-api.cryptocompare.com/data/price?fsym=BLOCK&tsyms=BTC'
+        async with self.session.get(url, timeout=10) as response:
+            response.raise_for_status()
+            data = await response.json()
+            price = data.get('BTC')
+            if price and isinstance(price, float):
+                self.custom_tickers['BLOCK'] = price
+                logging.info(f"Updated BLOCK ticker: {price} BTC")
+            else:
+                logging.error(f"Invalid data for BLOCK ticker: {data}")
+
+    async def refresh_all_tickers(self):
+        """Refreshes all configured tickers."""
+        tasks = [self.refresh_ccxt_tickers()]
+        if 'BLOCK' in self.active_custom_tickers:
+            tasks.append(self.update_custom_ticker_block())
+
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                logging.error(f"Error during periodic refresh of task {i}: {result}")
+
         self.print_metrics()
 
-    async def ccxt_call_fetch_tickers(self, *symbols: str) -> dict:
-        self._log_info(f"ccxt_call_fetch_tickers called with symbols: {symbols}")
-        self.symbols_list.extend([symbol for symbol in symbols if symbol not in self.symbols_list])
-        if any(symbol not in self.tickers for symbol in self.symbols_list):
-            self._log_info("Fetching tickers from ccxt...")
-            self.must_refresh_tickers = True
-            while self.must_refresh_tickers:
-                await(asyncio.sleep(0.1))
-            # await self.refresh_tickers()
+    async def get_ccxt_tickers(self, *symbols: str) -> dict:
+        """Get tickers from CCXT, fetching if necessary."""
+        new_symbols = [s for s in symbols if s not in self.symbols_list]
+        if new_symbols:
+            self.symbols_list.extend(new_symbols)
+
+        if self._needs_refresh(symbols):
+            async with self._refresh_lock:
+                # Double-check inside the lock
+                if self._needs_refresh(symbols):
+                    logging.info("Triggering on-demand refresh for CCXT tickers.")
+                    await self.refresh_ccxt_tickers()
+                    self.print_metrics()
         else:
             self.ccxt_cache_hit += 1
-            self._log_info("Returning cached tickers.")
+            logging.info("Returning cached CCXT tickers.")
+
         return self.tickers
 
-    async def update_ticker_block(self):
-        self._log_info("Starting update_ticker_block task...")
-        result = None
-        done = False
-        retry_count = 0
-        while not done:
-            retry_count += 1
-            try:
-                self.custom_ticker_call_count += 1
-                self._log_info("Fetching BLOCK ticker from external API...")
-                ticker = requests.get(url='https://min-api.cryptocompare.com/data/price?fsym=BLOCK&tsyms=BTC')
-                if ticker.status_code == 200:
-                    result = ticker.json().get('BTC')
-                    if result and isinstance(result, float):
-                        done = True
-                        self.custom_ticker['BLOCK'] = result
-                        self._log_info(f"Updated BLOCK ticker: {result} BTC")
-                else:
-                    self._log_error(f"Error fetching BLOCK ticker, status code: {ticker.status_code}")
-            except Exception as e:
-                self._log_error(f"update_ticker_block error: {e} {type(e)}, retrying...")
-                traceback.print_exc()
-                await asyncio.sleep(retry_count)
-
-    async def fetch_ticker_block(self) -> float:
-        self._log_info("fetch_ticker_block called.")
-        if 'BLOCK' not in self.custom_ticker:
-            self._log_info("BLOCK ticker not in cache, updating...")
-            await self.update_ticker_block()
+    async def get_block_ticker(self) -> float:
+        """Get BLOCK ticker, fetching if necessary."""
+        self.active_custom_tickers.add('BLOCK')
+        if self.custom_tickers.get('BLOCK') is None:
+            async with self._refresh_lock:
+                if self.custom_tickers.get('BLOCK') is None:
+                    logging.info("Triggering on-demand refresh for BLOCK ticker.")
+                    await self.update_custom_ticker_block()
+                    self.print_metrics()
         else:
-            self.custom_ticker_cache_count += 1
-            self._log_info("Returning cached BLOCK ticker.")
-        return self.custom_ticker['BLOCK']
+            self.custom_ticker_cache_hit += 1
+            logging.info("Returning cached BLOCK ticker.")
+
+        return self.custom_tickers['BLOCK']
 
     def print_metrics(self):
-        if 'BLOCK' in self.custom_ticker:
-            msg = f"ccxt_call_count: {self.ccxt_call_count}, ccxt_cache_hit: {self.ccxt_cache_hit}, " \
-                  f"BLOCK_call_count: {self.custom_ticker_call_count}, BLOCK_cache_hit: {self.custom_ticker_cache_count}"
-        else:
-            msg = f"ccxt_call_count: {self.ccxt_call_count}, ccxt_cache_hit: {self.ccxt_cache_hit}"
-        self._log_info(f"Metrics: {msg}")
+        msg_parts = [
+            f"ccxt_call_count: {self.ccxt_call_count}",
+            f"ccxt_cache_hit: {self.ccxt_cache_hit}",
+        ]
+        if 'BLOCK' in self.active_custom_tickers:
+            msg_parts.extend([
+                f"BLOCK_call_count: {self.custom_ticker_call_count}",
+                f"BLOCK_cache_hit: {self.custom_ticker_cache_hit}",
+            ])
+        logging.info(f"Metrics: {', '.join(msg_parts)}")
 
-    async def handle(self, request: web.Request) -> web.Response:
-        self._log_info("Received a request.")
+
+# --- Web Server ---
+class WebServer:
+    def __init__(self, fetcher: PriceFetcher, host: str, port: int):
+        self.fetcher = fetcher
+        self.host = host
+        self.port = port
+        self.app = web.Application()
+        self.app.router.add_post("/", self.handle_request)
+        self.runner = None
+        self.periodic_task = None
+        self.refresh_interval = 15
+
+    async def handle_request(self, request: web.Request) -> web.Response:
         try:
             data = await request.json()
-            self._log_info(f"Request data: {data}")
             method = data.get('method')
+            params = data.get('params', [])
+
+            logging.info(f"Received request for method: {method}")
+
             if method == 'ccxt_call_fetch_tickers':
-                response = await self.ccxt_call_fetch_tickers(*data['params'])
+                response_data = await self.fetcher.get_ccxt_tickers(*params)
             elif method == 'fetch_ticker_block':
-                response = await self.fetch_ticker_block()
+                response_data = await self.fetcher.get_block_ticker()
             else:
                 raise ValueError(f"Unsupported method: {method}")
-            self._log_info(f"Request processed successfully, method: {method}")
-            return web.json_response({"jsonrpc": "2.0", "result": response, "id": data.get("id")})
+
+            return web.json_response({
+                "jsonrpc": "2.0",
+                "result": response_data,
+                "id": data.get("id")
+            })
         except Exception as e:
-            self._log_error(f"Error handling request: {e}")
-            traceback.print_exc()
-            error_response = {"jsonrpc": "2.0", "error": {"code": 500, "message": str(e)}, "id": None}
+            logging.error(f"Error handling request: {e}", exc_info=True)
+            error_response = {
+                "jsonrpc": "2.0",
+                "error": {"code": 500, "message": str(e)},
+                "id": data.get("id")
+            }
             return web.json_response(error_response, status=500)
 
-    def _log_info(self, message: str):
-        print(f"{bcolors.mycolor.OKGREEN}{self.now()} [INFO] {message}{bcolors.mycolor.ENDC}")
-
-    def _log_error(self, message: str):
-        print(f"{bcolors.mycolor.FAIL}{self.now()} [ERROR] {message}{bcolors.mycolor.ENDC}")
-
-    async def shutdown(self):
-        self._log_info("Shutting down server...")
-        if self.task:
-            self._log_info("Cancelling periodic task...")
-            self.task.cancel()
+    async def _run_periodically(self):
+        """Periodically refreshes all tickers."""
+        while True:
             try:
-                await self.task
+                await self.fetcher.refresh_all_tickers()
+                await asyncio.sleep(self.refresh_interval)
             except asyncio.CancelledError:
-                self._log_info("Periodic task cancelled successfully.")
+                logging.info("Periodic refresh task cancelled.")
+                break
+            except Exception as e:
+                logging.error(f"Error in periodic refresh: {e}", exc_info=True)
+                # Wait before retrying to avoid spamming logs on persistent errors
+                await asyncio.sleep(self.refresh_interval)
 
-    async def init_ccxt_instance(self, exchange: str, hostname: str = None) -> object:
-        import ccxt.async_support as ccxt
-        api_key = None
-        api_secret = None
-        if exchange in ccxt.exchanges:
-            exchange_class = getattr(ccxt, exchange)
-            instance = exchange_class({
-                                          'apiKey': api_key,
-                                          'secret': api_secret,
-                                          'enableRateLimit': True,
-                                          'hostname': hostname
-                                      } if hostname else {
-                'apiKey': api_key,
-                'secret': api_secret,
-                'enableRateLimit': True
-            })
+    async def start(self):
+        """Starts the web server and the periodic refresh task."""
+        self.runner = web.AppRunner(self.app)
+        await self.runner.setup()
+        site = web.TCPSite(self.runner, self.host, self.port)
+        await site.start()
+        logging.info(f"Web server running on http://{self.host}:{self.port}")
 
-            done = False
-            while not done:
-                try:
-                    print(f"{self.now()} [INFO] Loading markets for exchange: {exchange}")
-                    await instance.load_markets()
-                    done = True
-                    print(f"{self.now()} [INFO] Markets loaded successfully for exchange: {exchange}")
-                except Exception as e:
-                    print(f"{self.now()} [ERROR] init_ccxt_instance error: {e} {type(e)}")
-                    traceback.print_exc()
-                    await asyncio.sleep(5)
-            return instance
-        return None
+        self.periodic_task = asyncio.create_task(self._run_periodically())
 
-    async def main(self):
-        self.config_ccxt = YamlToObject("./config/config_ccxt.yaml")
+    async def stop(self):
+        """Stops the web server and associated tasks gracefully."""
+        logging.info("Shutting down server...")
 
-        try:
-            await self.init_task()
+        if self.periodic_task and not self.periodic_task.done():
+            self.periodic_task.cancel()
+            await self.periodic_task
 
-            app = web.Application()
-            app.router.add_post("/", self.handle)
-            self._log_info("Starting web server...")
-
-            runner = web.AppRunner(app)
-            await runner.setup()
-            site = web.TCPSite(runner, "localhost", 2233)
-            await site.start()
-
-            self._log_info("Web server is running.")
-
-            await self.task  # Keep running the periodic task
-        except Exception as e:
-            self._log_error(f"Error in main method: {e}")
-            traceback.print_exc()
-        finally:
-            # Close the exchange instance if it's not None
-            if hasattr(self, 'ccxt_i') and self.ccxt_i is not None:
-                await self.ccxt_i.close()
-
-            # Wait for all pending operations to complete before exiting
-            tasks = [self.task]
-            done, pending = await asyncio.wait(tasks, return_when=asyncio.ALL_COMPLETED)
-            await asyncio.gather(*pending, return_exceptions=True)
-
-        self._log_info("Server is shutting down...")
-        if hasattr(self, 'app') and self.app:
-            await self.app.shutdown()
-        if hasattr(self, 'runner') and self.runner:
+        if self.runner:
             await self.runner.cleanup()
+            logging.info("Web server stopped.")
 
+
+# --- Main execution ---
+async def main():
+    config = YamlToObject("./config/config_ccxt.yaml")
+
+    server = None
+    fetcher = None
+    session = None
+
+    try:
+        session = ClientSession()
+        fetcher = PriceFetcher(config, session)
+        await fetcher.initialize()
+
+        server = WebServer(fetcher, "localhost", 2233)
+
+        loop = asyncio.get_running_loop()
+
+        # Graceful shutdown on SIGINT/SIGTERM
+        stop_event = asyncio.Event()
+
+        def _signal_handler():
+            logging.info("Shutdown signal received.")
+            stop_event.set()
+
+        if os.name != 'nt':
+            for sig in (signal.SIGINT, signal.SIGTERM):
+                loop.add_signal_handler(sig, _signal_handler)
+
+        await server.start()
+        await stop_event.wait()
+
+    except Exception as e:
+        logging.error(f"Critical error in main: {e}", exc_info=I_STDOUT)
+    finally:
+        if server:
+            await server.stop()
+        if fetcher:
+            await fetcher.close()
+        if session and not session.closed:
+            await session.close()
+        logging.info("Shutdown complete.")
 
 if __name__ == "__main__":
-    ccxt_server = CCXTServer()
-    asyncio.run(ccxt_server.main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logging.info("Keyboard interrupt received, shutting down.")
