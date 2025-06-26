@@ -596,7 +596,7 @@ class GUI_Main:
         self.btn_configure.config(state="disabled")
         self.config_manager.general_log.info("start done")
 
-    def stop(self):
+    def stop(self, reload_config = True):
         is_closing = False
         if self.config_manager.controller and self.config_manager.controller.stop_order == False:
             self.config_manager.controller.stop_order = True
@@ -617,7 +617,8 @@ class GUI_Main:
         self.btn_stop.config(state="disabled")
         self.btn_start.config(state="active")
         self.btn_configure.config(state="active")
-        self.reload_configuration(loadxbridgeconf=False)
+        if reload_config:
+            self.reload_configuration(loadxbridgeconf=False)
 
     def cancel_all(self):
         self.status_var.set("Cancelling all open orders...")
@@ -644,10 +645,10 @@ class GUI_Main:
             'open', 'new', 'created', 'accepting', 'hold', 'initialized', 'committed', 'finished'
         } else 'X'
 
-    def on_closing(self):
+    def on_closing(self, reload_config = False):
         # Perform any necessary cleanup before closing the app
         self.config_manager.general_log.info("Closing application...")
-        self.stop()
+        self.stop(reload_config=reload_config)
         self.root.destroy()
 
     def reload_configuration(self, loadxbridgeconf=True):
