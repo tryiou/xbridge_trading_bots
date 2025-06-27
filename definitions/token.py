@@ -120,7 +120,7 @@ class CexToken:
                     result * self.token.config_manager.tokens['BTC'].cex.usd_price)
             self.cex_price_timer = time.time()
             self.token.config_manager.general_log.debug(
-                f"fetch_ticker {self.token.symbol}, BTC_PRICE: {format(float(self.cex_price), '.8f').rstrip('0').rstrip('.')} "
+                f"fetch_ticker {self.token.symbol}, BTC_PRICE: {format(float(self.cex_price), '.8f').rstrip('0').rstrip('.')}, "
                 f"USD_PRICE: {format(float(self.usd_price), '.8f').rstrip('0').rstrip('.')}, "
                 f"BTC_USD_PRICE: {format(float(self.token.config_manager.tokens['BTC'].cex.usd_price), '.8f').rstrip('0').rstrip('.')}"
             )
