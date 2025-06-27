@@ -3,10 +3,6 @@ import concurrent.futures
 import time
 import traceback
 
-import aiohttp  # Import aiohttp
-
-import definitions.xbridge_def as xb
-
 debug_level = 2
 
 CCXT_PRICE_REFRESH = 2
@@ -47,7 +43,7 @@ class BalanceManager:
     async def update_balances(self):
         if self._should_update_bals():
             # Offload blocking xb.getlocaltokens to the thread pool
-            xb_tokens = await self.loop.run_in_executor(self.executor, xb.getlocaltokens)
+            xb_tokens = await self.loop.run_in_executor(self.executor, self.config_manager.xbridge_manager.getlocaltokens)
 
             futures = []
             for token_data in self.tokens_dict.values():
@@ -65,8 +61,7 @@ class BalanceManager:
 
     def _update_token_balance_blocking(self, token_data, xb_tokens):
         if xb_tokens and token_data.symbol in xb_tokens:
-            # This function remains blocking, but is now explicitly run in an executor thread
-            utxos = xb.gettokenutxo(token_data.symbol, used=True)  # This is a blocking call
+            utxos = self.config_manager.xbridge_manager.gettokenutxo(token_data.symbol, used=True)  # This is a blocking call
             bal, bal_free = self._calculate_balances(utxos)
             token_data.dex.total_balance = bal
             token_data.dex.free_balance = bal_free
@@ -236,7 +231,7 @@ def run_async_main(config_manager, loop=None):
         loop.run_until_complete(main(config_manager, loop))
     except (SystemExit, KeyboardInterrupt):
         config_manager.general_log.info("Received Stop order. Cleaning up...")
-        xb.cancelallorders()
+        config_manager.xbridge_manager.cancelallorders()
         # Ensure executors are shut down
         if controller:
             if hasattr(controller.processor, 'executor'):
@@ -250,7 +245,7 @@ def run_async_main(config_manager, loop=None):
     except Exception as e:
         config_manager.general_log.error(f"Exception in run_async_main: {e}")
         traceback.print_exc()
-        xb.cancelallorders()
+        config_manager.xbridge_manager.cancelallorders()
         # Ensure executors are shut down
         if controller:
             if hasattr(controller.processor, 'executor'):
@@ -269,6 +264,7 @@ def run_async_main(config_manager, loop=None):
 
 
 async def main(config_manager, loop):
+    import aiohttp  # Import aiohttp
     """Generic main loop that works with any strategy."""
     async with aiohttp.ClientSession() as session:
         # Pass the session to the controller and strategy if needed
@@ -299,7 +295,7 @@ async def main(config_manager, loop):
 
             # Offload blocking xb.dxflushcancelledorders to the thread pool
             if current_time - flush_timer > FLUSH_DELAY:
-                await loop.run_in_executor(None, xb.dxflushcancelledorders)
+                await loop.run_in_executor(None, config_manager.xbridge_manager.dxflushcancelledorders)
                 flush_timer = current_time
 
             if current_time - operation_timer > operation_interval:

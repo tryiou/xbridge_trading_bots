@@ -1,9 +1,9 @@
 import os
 import shutil
 
-from definitions import xbridge_def
 from definitions.ccxt_def import CCXTManager
 from definitions.logger import setup_logger
+from definitions.xbridge_def import XBridgeManager
 from definitions.strategy import BaseStrategy, PingPongStrategy, BasicSellerStrategy, ArbitrageStrategy
 from definitions.token import Token
 from definitions.yaml_mix import YamlToObject
@@ -23,6 +23,7 @@ class ConfigManager:
         self.tokens = {}  # Token data
         self.pairs = {}  # Pair data
         self.my_ccxt = None  # CCXT instance
+        self.xbridge_manager = None
         self.ccxt_manager = CCXTManager(self)
         self.xbridge_conf = None  # XBridge configuration
         self.disabled_coins = []  # Centralized disabled coins tracking
@@ -105,7 +106,7 @@ class ConfigManager:
 
     def _init_xbridge(self):
         """Initialize XBridge configuration"""
-        xbridge_def.dxloadxbridgeconf()  # This is a global call, not strategy specific
+        self.xbridge_manager.dxloadxbridgeconf()
 
     def initialize(self, **kwargs):
         loadxbridgeconf = kwargs.get('loadxbridgeconf', True)
@@ -113,6 +114,7 @@ class ConfigManager:
 
         self.tokens = {}  # Token data
         self.pairs = {}  # Pair data
+        self.xbridge_manager = XBridgeManager(self)
 
         if self.strategy == "pingpong":
             self.strategy_instance = PingPongStrategy(self)

@@ -3,8 +3,6 @@ import time
 import requests
 import yaml
 
-import definitions.xbridge_def as xb
-from definitions.rpc import rpc_call
 
 
 class Token:
@@ -58,7 +56,7 @@ class DexToken:
 
     def request_addr(self):
         try:
-            address = xb.getnewtokenadress(self.token.symbol)[0]
+            address = self.token.config_manager.xbridge_manager.getnewtokenadress(self.token.symbol)[0]
             self.address = address
             self.token.config_manager.general_log.info(f"dx_request_addr: {self.token.symbol}, {address}")
             self.write_address()
@@ -80,7 +78,7 @@ class CexToken:
         if (self.cex_price_timer is not None and
                 time.time() - self.cex_price_timer <= 2):
             if display:
-                print('Token.update_ccxt_price()', 'too fast call?', self.token.symbol)
+                self.token.config_manager.general_log.debug(f"Token.update_ccxt_price() too fast call? {self.token.symbol}")
             return
 
         cex_symbol = "BTC/USD" if self.token.symbol == "BTC" else f"{self.token.symbol}/BTC"
@@ -132,6 +130,7 @@ class CexToken:
         done = False
         used_proxy = False
         result = None
+        from definitions.rpc import rpc_call # Local import to avoid circular dependency issues at module level
         while not done:
             count += 1
             try:

@@ -7,8 +7,6 @@ from tkinter import ttk
 from ruamel.yaml import YAML # type: ignore
 from ttkbootstrap import Style
 
-import definitions.xbridge_def as xb
-import main_pingpong
 from definitions.config_manager import ConfigManager
 
 
@@ -702,6 +700,7 @@ class GUI_Main:
         """
         Starts the PingPong bot in a separate thread.
         """
+        import main_pingpong # Import here to avoid circular dependency at startup
         self.status_var.set("Bot is running...")
         self.send_process = threading.Thread(target=main_pingpong.run_async_main,
                                              args=(self.config_manager,),
@@ -756,8 +755,7 @@ class GUI_Main:
         Cancels all open orders on the exchange.
         """
         self.status_var.set("Cancelling all open orders...")
-        xb.cancelallorders()
-        self.config_manager.general_log.info("Cancelled all open orders")
+        self.config_manager.xbridge_manager.cancelallorders()
         self.status_var.set("Cancelled all open orders")
 
     def refresh_gui(self) -> None:
@@ -768,7 +766,7 @@ class GUI_Main:
             if self.send_process and not self.send_process.is_alive():
                 self.config_manager.general_log.error("pingpong bot crashed!")
                 self.status_var.set("pingpong bot crashed!")
-                self.stop()
+                self.stop(reload_config=False)
                 self.cancel_all()
         self.gui_orders.update_order_display()
         self.gui_balances.update_balance_display()

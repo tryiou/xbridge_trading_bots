@@ -3,18 +3,15 @@ import time
 from requests import Session, HTTPError
 from requests.auth import HTTPBasicAuth
 
-import definitions.bcolors as bcolors
-
-
-def handle_error(e, err_count, method, params, prefix):
+def handle_error(e, err_count, method, params, prefix, logger=None):
     msg = f"{prefix}_rpc_call( {method}, {params} )"
-    print(f"{bcolors.mycolor.WARNING}{msg}{bcolors.mycolor.ENDC}")
-    print(f"{bcolors.mycolor.WARNING}{type(e)}, {e}{bcolors.mycolor.ENDC}")
+    log_func = logger.warning if logger else print
+    log_func(f"{msg} - {type(e)}, {e}")
     time.sleep(err_count + 1)
 
 
 def rpc_call(method, params=None, url="http://127.0.0.1", rpc_user=None, rpc_password=None,
-             rpc_port=None, debug=2, timeout=120, display=True, prefix='xbridge', max_err_count=3):
+             rpc_port=None, debug=2, timeout=120, display=True, prefix='xbridge', max_err_count=3, logger=None):
     """
     Make a JSON-RPC call.
 
@@ -29,6 +26,7 @@ def rpc_call(method, params=None, url="http://127.0.0.1", rpc_user=None, rpc_pas
     :param display: Whether to display debug information.
     :param prefix: Prefix for debug messages.
     :param max_err_count: Maximum number of retries in case of errors.
+    :param logger: Optional logger instance to use for messages.
     :return: Result of the RPC call, or None if no result is obtained after max attempts.
     """
     if params is None:
@@ -46,12 +44,13 @@ def rpc_call(method, params=None, url="http://127.0.0.1", rpc_user=None, rpc_pas
                 result = response.json().get('result')
                 if result is not None:
                     if debug >= 2 and display:
+                        log_func = logger.info if logger else print
                         msg = f"{prefix}_rpc_call( {method}, {params} )"
-                        print(f"{bcolors.mycolor.OKGREEN}{msg}{bcolors.mycolor.ENDC}")
+                        log_func(msg)
                         if debug >= 3:
-                            print(response.json())
+                            log_func(response.json())
                     return result
         except (HTTPError, Exception) as e:
-            handle_error(e, err_count, method, params, prefix)
+            handle_error(e, err_count, method, params, prefix, logger)
 
     return None

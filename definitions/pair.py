@@ -2,7 +2,6 @@ import time
 
 import yaml
 
-import definitions.xbridge_def as xb
 from definitions.token import Token
 
 
@@ -66,7 +65,7 @@ class DexPair:
         self.read_last_order_history()
 
     def update_dex_orderbook(self):
-        self.orderbook = xb.dxgetorderbook(detail=3, maker=self.t1.symbol, taker=self.t2.symbol)
+        self.orderbook = self.pair.config_manager.xbridge_manager.dxgetorderbook(detail=3, maker=self.t1.symbol, taker=self.t2.symbol)
         self.orderbook.pop('detail', None)
 
     def _get_history_file_path(self):
@@ -224,7 +223,7 @@ class DexPair:
 
     def cancel_myorder(self):
         if self.order and 'id' in self.order:
-            xb.cancelorder(self.order['id'])
+            self.pair.config_manager.xbridge_manager.cancelorder(self.order['id'])
             self.order = None
 
     def create_order(self, dry_mode=False):
@@ -270,8 +269,8 @@ class DexPair:
 
         if self.partial_percent:
             minimum_size = f"{self.current_order['minimum_size']:.6f}"
-            return xb.makepartialorder(maker, maker_size, maker_address, taker, taker_size, taker_address, minimum_size)
-        return xb.makeorder(maker, maker_size, maker_address, taker, taker_size, taker_address)
+            return self.pair.config_manager.xbridge_manager.makepartialorder(maker, maker_size, maker_address, taker, taker_size, taker_address, minimum_size)
+        return self.pair.config_manager.xbridge_manager.makeorder(maker, maker_size, maker_address, taker, taker_size, taker_address)
 
     def _handle_order_error(self):
         if 'code' in self.order and self.order['code'] not in {1019, 1018, 1026, 1032}:
@@ -295,7 +294,7 @@ class DexPair:
 
         while counter < max_count:
             try:
-                local_dex_order = xb.getorderstatus(self.order['id'])
+                local_dex_order = self.pair.config_manager.xbridge_manager.getorderstatus(self.order['id'])
                 if 'status' in local_dex_order:
                     self.order = local_dex_order
                     return self._map_order_status()

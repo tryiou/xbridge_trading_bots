@@ -5,7 +5,6 @@ import time
 
 import ccxt
 
-import definitions.bcolors as bcolors
 from definitions.rpc import rpc_call
 
 
@@ -135,7 +134,7 @@ class CCXTManager:
         if self.config_manager.ccxt_log:
             self.config_manager.ccxt_log.error(msg)
         else:
-            print(msg)
+            self.config_manager.general_log.error(msg)
         if err_type in ["NetworkError", "DDoSProtection", "RateLimitExceeded", "InvalidNonce",
                         "RequestTimeout", "ExchangeNotAvailable", "Errno -3", "AuthenticationError",
                         "Temporary failure in name resolution", "ExchangeError", "BadResponse", "KeyError"]:
@@ -149,7 +148,7 @@ class CCXTManager:
         else:
             timer = " exec_timer: " + str(round(timer, 2))
 
-        msg = "ccxt_rpc_call( " + str(func[10::]) + ' ' + str(params) + " )" + timer
-        print(f"{bcolors.mycolor.OKCYAN}{msg}{bcolors.mycolor.ENDC}")
+        msg = f"ccxt_rpc_call( {func[10::]} {params} ){timer}"
+        self.config_manager.general_log.info(msg)
         if self.config_manager.config_ccxt.debug_level >= 3:
-            print(str(result))
+            self.config_manager.general_log.debug(str(result))

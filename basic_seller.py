@@ -2,7 +2,6 @@ import argparse
 import asyncio
 import logging
 
-import definitions.xbridge_def as xb
 from definitions.config_manager import ConfigManager
 from starter import run_async_main
 
@@ -43,8 +42,8 @@ def start():
         partial_percent=args.partial
     )
 
-    xb.cancelallorders()
-    xb.dxflushcancelledorders()
+    config_manager.xbridge_manager.cancelallorders()
+    config_manager.xbridge_manager.dxflushcancelledorders()
 
     loop = asyncio.get_event_loop()  # Get the current event loop
     run_async_main(config_manager, loop)  # Pass the loop to run_async_main
