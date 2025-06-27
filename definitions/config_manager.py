@@ -3,10 +3,13 @@ import shutil
 
 from definitions.ccxt_def import CCXTManager
 from definitions.logger import setup_logger
-from definitions.strategy import BaseStrategy, PingPongStrategy, BasicSellerStrategy, ArbitrageStrategy
 from definitions.token import Token
 from definitions.xbridge_def import XBridgeManager
 from definitions.yaml_mix import YamlToObject
+from strategies.arbitrage_strategy import ArbitrageStrategy
+from strategies.base_strategy import BaseStrategy
+from strategies.basicseller_strategy import BasicSellerStrategy
+from strategies.pingpong_strategy import PingPongStrategy
 
 
 class ConfigManager:
