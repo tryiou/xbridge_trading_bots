@@ -2,6 +2,7 @@ import asyncio
 import logging
 
 import aiohttp
+
 # Using THORNode for quotes. Midgard is for historical data. This can be made configurable.
 THORNODE_QUOTE_URL = "https://thornode.ninerealms.com/thorchain"
 # A public THORNode endpoint. This can also be made configurable.

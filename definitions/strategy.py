@@ -144,17 +144,17 @@ class BaseStrategy(ABC):
         pass
 
     # Methods for MainController to call strategy-specific actions
-    @abstractmethod
-    def thread_init_blocking_action(self, pair_instance):
+    @abstractmethod  # Renamed for clarity
+    async def thread_init_async_action(self, pair_instance):
         """
-        Strategy-specific action for thread_init_blocking.
+        Strategy-specific asynchronous action for initial pair processing.
         """
         pass
 
-    @abstractmethod
-    def thread_loop_blocking_action(self, pair_instance):
+    @abstractmethod  # Renamed for clarity
+    async def thread_loop_async_action(self, pair_instance):
         """
-        Strategy-specific action for thread_loop_blocking.
+        Strategy-specific asynchronous action for the main loop processing.
         """
         pass
 
@@ -262,26 +262,26 @@ class PingPongStrategy(BaseStrategy):
     def handle_order_status_error(self, dex_pair_instance):
         dex_pair_instance.order = None  # Reset order to try creating a new one
 
-    def reinit_virtual_order_after_price_variation(self, dex_pair_instance, disabled_coins: list):
+    async def reinit_virtual_order_after_price_variation(self, dex_pair_instance, disabled_coins: list):
         dex_pair_instance.init_virtual_order(disabled_coins)
         if not dex_pair_instance.order:
-            dex_pair_instance.create_order()
+            await dex_pair_instance.create_order()
 
-    def handle_finished_order(self, dex_pair_instance, disabled_coins: list):
+    async def handle_finished_order(self, dex_pair_instance, disabled_coins: list):
         dex_pair_instance.init_virtual_order(disabled_coins)
-        dex_pair_instance.create_order()
+        await dex_pair_instance.create_order()
 
     def handle_error_swap_status(self, dex_pair_instance):
         self.config_manager.general_log.error(
             f"Order Error:\n{dex_pair_instance.current_order}\n{dex_pair_instance.order}")
         raise SystemExit(1)  # Raise an exception to allow for graceful shutdown
 
-    def thread_init_blocking_action(self, pair_instance):
+    async def thread_init_async_action(self, pair_instance):
         pair_instance.dex.init_virtual_order(self.controller.disabled_coins)
-        pair_instance.dex.create_order()
+        await pair_instance.dex.create_order()
 
-    def thread_loop_blocking_action(self, pair_instance):
-        pair_instance.dex.status_check(self.controller.disabled_coins)
+    async def thread_loop_async_action(self, pair_instance):
+        await pair_instance.dex.status_check(self.controller.disabled_coins)
 
     def should_update_cex_prices(self) -> bool:
         return True
@@ -400,26 +400,27 @@ class BasicSellerStrategy(BaseStrategy):
     def handle_order_status_error(self, dex_pair_instance):
         dex_pair_instance.order = None  # Reset order to try creating a new one
 
-    def reinit_virtual_order_after_price_variation(self, dex_pair_instance, disabled_coins: list):
+    async def reinit_virtual_order_after_price_variation(self, dex_pair_instance, disabled_coins: list):
         dex_pair_instance.create_virtual_sell_order()
         if dex_pair_instance.order is None:
-            dex_pair_instance.create_order(dry_mode=False)
+            await dex_pair_instance.create_order(dry_mode=False)
 
-    def handle_finished_order(self, dex_pair_instance, disabled_coins: list):
-        self.config_manager.general_log.info('order sold, terminate!')
-        raise SystemExit(1)  # Raise an exception to allow for graceful shutdown
+    async def handle_finished_order(self, dex_pair_instance, disabled_coins: list):
+        self.config_manager.general_log.info('Order sold, signaling bot termination.')
+        if self.config_manager.controller:
+            self.config_manager.controller.stop_order = True
 
     def handle_error_swap_status(self, dex_pair_instance):
         self.config_manager.general_log.error(
             f"Order Error:\n{dex_pair_instance.current_order}\n{dex_pair_instance.order}")
         dex_pair_instance.disabled = True  # Disable pair on error
 
-    def thread_init_blocking_action(self, pair_instance):
+    async def thread_init_async_action(self, pair_instance):
         pair_instance.dex.init_virtual_order(self.controller.disabled_coins)
-        pair_instance.dex.create_order()
+        await pair_instance.dex.create_order()
 
-    def thread_loop_blocking_action(self, pair_instance):
-        pair_instance.dex.status_check(self.controller.disabled_coins)
+    async def thread_loop_async_action(self, pair_instance):
+        await pair_instance.dex.status_check(self.controller.disabled_coins)
 
     def should_update_cex_prices(self) -> bool:
         return True
@@ -487,7 +488,7 @@ class ArbitrageStrategy(BaseStrategy):
 
         # 1. Get XBridge order book for the pair
         try:
-            await self.controller.loop.run_in_executor(None, pair_instance.dex.update_dex_orderbook)
+            await pair_instance.dex.update_dex_orderbook()
             xbridge_asks = pair_instance.dex.orderbook.get('asks', [])
             xbridge_bids = pair_instance.dex.orderbook.get('bids', [])
             # Ensure order books are sorted correctly, as API might not guarantee it.

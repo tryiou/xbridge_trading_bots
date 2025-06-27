@@ -3,9 +3,9 @@ import shutil
 
 from definitions.ccxt_def import CCXTManager
 from definitions.logger import setup_logger
-from definitions.xbridge_def import XBridgeManager
 from definitions.strategy import BaseStrategy, PingPongStrategy, BasicSellerStrategy, ArbitrageStrategy
 from definitions.token import Token
+from definitions.xbridge_def import XBridgeManager
 from definitions.yaml_mix import YamlToObject
 
 
@@ -25,6 +25,7 @@ class ConfigManager:
         self.my_ccxt = None  # CCXT instance
         self.xbridge_manager = None
         self.ccxt_manager = CCXTManager(self)
+        self.load_xbridge_conf_on_startup = True  # Default value, will be updated by initialize
         self.xbridge_conf = None  # XBridge configuration
         self.disabled_coins = []  # Centralized disabled coins tracking
         self.controller = None
@@ -115,6 +116,7 @@ class ConfigManager:
         self.tokens = {}  # Token data
         self.pairs = {}  # Pair data
         self.xbridge_manager = XBridgeManager(self)
+        self.load_xbridge_conf_on_startup = loadxbridgeconf  # Store the flag
 
         if self.strategy == "pingpong":
             self.strategy_instance = PingPongStrategy(self)
@@ -133,5 +135,5 @@ class ConfigManager:
         self._init_pairs(**kwargs)
         if self.my_ccxt is None:
             self._init_ccxt()
-        if loadxbridgeconf:
-            self._init_xbridge()
+        # dxloadxbridgeconf is now called asynchronously in MainController.main_init_loop
+        # self._init_xbridge() # This method is now effectively a no-op if dxloadxbridgeconf is removed

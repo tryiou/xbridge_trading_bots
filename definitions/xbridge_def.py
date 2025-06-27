@@ -1,5 +1,8 @@
+import asyncio
+
 from definitions.detect_rpc import detect_rpc
 from definitions.rpc import rpc_call
+
 
 class XBridgeManager:
     def __init__(self, config_manager):
@@ -13,19 +16,22 @@ class XBridgeManager:
             # Depending on desired behavior, you might want to raise an exception or exit here.
             # For now, just log the error.
 
-    def rpc_wrapper(self, method, params=None):
+    async def rpc_wrapper(self, method, params=None):
         if params is None:
             params = []
-        result = rpc_call(method=method,
-                          params=params,
-                          rpc_user=self.user_rpc,
-                          rpc_port=self.port_rpc,
-                          rpc_password=self.password_rpc,
-                          logger=self.logger)  # Pass the instance logger
+        result = await rpc_call(method=method,
+                                params=params,
+                                rpc_user=self.user_rpc,
+                                rpc_port=self.port_rpc,
+                                rpc_password=self.password_rpc,
+                                logger=self.logger)  # Pass the instance logger
         return result
 
     def test_rpc(self):
-        result = self.rpc_wrapper("getwalletinfo")
+        # This method is called from constructor, so it cannot be async.
+        # We will use asyncio.run to run the async rpc_wrapper.
+        # This is acceptable for a one-off test at startup.
+        result = asyncio.run(self.rpc_wrapper("getwalletinfo"))
         if result:
             self.logger.info(f'XBridge RPC connection successful: getwalletinfo returned {result}')
             return True
@@ -33,59 +39,62 @@ class XBridgeManager:
             self.logger.error(f'XBridge RPC connection failed: getwalletinfo returned {result}')
             return False
 
-    def getnewtokenadress(self, token):
-        return self.rpc_wrapper("dxGetNewTokenAddress", [token])
+    async def getnewtokenadress(self, token):
+        return await self.rpc_wrapper("dxGetNewTokenAddress", [token])
 
-    def getmyordersbymarket(self, maker, taker):
-        myorders = self.rpc_wrapper("dxGetMyOrders")
+    async def getmyordersbymarket(self, maker, taker):
+        myorders = await self.rpc_wrapper("dxGetMyOrders")
         return [zz for zz in myorders if (zz['maker'] == maker) and (zz['taker'] == taker)]
 
-    def cancelorder(self, order_id):
-        return self.rpc_wrapper("dxCancelOrder", [order_id])
+    async def cancelorder(self, order_id):
+        return await self.rpc_wrapper("dxCancelOrder", [order_id])
 
-    def cancelallorders(self):
-        myorders = self.rpc_wrapper("dxGetMyOrders")
+    async def cancelallorders(self):
+        myorders = await self.rpc_wrapper("dxGetMyOrders")
         for z in myorders:
             if z['status'] == "open" or z['status'] == "new":
-                self.cancelorder(z['id'])
+                await self.cancelorder(z['id'])
 
-    def dxloadxbridgeconf(self):
-        self.rpc_wrapper("dxloadxbridgeconf")
+    async def dxloadxbridgeconf(self):
+        await self.rpc_wrapper("dxloadxbridgeconf")
 
-    def dxflushcancelledorders(self):
-        return self.rpc_wrapper("dxflushcancelledorders")
+    async def dxflushcancelledorders(self):
+        return await self.rpc_wrapper("dxflushcancelledorders")
 
-    def gettokenbalances(self):
-        return self.rpc_wrapper("dxgettokenbalances")
+    async def gettokenbalances(self):
+        return await self.rpc_wrapper("dxgettokenbalances")
 
-    def gettokenutxo(self, token, used=False):
-        return self.rpc_wrapper("dxgetutxos", [token, used])
+    async def gettokenutxo(self, token, used=False):
+        return await self.rpc_wrapper("dxgetutxos", [token, used])
 
-    def getlocaltokens(self):
-        return self.rpc_wrapper("dxgetlocaltokens")
+    async def getlocaltokens(self):
+        return await self.rpc_wrapper("dxgetlocaltokens")
 
-    def makeorder(self, maker, makeramount, makeraddress, taker, takeramount, takeraddress, dryrun=None):
+    async def makeorder(self, maker, makeramount, makeraddress, taker, takeramount, takeraddress, dryrun=None):
         if dryrun:
-            result = self.rpc_wrapper("dxMakeOrder",
-                                      [maker, makeramount, makeraddress, taker, takeramount, takeraddress, 'exact', 'dryrun'])
+            result = await self.rpc_wrapper("dxMakeOrder",
+                                            [maker, makeramount, makeraddress, taker, takeramount, takeraddress,
+                                             'exact', 'dryrun'])
         else:
-            result = self.rpc_wrapper("dxMakeOrder",
-                                      [maker, makeramount, makeraddress, taker, takeramount, takeraddress, 'exact'])
+            result = await self.rpc_wrapper("dxMakeOrder",
+                                            [maker, makeramount, makeraddress, taker, takeramount, takeraddress,
+                                             'exact'])
         return result
 
-    def makepartialorder(self, maker, makeramount, makeraddress, taker, takeramount, takeraddress, min_size, repost=False,
-                         dryrun=None):
+    async def makepartialorder(self, maker, makeramount, makeraddress, taker, takeramount, takeraddress, min_size,
+                               repost=False, dryrun=None):
         if dryrun:
-            result = self.rpc_wrapper("dxMakePartialOrder",
-                                      [maker, makeramount, makeraddress, taker, takeramount, takeraddress, min_size, repost,
-                                       'dryrun'])
+            result = await self.rpc_wrapper("dxMakePartialOrder",
+                                            [maker, makeramount, makeraddress, taker, takeramount, takeraddress,
+                                             min_size, repost, 'dryrun'])
         else:
-            result = self.rpc_wrapper("dxMakePartialOrder",
-                                      [maker, makeramount, makeraddress, taker, takeramount, takeraddress, min_size, repost])
+            result = await self.rpc_wrapper("dxMakePartialOrder",
+                                            [maker, makeramount, makeraddress, taker, takeramount, takeraddress,
+                                             min_size, repost])
         return result
 
-    def getorderstatus(self, oid):
-        return self.rpc_wrapper("dxGetOrder", [oid])
+    async def getorderstatus(self, oid):
+        return await self.rpc_wrapper("dxGetOrder", [oid])
 
-    def dxgetorderbook(self, detail, maker, taker):
-        return self.rpc_wrapper("dxgetorderbook", [detail, maker, taker])
+    async def dxgetorderbook(self, detail, maker, taker):
+        return await self.rpc_wrapper("dxgetorderbook", [detail, maker, taker])

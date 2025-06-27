@@ -1,3 +1,4 @@
+import asyncio
 import time
 
 import yaml
@@ -64,8 +65,9 @@ class DexPair:
         self.order = None
         self.read_last_order_history()
 
-    def update_dex_orderbook(self):
-        self.orderbook = self.pair.config_manager.xbridge_manager.dxgetorderbook(detail=3, maker=self.t1.symbol, taker=self.t2.symbol)
+    async def update_dex_orderbook(self):
+        self.orderbook = await self.pair.config_manager.xbridge_manager.dxgetorderbook(detail=3, maker=self.t1.symbol,
+                                                                                       taker=self.t2.symbol)
         self.orderbook.pop('detail', None)
 
     def _get_history_file_path(self):
@@ -222,11 +224,11 @@ class DexPair:
         self.pair.config_manager.general_log.info(f"Current virtual order details: {self.current_order}")
 
     def cancel_myorder(self):
-        if self.order and 'id' in self.order:
-            self.pair.config_manager.xbridge_manager.cancelorder(self.order['id'])
+        if self.order and 'id' in self.order and self.order['id'] is not None:
+            asyncio.create_task(self.pair.config_manager.xbridge_manager.cancelorder(self.order['id']))
             self.order = None
 
-    def create_order(self, dry_mode=False):
+    async def create_order(self, dry_mode=False):
         self.order = None
         if self.disabled:
             return
@@ -235,7 +237,7 @@ class DexPair:
         bal = self._get_balance()
 
         if self._is_balance_valid(bal, maker_size):
-            self._create_order(dry_mode, maker_size)
+            await self._create_order(dry_mode, maker_size)
         else:
             self.pair.config_manager.general_log.error(
                 f"dex_create_order, balance too low: {bal}, need: {maker_size} {self.current_order['maker']}")
@@ -246,9 +248,9 @@ class DexPair:
     def _is_balance_valid(self, bal, maker_size):
         return bal is not None and maker_size.replace('.', '').isdigit()
 
-    def _create_order(self, dry_mode, maker_size):
+    async def _create_order(self, dry_mode, maker_size):
         if float(self._get_balance()) > float(maker_size):
-            order = self._generate_order(dry_mode)
+            order = await self._generate_order(dry_mode)
             if not dry_mode:
                 self.order = order
                 if self.order and 'error' in self.order:
@@ -259,7 +261,7 @@ class DexPair:
             self.pair.config_manager.general_log.error(
                 f"dex_create_order, balance too low: {self._get_balance()}, need: {maker_size} {self.current_order['maker']}")
 
-    def _generate_order(self, dry_mode):
+    async def _generate_order(self, dry_mode):
         maker = self.current_order['maker']
         maker_size = f"{self.current_order['maker_size']:.6f}"
         maker_address = self.current_order['maker_address']
@@ -269,8 +271,11 @@ class DexPair:
 
         if self.partial_percent:
             minimum_size = f"{self.current_order['minimum_size']:.6f}"
-            return self.pair.config_manager.xbridge_manager.makepartialorder(maker, maker_size, maker_address, taker, taker_size, taker_address, minimum_size)
-        return self.pair.config_manager.xbridge_manager.makeorder(maker, maker_size, maker_address, taker, taker_size, taker_address)
+            return await self.pair.config_manager.xbridge_manager.makepartialorder(maker, maker_size, maker_address,
+                                                                                   taker, taker_size, taker_address,
+                                                                                   minimum_size)
+        return await self.pair.config_manager.xbridge_manager.makeorder(maker, maker_size, maker_address, taker,
+                                                                        taker_size, taker_address)
 
     def _handle_order_error(self):
         if 'code' in self.order and self.order['code'] not in {1019, 1018, 1026, 1032}:
@@ -288,13 +293,13 @@ class DexPair:
                f"{self.current_order['taker_size']:.6f}, {self.current_order['taker_address']})")
         self.pair.config_manager.general_log.info(f"dex_create_order, Dry mode enabled. {msg}")
 
-    def check_order_status(self) -> int:
+    async def check_order_status(self) -> int:
         counter = 0
         max_count = 3
 
         while counter < max_count:
             try:
-                local_dex_order = self.pair.config_manager.xbridge_manager.getorderstatus(self.order['id'])
+                local_dex_order = await self.pair.config_manager.xbridge_manager.getorderstatus(self.order['id'])
                 if 'status' in local_dex_order:
                     self.order = local_dex_order
                     return self._map_order_status()
@@ -330,57 +335,61 @@ class DexPair:
         if self.pair.strategy in ['pingpong', 'basic_seller']:
             self.order = None
 
-    def check_price_variation(self, disabled_coins, display=False):
+    async def check_price_variation(self, disabled_coins, display=False):
         if 'side' in self.current_order and not self.check_price_in_range(display=display):
             self._log_price_variation()
             if self.order:
-                self.cancel_myorder()
-            self._reinit_virtual_order(disabled_coins)
+                await self.cancel_myorder()
+            await self._reinit_virtual_order(disabled_coins)
 
     def _log_price_variation(self):
         msg = (f"check_price_variation, {self.symbol}, variation: {self.variation}, "
                f"{self.order['status']}, live_price: {self.pair.cex.price:.8f}, "
                f"order_price: {self.current_order['dex_price']:.8f}")
         self.pair.config_manager.general_log.warning(msg)
-        if self.order:
+        if self.order and 'id' in self.order and self.order['id'] is not None:
             msg = f"check_price_variation, dex cancel: {self.order['id']}"
             self.pair.config_manager.general_log.warning(msg)
 
-    def _reinit_virtual_order(self, disabled_coins):
-        self.pair.config_manager.strategy_instance.reinit_virtual_order_after_price_variation(self, disabled_coins)
+    async def _reinit_virtual_order(self, disabled_coins):
+        await self.pair.config_manager.strategy_instance.reinit_virtual_order_after_price_variation(self,
+                                                                                                    disabled_coins)
 
-    def status_check(self, disabled_coins=None, display=False, partial_percent=None):
-        self.pair.cex.update_pricing(display)
+    async def status_check(self, disabled_coins=None, display=False, partial_percent=None):
+        await self.pair.cex.update_pricing(display)
         if self.disabled:
             self.pair.config_manager.general_log.info(f"Pair {self.symbol} Disabled, error: {self.order}")
             return
 
-        status = self._check_order_status(disabled_coins)
-        self._handle_status(status, disabled_coins, display)
+        status = await self._check_order_status(disabled_coins)
+        await self._handle_status(status, disabled_coins, display)
 
-    def _check_order_status(self, disabled_coins):
-        if self.order and 'id' in self.order:
-            return self.check_order_status()
-        if not self.disabled:
+    async def _check_order_status(self, disabled_coins):
+        if self.order and 'id' in self.order and self.order['id'] is not None:
+            return await self.check_order_status()
+        if not self.disabled and self.current_order:  # Ensure current_order exists before initializing virtual order
             self.init_virtual_order(disabled_coins)
             if self.order and "id" in self.order:
-                return self.check_order_status()
+                return await self.check_order_status()
         return None
 
-    def _handle_status(self, status, disabled_coins, display):
-        status_handlers = {
-            self.STATUS_OPEN: lambda: self.handle_status_open(disabled_coins, display),
-            self.STATUS_FINISHED: lambda: self.at_order_finished(disabled_coins),
-            self.STATUS_OTHERS: lambda: self.check_price_in_range(display=display),
-            self.STATUS_ERROR_SWAP: self.handle_status_error_swap,
-        }
-        status_handlers.get(status, self.handle_status_default)()
+    async def _handle_status(self, status, disabled_coins, display):
+        if status == self.STATUS_OPEN:
+            await self.handle_status_open(disabled_coins, display)
+        elif status == self.STATUS_FINISHED:
+            await self.at_order_finished(disabled_coins)
+        elif status == self.STATUS_OTHERS:
+            self.check_price_in_range(display=display)
+        elif status == self.STATUS_ERROR_SWAP:
+            await self.handle_status_error_swap()
+        else:
+            await self.handle_status_default()
 
-    def handle_status_open(self, disabled_coins, display):
+    async def handle_status_open(self, disabled_coins, display):
         if self._is_pair_disabled(disabled_coins):
             self._cancel_order_due_to_disabled_coins(disabled_coins)
         else:
-            self.check_price_variation(disabled_coins, display=display)
+            await self.check_price_variation(disabled_coins, display=display)
 
     def _cancel_order_due_to_disabled_coins(self, disabled_coins):
         # This method was already here, keep it.
@@ -388,17 +397,18 @@ class DexPair:
             self.pair.config_manager.general_log.info(
                 f"Disabled pairs due to cc_height_check {self.symbol}, {disabled_coins}")
             self.pair.config_manager.general_log.info(f"status_check, dex cancel {self.order['id']}")
-            self.cancel_myorder()
+            asyncio.create_task(self.cancel_myorder())  # Fire and forget
 
-    def handle_status_error_swap(self):
-        self.pair.config_manager.strategy_instance.handle_error_swap_status(self)
+    async def handle_status_error_swap(self):
+        await self.pair.config_manager.strategy_instance.handle_error_swap_status(self)
 
-    def handle_status_default(self):
+    async def handle_status_default(self):
         if not self.disabled:
-            self.pair.config_manager.general_log.error(f"status_check, no valid status: {self.symbol}, {self.order}")
-            self.create_order()
+            self.pair.config_manager.general_log.error(
+                f"status_check, no valid status: {self.symbol}, {self.order}")  # This log was already here, keep it.
+            await self.create_order()
 
-    def at_order_finished(self, disabled_coins):
+    async def at_order_finished(self, disabled_coins):
         if self.current_order['maker'] == self.pair.t1.symbol:
             side = 'SELL'
         else:
@@ -419,12 +429,13 @@ class DexPair:
         self.order_history = self.current_order
         self.write_last_order_history()
 
-        if self.order['taker'] == self.t1.symbol:
-            self.t1.dex.request_addr()
-        elif self.order['taker'] == self.t2.symbol:
-            self.t2.dex.request_addr()
+        if self.order and 'taker' in self.order:
+            if self.order['taker'] == self.t1.symbol:
+                await self.t1.dex.request_addr()
+            elif self.order['taker'] == self.t2.symbol:
+                await self.t2.dex.request_addr()
 
-        self.pair.config_manager.strategy_instance.handle_finished_order(self, disabled_coins)
+        await self.pair.config_manager.strategy_instance.handle_finished_order(self, disabled_coins)
 
 
 class CexPair:
@@ -437,8 +448,8 @@ class CexPair:
         self.cex_orderbook = None
         self.cex_orderbook_timer = None
 
-    def update_pricing(self, display=False):
-        self._update_token_prices()
+    async def update_pricing(self, display=False):
+        await self._update_token_prices()
         self.price = self.t1.cex.cex_price / self.t2.cex.cex_price
         if display:
             self.pair.config_manager.general_log.info(
@@ -447,15 +458,15 @@ class CexPair:
                 f"{self.symbol} price: {self.price}"
             )
 
-    def _update_token_prices(self):
-        if self.t1.cex.cex_price is None:
-            self.t1.cex.update_price()
-        if self.t2.cex.cex_price is None:
-            self.t2.cex.update_price()
+    async def _update_token_prices(self):
+        if self.t1.cex.cex_price is None:  # This is a blocking call
+            await self.t1.cex.update_price()
+        if self.t2.cex.cex_price is None:  # This is a blocking call
+            await self.t2.cex.update_price()
 
-    def update_orderbook(self, limit=25, ignore_timer=False):
+    async def update_orderbook(self, limit=25, ignore_timer=False):
         update_cex_orderbook_timer_delay = 2
         if ignore_timer or not self.cex_orderbook_timer or time.time() - self.cex_orderbook_timer > update_cex_orderbook_timer_delay:
-            self.cex_orderbook = self.pair.config_manager.ccxt_manager.ccxt_call_fetch_order_book(
+            self.cex_orderbook = await self.pair.config_manager.ccxt_manager.ccxt_call_fetch_order_book(
                 self.pair.config_manager.my_ccxt, self.symbol, self.symbol)
             self.cex_orderbook_timer = time.time()

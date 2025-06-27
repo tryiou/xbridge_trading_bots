@@ -2,17 +2,20 @@
 
 import os
 
-from definitions.xbridge_def import XBridgeManager
 from definitions.logger import setup_logger
+from definitions.xbridge_def import XBridgeManager
 
 if __name__ == '__main__':
     """
     A simple script to cancel all open XBridge orders.
     It initializes the necessary components to communicate with the Blocknet daemon.
     """
+
+
     class MinimalConfig:
         def __init__(self, logger):
             self.general_log = logger
+
 
     # Setup a basic logger for this script
     ROOT_DIR = os.path.dirname(os.path.abspath(__file__))

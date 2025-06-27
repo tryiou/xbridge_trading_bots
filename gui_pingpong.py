@@ -1,5 +1,6 @@
 import signal
 import sys
+
 from definitions.gui import GUI_Main
 
 
@@ -10,7 +11,8 @@ def signal_handler(sig, frame):
     if app.root:
         app.root.after(0, app.on_closing)
     else:
-        sys.exit(0) # Fallback if root is somehow already destroyed (unlikely during normal operation)
+        sys.exit(0)  # Fallback if root is somehow already destroyed (unlikely during normal operation)
+
 
 if __name__ == '__main__':
     app = GUI_Main()

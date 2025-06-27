@@ -1,14 +1,13 @@
-
+import asyncio
 import re
 import threading
-import tkinter as tk # type: ignore
+import tkinter as tk  # type: ignore
 from tkinter import ttk
 
-from ruamel.yaml import YAML # type: ignore
+from ruamel.yaml import YAML  # type: ignore
 from ttkbootstrap import Style
 
 from definitions.config_manager import ConfigManager
-
 
 TOTAL_WIDTH = 500
 
@@ -17,6 +16,7 @@ class GUI_Orders:
     """
     Manages the display and updates of trading orders in a Treeview widget.
     """
+
     def __init__(self, parent: "GUI_Main") -> None:
         self.parent = parent
         self.sortedpairs: list[str] = []
@@ -35,7 +35,7 @@ class GUI_Orders:
         height = len(self.sortedpairs) + 1
         self.orders_treeview = ttk.Treeview(
             self.orders_frame,
-            columns=list(columns), # Convert tuple to list for type consistency
+            columns=list(columns),  # Convert tuple to list for type consistency
             height=height,
             show="headings"
         )
@@ -80,7 +80,7 @@ class GUI_Orders:
                             order_status = 'None'
                             current_order_side = 'None'
                             variation_display = 'None'
-                            
+
                             if self.parent.started and pair.dex.order and 'status' in pair.dex.order:
                                 order_status = pair.dex.order.get('status', 'None')
                                 current_order_side = pair.dex.current_order.get('side', 'None')
@@ -92,7 +92,7 @@ class GUI_Orders:
                                 display_text,
                                 order_status,
                                 current_order_side,
-                                GUI_Main.get_flag(order_status), # Use static method
+                                GUI_Main.get_flag(order_status),  # Use static method
                                 variation_display
                             ]
                             if list(new_values) != list(values):
@@ -145,7 +145,7 @@ class GUI_Balances:
             for item_id in self.balances_treeview.get_children():
                 values = self.balances_treeview.item(item_id, 'values')
                 token = values[0]
-                
+
                 # Simplify repeated access to balance data
                 token_data = self.parent.config_manager.tokens[token]
                 usd_price = token_data.cex.usd_price
@@ -173,6 +173,7 @@ class GUI_Config:
     """
     Manages the configuration window for the bot settings.
     """
+
     def __init__(self, parent: "GUI_Main") -> None:
         self.parent = parent
         self.config_window: tk.Toplevel | None = None
@@ -194,10 +195,10 @@ class GUI_Config:
         self.parent.btn_configure.config(state="disabled")
 
         self.config_window = tk.Toplevel(self.parent.root)
-        self.config_window.title("Configure Bot") # type: ignore
-        self.config_window.protocol("WM_DELETE_WINDOW", self.on_close) # type: ignore
+        self.config_window.title("Configure Bot")  # type: ignore
+        self.config_window.protocol("WM_DELETE_WINDOW", self.on_close)  # type: ignore
 
-        main_frame = ttk.Frame(self.config_window) # type: ignore
+        main_frame = ttk.Frame(self.config_window)  # type: ignore
         main_frame.pack(fill='both', expand=True)
 
         canvas = tk.Canvas(main_frame)
@@ -244,7 +245,7 @@ class GUI_Config:
             self.config_window.bind("<Next>", lambda event: canvas.yview_scroll(10, "units"))  # Page Down
 
             def mouse_scroll(event: tk.Event) -> None:
-                delta = event.delta if event.delta != 0 else event.widget.winfo_pointery() # type: ignore
+                delta = event.delta if event.delta != 0 else event.widget.winfo_pointery()  # type: ignore
                 if delta > 0:
                     canvas.yview_scroll(-1, "units")
                 else:
@@ -270,7 +271,8 @@ class GUI_Config:
         """
         Creates the Treeview widget for displaying and managing pair configurations.
         """
-        ttk.Label(parent_frame, text="Pair Configurations:").grid(row=2, column=0, columnspan=2, padx=5, pady=5, sticky='w')
+        ttk.Label(parent_frame, text="Pair Configurations:").grid(row=2, column=0, columnspan=2, padx=5, pady=5,
+                                                                  sticky='w')
 
         tree_frame = ttk.Frame(parent_frame)
         tree_frame.grid(row=3, column=0, columnspan=2, padx=5, pady=5, sticky='nsew')
@@ -390,7 +392,7 @@ class GUI_Config:
         """
         if not self.config_window:
             return
-        dialog = AddPairDialog(self.config_window, self) # type: ignore
+        dialog = AddPairDialog(self.config_window, self)  # type: ignore
         self.config_window.wait_window(dialog)
 
         if dialog.result:
@@ -406,9 +408,9 @@ class GUI_Config:
         """
         if not self.pairs_treeview:
             return
-        selected = self.pairs_treeview.selection() # type: ignore
+        selected = self.pairs_treeview.selection()  # type: ignore
         if selected:
-            self.pairs_treeview.delete(selected) # type: ignore
+            self.pairs_treeview.delete(selected)  # type: ignore
 
     def edit_pair_config(self) -> None:
         """
@@ -416,10 +418,10 @@ class GUI_Config:
         """
         if not self.pairs_treeview:
             return
-        selected = self.pairs_treeview.selection() # type: ignore
+        selected = self.pairs_treeview.selection()  # type: ignore
         if selected:
-            values = self.pairs_treeview.item(selected, 'values') # type: ignore
-            dialog = PairConfigDialog(self.config_window, values, self) # type: ignore
+            values = self.pairs_treeview.item(selected, 'values')  # type: ignore
+            dialog = PairConfigDialog(self.config_window, values, self)  # type: ignore
             self.config_window.wait_window(dialog)
 
             if dialog.result:
@@ -700,7 +702,7 @@ class GUI_Main:
         """
         Starts the PingPong bot in a separate thread.
         """
-        import main_pingpong # Import here to avoid circular dependency at startup
+        import main_pingpong  # Import here to avoid circular dependency at startup
         self.status_var.set("Bot is running...")
         self.send_process = threading.Thread(target=main_pingpong.run_async_main,
                                              args=(self.config_manager,),
@@ -715,7 +717,7 @@ class GUI_Main:
         except Exception as e:
             self.status_var.set(f"Error starting bot: {e}")
             self.config_manager.general_log.error(f"Error starting bot thread: {e}")
-            self.stop(reload_config=False) # Attempt to clean up
+            self.stop(reload_config=False)  # Attempt to clean up
 
     def stop(self, reload_config: bool = True) -> None:
         """
@@ -741,7 +743,7 @@ class GUI_Main:
             self.config_manager.general_log.info("Stop requested, but bot was not running.")
 
         # Always attempt to cancel all orders and reset GUI state
-        self.cancel_all() # Ensure all orders are cancelled regardless of thread state
+        self.cancel_all()  # Ensure all orders are cancelled regardless of thread state
         self.started = False
         self.btn_stop.config(state="disabled")
         self.btn_start.config(state="active")
@@ -755,8 +757,28 @@ class GUI_Main:
         Cancels all open orders on the exchange.
         """
         self.status_var.set("Cancelling all open orders...")
-        self.config_manager.xbridge_manager.cancelallorders()
-        self.status_var.set("Cancelled all open orders")
+        # The bot must be running to have a controller and a running event loop
+        if self.started and self.config_manager.controller and self.config_manager.controller.loop.is_running():
+            future = asyncio.run_coroutine_threadsafe(
+                self.config_manager.xbridge_manager.cancelallorders(),
+                self.config_manager.controller.loop
+            )
+            try:
+                future.result(timeout=15)  # Wait for up to 15 seconds
+                self.status_var.set("Cancelled all open orders.")
+                self.config_manager.general_log.info("cancel_all: All orders cancelled successfully.")
+            except Exception as e:
+                self.status_var.set(f"Error cancelling orders: {e}")
+                self.config_manager.general_log.error(f"Error during cancel_all: {e}")
+        else:
+            self.config_manager.general_log.info("cancel_all: Bot not running, using new event loop.")
+            try:
+                asyncio.run(self.config_manager.xbridge_manager.cancelallorders())
+                self.status_var.set("Cancelled all open orders.")
+                self.config_manager.general_log.info("cancel_all: All orders cancelled successfully.")
+            except Exception as e:
+                self.status_var.set(f"Error cancelling orders: {e}")
+                self.config_manager.general_log.error(f"Error during cancel_all with new loop: {e}")
 
     def refresh_gui(self) -> None:
         """

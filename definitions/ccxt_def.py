@@ -1,3 +1,4 @@
+import asyncio
 import json
 import socket
 import sys
@@ -43,7 +44,8 @@ class CCXTManager:
             done = False
             while not done:
                 try:
-                    instance.load_markets()
+                    # Run blocking load_markets in a thread pool executor
+                    instance.load_markets()  # Directly call the blocking method
                 except Exception as e:
                     self._manage_error(e)
                     exit()
@@ -53,18 +55,20 @@ class CCXTManager:
         else:
             return None
 
-    def ccxt_call_fetch_order_book(self, ccxt_o, symbol, limit=25, ignore_timer=False):
+    async def ccxt_call_fetch_order_book(self, ccxt_o, symbol, limit=25, ignore_timer=False):
         update_cex_orderbook_timer_delay = 2
         if ignore_timer or not ccxt_o.cex_orderbook_timer or time.time() - ccxt_o.cex_orderbook_timer > update_cex_orderbook_timer_delay:
-            self.cex_orderbook = self._fetch_order_book(ccxt_o, symbol, limit)
+            self.cex_orderbook = await self._fetch_order_book(ccxt_o, symbol, limit)
             self.cex_orderbook_timer = time.time()
         return self.cex_orderbook
 
-    def _fetch_order_book(self, ccxt_o, symbol, limit):
+    async def _fetch_order_book(self, ccxt_o, symbol, limit):
         err_count = 0
+        loop = asyncio.get_running_loop()
         while True:
             try:
-                result = ccxt_o.fetch_order_book(symbol, limit)
+                # Run blocking fetch_order_book in a thread pool executor
+                result = await loop.run_in_executor(None, ccxt_o.fetch_order_book, symbol, limit)
             except Exception as error:
                 err_count += 1
                 self._manage_error(error, err_count)
@@ -72,11 +76,13 @@ class CCXTManager:
                 self._debug_display('ccxt_call_fetch_order_book', [symbol, limit], result)
                 return result
 
-    def ccxt_call_fetch_free_balance(self, ccxt_o):
+    async def ccxt_call_fetch_free_balance(self, ccxt_o):
         err_count = 0
+        loop = asyncio.get_running_loop()
         while True:
             try:
-                result = ccxt_o.fetch_free_balance()
+                # Run blocking fetch_free_balance in a thread pool executor
+                result = await loop.run_in_executor(None, ccxt_o.fetch_free_balance)
             except Exception as error:
                 err_count += 1
                 self._manage_error(error, err_count)
@@ -84,34 +90,38 @@ class CCXTManager:
                 self._debug_display('ccxt_call_fetch_free_balance', [], result)
                 return result
 
-    def ccxt_call_fetch_tickers(self, ccxt_o, symbols_list, proxy=True):
+    async def ccxt_call_fetch_tickers(self, ccxt_o, symbols_list, proxy=True):
         start = time.time()
-        err_count = 0
-        result = None
-        while not result:
-            try:
-                used_proxy = False
-                if self.isportopen("127.0.0.1", 2233) and proxy:  # CCXT PROXY
-                    result = rpc_call("ccxt_call_fetch_tickers", tuple(symbols_list), rpc_port=2233,
-                                      debug=self.config_manager.config_ccxt.debug_level, display=False)
-                    used_proxy = True
-                else:
-                    result = ccxt_o.fetchTickers(symbols_list)
-            except Exception as error:
-                err_count += 1
-                self._manage_error(error, err_count)
-            else:
-                stop = time.time()
-                self._debug_display('ccxt_call_fetch_tickers', str(symbols_list) + ' used_proxy? ' + str(used_proxy),
-                                    result,
-                                    timer=stop - start)
-                return result
-
-    def ccxt_call_fetch_ticker(self, ccxt_o, symbol):
         err_count = 0
         while True:
             try:
-                result = ccxt_o.fetch_ticker(symbol)
+                used_proxy = False
+                if self.isportopen("127.0.0.1", 2233) and proxy:  # CCXT PROXY
+                    result = await rpc_call("ccxt_call_fetch_tickers", tuple(symbols_list), rpc_port=2233,
+                                            debug=self.config_manager.config_ccxt.debug_level, display=False,
+                                            logger=self.config_manager.general_log)
+                    used_proxy = True
+                else:
+                    loop = asyncio.get_running_loop()
+                    result = await loop.run_in_executor(None, ccxt_o.fetchTickers, symbols_list)
+
+                if result:
+                    stop = time.time()
+                    self._debug_display('ccxt_call_fetch_tickers',
+                                        str(symbols_list) + ' used_proxy? ' + str(used_proxy),
+                                        result,
+                                        timer=stop - start)
+                    return result
+            except Exception as error:
+                err_count += 1
+                self._manage_error(error, err_count)
+
+    async def ccxt_call_fetch_ticker(self, ccxt_o, symbol):
+        err_count = 0
+        loop = asyncio.get_running_loop()
+        while True:
+            try:
+                result = await loop.run_in_executor(None, ccxt_o.fetch_ticker, symbol)
             except Exception as error:
                 err_count += 1
                 self._manage_error(error, err_count)
