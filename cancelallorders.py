@@ -1,5 +1,6 @@
 # cancel all own open orders on xbridge
 
+import asyncio
 import os
 
 from definitions.logger import setup_logger
@@ -24,5 +25,5 @@ if __name__ == '__main__':
     general_log.info("Initializing to cancel all orders...")
     xbridge_manager = XBridgeManager(MinimalConfig(general_log))
     general_log.info("Sending cancel all orders command...")
-    xbridge_manager.cancelallorders()
+    asyncio.run(xbridge_manager.cancelallorders())
     general_log.info("All open orders have been cancelled.")

@@ -478,7 +478,7 @@ class ArbitrageStrategy(BaseStrategy):
     def should_update_cex_prices(self) -> bool:
         return False
 
-    async def thread_loop_blocking_action(self, pair_instance):
+    async def thread_loop_async_action(self, pair_instance):
         """The core arbitrage logic. This is now an async method."""
         check_id = str(uuid.uuid4())[:8]
         if pair_instance.disabled:
@@ -688,5 +688,5 @@ class ArbitrageStrategy(BaseStrategy):
     def handle_error_swap_status(self, dex_pair_instance):
         pass
 
-    def thread_init_blocking_action(self, pair_instance):
+    async def thread_init_async_action(self, pair_instance):
         pass

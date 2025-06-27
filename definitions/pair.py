@@ -278,14 +278,21 @@ class DexPair:
                                                                         taker_size, taker_address)
 
     def _handle_order_error(self):
-        if 'code' in self.order and self.order['code'] not in {1019, 1018, 1026, 1032}:
+        # Store the original error object before it's potentially modified
+        original_order_error = self.order
+
+        if 'code' in original_order_error and original_order_error['code'] not in {1019, 1018, 1026, 1032}:
             self.disabled = True  # This line was already here, keep it.
+
+        # This call sets self.order to None in some strategies
         self.pair.config_manager.strategy_instance.handle_order_status_error(self)
-        self.pair.config_manager.general_log.error(  # This log was already here, keep it.
+
+        # Log the original error object for better debugging
+        self.pair.config_manager.general_log.error(
             f"Error making order on Pair: {self.pair.name} | "
             f"Symbol: {self.symbol} | "
             f"disabled: {self.disabled} | "
-            f"{self.order}")
+            f"Details: {original_order_error}")
 
     def _log_dry_mode_order(self, order):
         msg = (f"xb.makeorder({self.current_order['maker']}, {self.current_order['maker_size']:.6f}, "
