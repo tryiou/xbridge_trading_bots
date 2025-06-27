@@ -1,10 +1,6 @@
 import asyncio
-import concurrent.futures
-import logging
 import time
-import traceback 
-
-import definitions.xbridge_def as xb
+import traceback
 
 debug_level = 2
 
@@ -12,7 +8,6 @@ CCXT_PRICE_REFRESH = 2
 UPDATE_BALANCES_DELAY = 0.5
 FLUSH_DELAY = 15 * 60
 MAX_THREADS = 5
-OPERATION_INTERVAL = 15  # Main loop operations interval (in seconds)
 SLEEP_INTERVAL = 1  # Shorter sleep interval (in seconds)
 
 
@@ -25,10 +20,10 @@ class TradingProcessor:
         futures = []
         loop = asyncio.get_running_loop()
         for pair in self.pairs_dict.values():
-            if self.controller.stop_order:
-                break
-            # Offload blocking target_function to the thread pool
-            future = loop.run_in_executor(None, target_function, pair)
+            if self.controller.stop_order: break
+            # If target_function is async, await it directly. If blocking, run in executor.
+            future = target_function(pair) if asyncio.iscoroutinefunction(target_function) else loop.run_in_executor(
+                None, target_function, pair)
             futures.append(future)
         # Wait for all tasks to complete
         if futures:
@@ -36,36 +31,32 @@ class TradingProcessor:
 
 
 class BalanceManager:
-    def __init__(self, tokens_dict, config_manager):
+    def __init__(self, tokens_dict, config_manager, loop):
         self.tokens_dict = tokens_dict
         self.config_manager = config_manager
         self.timer_main_dx_update_bals = None
-        self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=MAX_THREADS) # Use a dedicated executor
+        self.loop = loop
 
     async def update_balances(self):
         if self._should_update_bals():
-            loop = asyncio.get_running_loop()
-            # Offload blocking xb.getlocaltokens to the thread pool
-            xb_tokens = await loop.run_in_executor(self.executor, xb.getlocaltokens)
-            
+            xb_tokens = await self.config_manager.xbridge_manager.getlocaltokens()
+
             futures = []
             for token_data in self.tokens_dict.values():
-                # Offload blocking _update_token_balance_blocking to the thread pool
-                futures.append(loop.run_in_executor(self.executor, self._update_token_balance_blocking, token_data, xb_tokens))
-            
+                futures.append(self._update_token_balance(token_data, xb_tokens))
+
             if futures:
-                await asyncio.gather(*futures) # Wait for all balance updates to complete
-            
+                await asyncio.gather(*futures)  # Wait for all balance updates to complete
+
             self.timer_main_dx_update_bals = time.time()
 
     def _should_update_bals(self):
         return self.timer_main_dx_update_bals is None or time.time() - self.timer_main_dx_update_bals > UPDATE_BALANCES_DELAY
 
-    def _update_token_balance_blocking(self, token_data, xb_tokens):
+    async def _update_token_balance(self, token_data, xb_tokens):
         if xb_tokens and token_data.symbol in xb_tokens:
-            # This function remains blocking, but is now explicitly run in an executor thread
-            utxos = xb.gettokenutxo(token_data.symbol, used=True) # This is a blocking call
-            bal, bal_free = self._calculate_balances(utxos) 
+            utxos = await self.config_manager.xbridge_manager.gettokenutxo(token_data.symbol, used=True)
+            bal, bal_free = self._calculate_balances(utxos)
             token_data.dex.total_balance = bal
             token_data.dex.free_balance = bal_free
         else:
@@ -84,17 +75,22 @@ class BalanceManager:
 
 
 class PriceHandler:
-    def __init__(self, main_controller):
+    def __init__(self, main_controller, loop):
         self.tokens_dict = main_controller.tokens_dict
         self.ccxt_i = main_controller.ccxt_i
         self.config_manager = main_controller.config_manager
         self.main_controller = main_controller
+        self.loop = loop
         self.ccxt_price_timer = None
 
     async def update_ccxt_prices(self):
+        if not self.config_manager.strategy_instance.should_update_cex_prices():
+            self.config_manager.general_log.debug("Strategy does not require CEX price updates.")
+            return
+
         if self.ccxt_price_timer is None or time.time() - self.ccxt_price_timer > CCXT_PRICE_REFRESH:
             try:
-                await self._fetch_and_update_prices() # Await the async call
+                await self._fetch_and_update_prices()  # Await the async call
                 self.ccxt_price_timer = time.time()
             except Exception as e:
                 self.config_manager.general_log.error(f"Error in update_ccxt_prices: {e}", exc_info=True)
@@ -102,36 +98,28 @@ class PriceHandler:
     async def _fetch_and_update_prices(self):
         custom_coins = self.config_manager.config_coins.usd_ticker_custom.keys()
         keys = [self._construct_key(token) for token in self.tokens_dict if token not in custom_coins]
-        
-        loop = asyncio.get_running_loop()
 
-        try:
-            # Offload blocking CCXT call to the thread pool
-            tickers = await loop.run_in_executor(None, self.config_manager.ccxt_manager.ccxt_call_fetch_tickers, self.ccxt_i, keys)
-            # _update_token_prices is a synchronous method, but it contains blocking calls
-            # It needs to be run in an executor if token_data.cex.update_price() is blocking.
-            await loop.run_in_executor(None, self._update_token_prices_blocking, tickers)
-        except Exception as e:
-            self.config_manager.general_log.error(f"Error fetching tickers: {e}", exc_info=True)
+        tickers = await self.config_manager.ccxt_manager.ccxt_call_fetch_tickers(self.ccxt_i, keys)
+        await self._update_token_prices_blocking(tickers)
 
     def _construct_key(self, token):
         return f"{token}/USDT" if token == 'BTC' else f"{token}/BTC"
 
-    def _update_token_prices_blocking(self, tickers):
-        # This function remains blocking, but is now explicitly run in an executor thread
+    async def _update_token_prices_blocking(self, tickers):
         lastprice_string = self._get_last_price_string()
         for token, token_data in sorted(self.tokens_dict.items(), key=lambda item: (item[0] != 'BTC', item[0])):
             if self.main_controller.stop_order:
                 return
             if token not in self.config_manager.config_coins.usd_ticker_custom:
-                symbol = f"{token_data.symbol}/USDT" if token_data.symbol == 'BTC' else f"{token_data.symbol}/BTC" # This is a blocking call
-                self._update_token_price_blocking(tickers, symbol, lastprice_string, token_data)
+                symbol = f"{token_data.symbol}/USDT" if token_data.symbol == 'BTC' else f"{token_data.symbol}/BTC"
+                # This is a blocking call
+                await self._update_token_price_blocking(tickers, symbol, lastprice_string, token_data)
 
         for token in self.config_manager.config_coins.usd_ticker_custom:
             if self.main_controller.stop_order:
                 return
             if token in self.tokens_dict:
-                self.tokens_dict[token].cex.update_price() # This is a blocking call
+                await self.tokens_dict[token].cex.update_price()
 
     def _get_last_price_string(self):
         return {
@@ -140,13 +128,12 @@ class PriceHandler:
         }.get(self.config_manager.my_ccxt.id, "lastTradeRate")
 
     # def _update_token_price(self, tickers, symbol, lastprice_string, token_data):
-    def _update_token_price_blocking(self, tickers, symbol, lastprice_string, token_data):
-        # This function remains blocking, but is now explicitly run in an executor thread
+    async def _update_token_price_blocking(self, tickers, symbol, lastprice_string, token_data):
         if symbol in tickers:
-            last_price = float(tickers[symbol]['info'][lastprice_string]) # This is a blocking call
+            last_price = float(tickers[symbol]['info'][lastprice_string])  # This is a blocking call
             if token_data.symbol == 'BTC':
-                    token_data.cex.usd_price = last_price
-                    token_data.cex.cex_price = 1
+                token_data.cex.usd_price = last_price
+                token_data.cex.cex_price = 1
             else:
                 token_data.cex.cex_price = last_price
                 token_data.cex.usd_price = last_price * self.tokens_dict['BTC'].cex.usd_price
@@ -157,142 +144,162 @@ class PriceHandler:
 
 
 class MainController:
-    def __init__(self, config_manager):
+    def __init__(self, config_manager, loop):
         self.config_manager = config_manager
         self.pairs_dict = config_manager.pairs
         self.tokens_dict = config_manager.tokens
         self.ccxt_i = config_manager.my_ccxt
         self.config_coins = config_manager.config_coins
         self.disabled_coins = []
+        self.http_session = None  # Initialize http_session
         self.stop_order = False
+        self.loop = loop
 
-        self.price_handler = PriceHandler(self)
-        self.balance_manager = BalanceManager(self.tokens_dict, self.config_manager)
+        self.price_handler = PriceHandler(self, self.loop)
+        self.balance_manager = BalanceManager(self.tokens_dict, self.config_manager, self.loop)
         self.processor = TradingProcessor(self)
+        self.config_manager.strategy_instance.controller = self  # Pass controller to strategy
 
     async def main_init_loop(self):
-        await self.balance_manager.update_balances() # Await the async call
-        await self.price_handler.update_ccxt_prices() # Await the async call
+        # Initialize token addresses, which was previously done in a sync constructor
+        token_init_futures = []
+        for token in self.tokens_dict.values():
+            if token.dex.enabled:
+                token_init_futures.append(token.dex.read_address())
+        if token_init_futures:
+            await asyncio.gather(*token_init_futures)
 
-        loop = asyncio.get_running_loop()
+        # Load XBridge configuration asynchronously if enabled
+        if self.config_manager.load_xbridge_conf_on_startup:
+            await self.config_manager.xbridge_manager.dxloadxbridgeconf()
+
+        await self.balance_manager.update_balances()  # Await the async call
+        await self.price_handler.update_ccxt_prices()  # Await the async call
+
         futures = []
         for pair in self.pairs_dict.values():
             if self.stop_order:
-                return
-            # Offload blocking pair.cex.update_pricing() to the thread pool
-            futures.append(loop.run_in_executor(None, pair.cex.update_pricing))
+                return  # This is a blocking call
+            if self.config_manager.strategy_instance.should_update_cex_prices():  # This is a blocking call
+                futures.append(pair.cex.update_pricing())  # This is a blocking call
+
         if futures:
             await asyncio.gather(*futures)
 
-        await self._process_pairs(self.thread_init_blocking) # Await the async call
+        await self.processor.process_pairs(self.config_manager.strategy_instance.thread_init_async_action)
 
     async def main_loop(self):
         start_time = time.perf_counter()
-        await self.balance_manager.update_balances() # Await the async call
-        await self.price_handler.update_ccxt_prices() # Await the async call
+        await self.balance_manager.update_balances()  # Await the async call
+        await self.price_handler.update_ccxt_prices()  # Await the async call
 
-        loop = asyncio.get_running_loop()
         futures = []
 
         for pair in self.pairs_dict.values():
             if self.stop_order:
-                return
-            # Offload blocking pair.cex.update_pricing() to the thread pool
-            futures.append(loop.run_in_executor(None, pair.cex.update_pricing))
+                return  # This is a blocking call
+            if self.config_manager.strategy_instance.should_update_cex_prices():  # This is a blocking call
+                futures.append(pair.cex.update_pricing())  # This is a blocking call
         if futures:
             await asyncio.gather(*futures)
 
-        await self._process_pairs(self.thread_loop_blocking)
+        await self.processor.process_pairs(self.config_manager.strategy_instance.thread_loop_async_action)
         self._report_time(start_time)
-
-    async def _process_pairs(self, target_function):
-        await self.processor.process_pairs(target_function) # Await the async call
 
     def _report_time(self, start_time):
         end_time = time.perf_counter()
         self.config_manager.general_log.info(f'Operation took {end_time - start_time:0.2f} second(s) to complete.')
 
     def thread_init_blocking(self, pair):
-        # This function remains blocking, but is now explicitly run in an executor thread
         try:
-            pair.dex.init_virtual_order(self.disabled_coins) # This is a blocking call
-            pair.dex.create_order() # This is a blocking call
-        except Exception as e:
-            self.config_manager.general_log.error(f"Error in thread_init: {e}", exc_info=True)
-
-    def thread_loop_blocking(self, pair):
-        # This function remains blocking, but is now explicitly run in an executor thread
-        try:
-            pair.dex.status_check(self.disabled_coins) # This is a blocking call
+            self.config_manager.strategy_instance.thread_loop_blocking_action(pair)
         except Exception as e:
             self.config_manager.general_log.error(f"Error in thread_loop: {e}", exc_info=True)
 
 
-def run_async_main(config_manager):
-    """Runs the main loop using a new event loop."""
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    controller = None # Initialize controller to None for finally block
+def run_async_main(config_manager, loop=None):
+    """Runs the main application loop, with graceful shutdown handling."""
+    if loop is None:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+    controller = MainController(config_manager, loop)
+    config_manager.controller = controller
+
+    # Create the main task
+    main_task = loop.create_task(main(config_manager, loop))
+
     try:
-        controller = MainController(config_manager)
-        config_manager.controller = controller
-        loop.run_until_complete(main(config_manager))
+        # Run the event loop until the main task is complete.
+        loop.run_until_complete(main_task)
     except (SystemExit, KeyboardInterrupt):
         config_manager.general_log.info("Received Stop order. Cleaning up...")
-        xb.cancelallorders()
-        # Ensure executors are shut down
-        if controller:
-            if hasattr(controller.processor, 'executor'):
-                controller.processor.executor.shutdown(wait=True)
-            if hasattr(controller.balance_manager, 'executor'):
-                controller.balance_manager.executor.shutdown(wait=True)
-            if hasattr(controller.price_handler, 'executor'): # Added price_handler executor shutdown
-                controller.price_handler.executor.shutdown(wait=True)
-            if hasattr(controller, 'executor'):
-                controller.executor.shutdown(wait=True)
     except Exception as e:
         config_manager.general_log.error(f"Exception in run_async_main: {e}")
         traceback.print_exc()
-        xb.cancelallorders()
-        # Ensure executors are shut down
-        if controller:
-            if hasattr(controller.processor, 'executor'):
-                controller.processor.executor.shutdown(wait=True)
-            if hasattr(controller.balance_manager, 'executor'):
-                controller.balance_manager.executor.shutdown(wait=True)
-            if hasattr(controller.price_handler, 'executor'): # Added price_handler executor shutdown
-                controller.price_handler.executor.shutdown(wait=True)
-            if hasattr(controller, 'executor'):
-                controller.executor.shutdown(wait=True)
-        raise # Re-raise to allow graceful exit from main_pingpong.py
+        raise
     finally:
-        # Ensure the loop is closed
-        if loop.is_running(): # Check if loop is still running before closing
+        # This block will run for clean exit, SystemExit, and KeyboardInterrupt
+
+        # Cancel the main task if it's still running (e.g., from KeyboardInterrupt)
+        if not main_task.done():
+            main_task.cancel()
+            try:
+                # Give the task a chance to finish its cancellation
+                loop.run_until_complete(main_task)
+            except asyncio.CancelledError:
+                pass  # This is expected
+
+        # Run final cleanup
+        try:
+            # Use the same loop for cleanup
+            loop.run_until_complete(config_manager.xbridge_manager.cancelallorders())
+        except Exception as e:
+            config_manager.general_log.error(f"Error during cleanup: {e}")
+
+        if loop and not loop.is_closed():
             loop.close()
 
 
-async def main(config_manager):
-    """Generic main loop that works with any strategy."""
-    await config_manager.controller.main_init_loop()
+async def main(config_manager, loop):
+    import aiohttp  # Import aiohttp
+    """Generic main loop that works with any strategy. Handles graceful cancellation."""
+    try:
+        async with aiohttp.ClientSession() as session:
+            # Pass the session to the controller and strategy if needed
+            config_manager.controller.http_session = session
+            if hasattr(config_manager.strategy_instance, 'http_session'):
+                config_manager.strategy_instance.http_session = session
 
-    flush_timer = time.time()
-    operation_timer = time.time()
+            await config_manager.controller.main_init_loop()
 
-    while True:
-        current_time = time.time()
+            # Perform the first operation immediately on startup
+            config_manager.general_log.info("Performing initial operation...")
+            await config_manager.controller.main_loop()
 
-        if config_manager.controller and config_manager.controller.stop_order:
-            config_manager.general_log.info("Received stop_order")
-            break
-        
-        # Offload blocking xb.dxflushcancelledorders to the thread pool
-        if current_time - flush_timer > FLUSH_DELAY:
-            loop = asyncio.get_running_loop()
-            await loop.run_in_executor(None, xb.dxflushcancelledorders)
-            flush_timer = current_time
+            # Get the operation interval from the strategy
+            operation_interval = config_manager.strategy_instance.get_operation_interval()
+            config_manager.general_log.info(
+                f"Using operation interval of {operation_interval} seconds for {config_manager.strategy} strategy.")
 
-        if current_time - operation_timer > OPERATION_INTERVAL:
-            await config_manager.controller.main_loop() # Await the async main_loop
-            operation_timer = current_time
+            flush_timer = time.time()
+            operation_timer = time.time()
 
-        await asyncio.sleep(SLEEP_INTERVAL)
+            while True:
+                current_time = time.time()
+
+                if config_manager.controller and config_manager.controller.stop_order:
+                    config_manager.general_log.info("Received stop_order")
+                    break
+
+                if current_time - flush_timer > FLUSH_DELAY:
+                    await config_manager.xbridge_manager.dxflushcancelledorders()
+                    flush_timer = current_time
+
+                if current_time - operation_timer > operation_interval:
+                    await config_manager.controller.main_loop()
+                    operation_timer = current_time
+
+                await asyncio.sleep(SLEEP_INTERVAL)
+    except asyncio.CancelledError:
+        config_manager.general_log.info("Main loop was cancelled.")

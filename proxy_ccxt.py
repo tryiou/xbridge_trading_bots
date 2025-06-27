@@ -25,6 +25,7 @@ def async_retry(max_retries=5, delay=1, backoff=2):
     """
     A decorator for retrying an async function with exponential backoff.
     """
+
     def decorator(f):
         @wraps(f)
         async def wrapper(*args, **kwargs):
@@ -41,7 +42,9 @@ def async_retry(max_retries=5, delay=1, backoff=2):
                         raise
                     await asyncio.sleep(_delay)
                     _delay *= backoff
+
         return wrapper
+
     return decorator
 
 
@@ -309,6 +312,7 @@ async def main():
         if session and not session.closed:
             await session.close()
         logging.info("Shutdown complete.")
+
 
 if __name__ == "__main__":
     try:

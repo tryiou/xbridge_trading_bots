@@ -1,11 +1,11 @@
 import os
 import shutil
 
-from definitions import xbridge_def
 from definitions.ccxt_def import CCXTManager
 from definitions.logger import setup_logger
-from definitions.pair import Pair
+from definitions.strategy import BaseStrategy, PingPongStrategy, BasicSellerStrategy, ArbitrageStrategy
 from definitions.token import Token
+from definitions.xbridge_def import XBridgeManager
 from definitions.yaml_mix import YamlToObject
 
 
@@ -17,11 +17,15 @@ class ConfigManager:
         self.config_ccxt = None
         self.config_coins = None
         self.config_pp = None
+        self.strategy_config = {}
+        self.strategy_instance: BaseStrategy = None
         self.load_configs()
         self.tokens = {}  # Token data
         self.pairs = {}  # Pair data
         self.my_ccxt = None  # CCXT instance
+        self.xbridge_manager = None
         self.ccxt_manager = CCXTManager(self)
+        self.load_xbridge_conf_on_startup = True  # Default value, will be updated by initialize
         self.xbridge_conf = None  # XBridge configuration
         self.disabled_coins = []  # Centralized disabled coins tracking
         self.controller = None
@@ -59,70 +63,38 @@ class ConfigManager:
         self.config_coins = YamlToObject("./config/config_coins.yaml")
         self.config_pp = YamlToObject("./config/config_pingpong.yaml") if self.strategy == "pingpong" else None
 
-    def _init_tokens(self, token_to_sell=None, token_to_buy=None):
-        """Initialize token objects based on strategy configuration"""
-        tokens_list = None
-        if self.strategy == "pingpong":
-            tokens_list = [cfg['pair'].split("/")[0] for cfg in self.config_pp.pair_configs if cfg.get('enabled', True)]
-            tokens_list.extend(
-                [cfg['pair'].split("/")[1] for cfg in self.config_pp.pair_configs if cfg.get('enabled', True)])
-        elif self.strategy == "basic_seller":
-            tokens_list = [token_to_sell, token_to_buy]
+    def _init_tokens(self, **kwargs):
+        """Initialize token objects based on strategy configuration, delegated to strategy instance."""
+        tokens_list = self.strategy_instance.get_tokens_for_initialization(**kwargs)
 
         if not tokens_list or len(tokens_list) < 2:
             raise ValueError(f"tokens_list must contain at least two tokens: {tokens_list}")
 
         # ENSURE BTC IS PRESENT.
         if 'BTC' not in tokens_list:
-            self.tokens['BTC'] = Token('BTC',
-                                       strategy=self.strategy,
-                                       config_manager=self,
-                                       dex_enabled=False)
+            self.tokens['BTC'] = Token(
+                'BTC',
+                strategy=self.strategy,  # Keep strategy for now, might be removed later
+                config_manager=self,
+                dex_enabled=False  # BTC is usually for pricing only, unless specified by strategy
+            )
 
         # REMOVE DOUBLE ENTRIES
         tokens_list = list(set(tokens_list))
         for token_symbol in tokens_list:
-            self.tokens[token_symbol] = Token(token_symbol,
-                                              strategy=self.strategy,
-                                              config_manager=self)
-
-    def _init_pairs(self, token_to_sell=None, token_to_buy=None, amount_token_to_sell=None, min_sell_price_usd=None,
-                    sell_price_offset=None,
-                    partial_percent=None):
-        """Initialize trading pairs based on strategy configuration"""
-        if self.strategy == "pingpong":
-            enabled_pairs = [cfg for cfg in self.config_pp.pair_configs if cfg.get('enabled', True)]
-            print(f"enabled_pairs: {enabled_pairs}")
-            # exit(1)
-            for cfg in enabled_pairs:
-                t1, t2 = cfg['pair'].split("/")
-                pair_name = f"{cfg['name']}"
-                self.pairs[pair_name] = Pair(
-                    token1=self.tokens[t1],
-                    token2=self.tokens[t2],
-                    cfg=cfg,
-                    strategy="pingpong",
-                    dex_enabled=True,
-                    partial_percent=None,
-                    config_manager=self
+            # Only create if not already created (e.g., BTC)
+            if token_symbol not in self.tokens:
+                dex_enabled = self.strategy == 'arbitrage' or token_symbol != 'BTC'
+                self.tokens[token_symbol] = Token(
+                    token_symbol,
+                    strategy=self.strategy,  # Keep strategy for now, might be removed later
+                    config_manager=self,
+                    dex_enabled=dex_enabled
                 )
-        elif self.strategy == "basic_seller":
-            if token_to_sell is None or token_to_buy is None:
-                raise ValueError("Need at least two tokens for basic_seller strategy")
 
-            pair_key = f"{token_to_sell}/{token_to_buy}"
-
-            self.pairs[pair_key] = Pair(
-                token1=self.tokens[token_to_sell],
-                token2=self.tokens[token_to_buy],
-                cfg={'name': "basic_seller"},
-                strategy="basic_seller",
-                amount_token_to_sell=amount_token_to_sell,
-                min_sell_price_usd=min_sell_price_usd,
-                sell_price_offset=sell_price_offset,
-                partial_percent=partial_percent,
-                config_manager=self
-            )
+    def _init_pairs(self, **kwargs):
+        """Initialize trading pairs based on strategy configuration, delegated to strategy instance."""
+        self.pairs = self.strategy_instance.get_pairs_for_initialization(self.tokens, **kwargs)
 
     def _init_ccxt(self):
         """Initialize CCXT instance"""
@@ -135,20 +107,33 @@ class ConfigManager:
 
     def _init_xbridge(self):
         """Initialize XBridge configuration"""
-        xbridge_def.dxloadxbridgeconf()
+        self.xbridge_manager.dxloadxbridgeconf()
 
-    def initialize(self, token_to_sell=None, token_to_buy=None, amount_token_to_sell=None, min_sell_price_usd=None,
-                   sell_price_offset=None, partial_percent=None, loadxbridgeconf=True):
+    def initialize(self, **kwargs):
+        loadxbridgeconf = kwargs.get('loadxbridgeconf', True)
+        self.strategy_config.update(kwargs)
 
         self.tokens = {}  # Token data
         self.pairs = {}  # Pair data
+        self.xbridge_manager = XBridgeManager(self)
+        self.load_xbridge_conf_on_startup = loadxbridgeconf  # Store the flag
+
+        if self.strategy == "pingpong":
+            self.strategy_instance = PingPongStrategy(self)
+        elif self.strategy == "basic_seller":
+            self.strategy_instance = BasicSellerStrategy(self)
+        elif self.strategy == "arbitrage":
+            self.strategy_instance = ArbitrageStrategy(self)
+        else:
+            raise ValueError(f"Unknown strategy: {self.strategy}")
+        self.strategy_instance.initialize_strategy_specifics(**kwargs)
+
         # Initialize tokens based on strategy
-        self._init_tokens(token_to_sell, token_to_buy)
+        self._init_tokens(**kwargs)
 
         # Initialize pairs based on strategy
-        self._init_pairs(token_to_sell, token_to_buy, amount_token_to_sell, min_sell_price_usd, sell_price_offset,
-                         partial_percent)
+        self._init_pairs(**kwargs)
         if self.my_ccxt is None:
             self._init_ccxt()
-        if loadxbridgeconf:
-            self._init_xbridge()
+        # dxloadxbridgeconf is now called asynchronously in MainController.main_init_loop
+        # self._init_xbridge() # This method is now effectively a no-op if dxloadxbridgeconf is removed

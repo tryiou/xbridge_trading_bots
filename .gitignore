@@ -1,4 +1,5 @@
 .idea/
+doc/
 config/api_keys.local.json
 config/config_ccxt.yaml
 config/config_coins.yaml

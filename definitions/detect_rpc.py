@@ -216,9 +216,6 @@ def detect_rpc_json():
 
     rpc_user, rpc_password, rpc_port = read_config_file(config_path)
 
-    # print(f'Blocknet Core Config path: {config_path}')
-    # print(f'RPC User: {rpc_user}')
-    # print(f'RPC Port: {rpc_port}')
     return rpc_user, rpc_port, rpc_password
 
 
