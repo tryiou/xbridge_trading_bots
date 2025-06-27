@@ -70,8 +70,7 @@ class DexPair:
         self.orderbook.pop('detail', None)
 
     def _get_history_file_path(self):
-        unique_id = self.pair.name.replace("/", "_")
-        return f"{self.pair.config_manager.ROOT_DIR}/data/{self.pair.strategy}_{unique_id}_last_order.yaml"
+        return self.pair.config_manager.strategy_instance.get_dex_history_file_path(self.pair.name)
 
     def read_last_order_history(self):
         if not self.pair.dex_enabled:

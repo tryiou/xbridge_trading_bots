@@ -223,13 +223,25 @@ class GUI_Config:
 
         self._set_window_geometry()
 
+    def _on_key_press_scroll(self, event: tk.Event, canvas: tk.Canvas, direction: int) -> None:
+        """
+        Handles keyboard scrolling for the canvas, but allows widgets like
+        Treeview to handle their own keyboard navigation.
+        """
+        # If the widget with focus is the pairs_treeview, do not scroll the canvas.
+        # Let the Treeview handle its default Up/Down key behavior (selection change).
+        if self.config_window and self.pairs_treeview and self.config_window.focus_get() == self.pairs_treeview:
+            return
+
+        canvas.yview_scroll(direction, "units")
+
     def _setup_scroll_bindings(self, canvas: tk.Canvas) -> None:
         """
         Sets up keyboard and mouse scroll bindings for the canvas.
         """
         if self.config_window:
-            self.config_window.bind("<Up>", lambda event: canvas.yview_scroll(-1, "units"))
-            self.config_window.bind("<Down>", lambda event: canvas.yview_scroll(1, "units"))
+            self.config_window.bind("<Up>", lambda event: self._on_key_press_scroll(event, canvas, -1))
+            self.config_window.bind("<Down>", lambda event: self._on_key_press_scroll(event, canvas, 1))
             self.config_window.bind("<Prior>", lambda event: canvas.yview_scroll(-10, "units"))  # Page Up
             self.config_window.bind("<Next>", lambda event: canvas.yview_scroll(10, "units"))  # Page Down
 
@@ -296,6 +308,8 @@ class GUI_Config:
         scrollbar.pack(side="right", fill="y")
         self.pairs_treeview.configure(yscrollcommand=scrollbar.set)
         self.pairs_treeview.pack(fill="both", expand=True)
+        # Bind double-click to edit
+        self.pairs_treeview.bind("<Double-1>", lambda event: self.edit_pair_config())
         # Populate with existing configs
         self._populate_pairs_treeview()
 
@@ -523,6 +537,9 @@ class AddPairDialog(tk.Toplevel):
         ttk.Button(btn_frame, text="Add", command=self.on_add).pack(side='left', padx=5)
         ttk.Button(btn_frame, text="Cancel", command=self.destroy).pack(side='left', padx=5)
 
+        self.bind('<Return>', lambda event: self.on_add())
+        self.bind('<Escape>', lambda event: self.destroy())
+
     def on_add(self):
         pair = self.pair_var.get().strip().upper()
         if not re.match(r"^[A-Z]{2,}/[A-Z]{2,}$", pair):
@@ -584,6 +601,9 @@ class PairConfigDialog(tk.Toplevel):
         btn_frame.grid(row=7, column=0, columnspan=2, pady=5)
         ttk.Button(btn_frame, text="Save", command=self.on_save).pack(side='left', padx=5)
         ttk.Button(btn_frame, text="Cancel", command=self.destroy).pack(side='left', padx=5)
+
+        self.bind('<Return>', lambda event: self.on_save())
+        self.bind('<Escape>', lambda event: self.destroy())
 
     def on_save(self) -> None:
         """

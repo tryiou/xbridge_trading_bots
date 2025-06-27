@@ -3,6 +3,8 @@ import concurrent.futures
 import time
 import traceback
 
+import aiohttp  # Import aiohttp
+
 import definitions.xbridge_def as xb
 
 debug_level = 2
@@ -11,7 +13,6 @@ CCXT_PRICE_REFRESH = 2
 UPDATE_BALANCES_DELAY = 0.5
 FLUSH_DELAY = 15 * 60
 MAX_THREADS = 5
-OPERATION_INTERVAL = 15  # Main loop operations interval (in seconds)
 SLEEP_INTERVAL = 1  # Shorter sleep interval (in seconds)
 
 
@@ -26,8 +27,9 @@ class TradingProcessor:
         for pair in self.pairs_dict.values():
             if self.controller.stop_order:
                 break
-            # Offload blocking target_function to the thread pool
-            future = loop.run_in_executor(None, target_function, pair)
+            # If target_function is async, await it directly. If blocking, run in executor.
+            future = target_function(pair) if asyncio.iscoroutinefunction(target_function) else loop.run_in_executor(
+                None, target_function, pair)
             futures.append(future)
         # Wait for all tasks to complete
         if futures:
@@ -93,6 +95,10 @@ class PriceHandler:
         self.ccxt_price_timer = None
 
     async def update_ccxt_prices(self):
+        if not self.config_manager.strategy_instance.should_update_cex_prices():
+            self.config_manager.general_log.debug("Strategy does not require CEX price updates.")
+            return
+
         if self.ccxt_price_timer is None or time.time() - self.ccxt_price_timer > CCXT_PRICE_REFRESH:
             try:
                 await self._fetch_and_update_prices()  # Await the async call
@@ -164,6 +170,7 @@ class MainController:
         self.ccxt_i = config_manager.my_ccxt
         self.config_coins = config_manager.config_coins
         self.disabled_coins = []
+        self.http_session = None  # Initialize http_session
         self.stop_order = False
         self.loop = loop
 
@@ -180,12 +187,13 @@ class MainController:
         for pair in self.pairs_dict.values():
             if self.stop_order:
                 return
-            # Offload blocking pair.cex.update_pricing() to the thread pool using self.loop
-            futures.append(self.loop.run_in_executor(None, pair.cex.update_pricing))
+            if self.config_manager.strategy_instance.should_update_cex_prices():
+                futures.append(self.loop.run_in_executor(None, pair.cex.update_pricing))
+
         if futures:
             await asyncio.gather(*futures)
 
-        await self._process_pairs(self.thread_init_blocking)  # Await the async call
+        await self.processor.process_pairs(self.config_manager.strategy_instance.thread_init_blocking_action)
 
     async def main_loop(self):
         start_time = time.perf_counter()
@@ -197,27 +205,19 @@ class MainController:
         for pair in self.pairs_dict.values():
             if self.stop_order:
                 return
-            # Offload blocking pair.cex.update_pricing() to the thread pool using self.loop
+            if self.config_manager.strategy_instance.should_update_cex_prices():
+                futures.append(self.loop.run_in_executor(None, pair.cex.update_pricing))
         if futures:
             await asyncio.gather(*futures)
 
-        await self._process_pairs(self.thread_loop_blocking)
+        await self.processor.process_pairs(self.config_manager.strategy_instance.thread_loop_blocking_action)
         self._report_time(start_time)
-
-    async def _process_pairs(self, target_function):
-        await self.processor.process_pairs(target_function)  # Await the async call
 
     def _report_time(self, start_time):
         end_time = time.perf_counter()
         self.config_manager.general_log.info(f'Operation took {end_time - start_time:0.2f} second(s) to complete.')
 
     def thread_init_blocking(self, pair):
-        try:
-            self.config_manager.strategy_instance.thread_init_blocking_action(pair)
-        except Exception as e:
-            self.config_manager.general_log.error(f"Error in thread_init: {e}", exc_info=True)
-
-    def thread_loop_blocking(self, pair):
         try:
             self.config_manager.strategy_instance.thread_loop_blocking_action(pair)
         except Exception as e:
@@ -243,7 +243,7 @@ def run_async_main(config_manager, loop=None):
                 controller.processor.executor.shutdown(wait=True)
             if hasattr(controller.balance_manager, 'executor'):
                 controller.balance_manager.executor.shutdown(wait=True)
-            if hasattr(controller.price_handler, 'executor'):  # Added price_handler executor shutdown
+            if hasattr(controller.price_handler, 'executor'):
                 controller.price_handler.executor.shutdown(wait=True)
             if hasattr(controller, 'executor'):
                 controller.executor.shutdown(wait=True)
@@ -257,7 +257,7 @@ def run_async_main(config_manager, loop=None):
                 controller.processor.executor.shutdown(wait=True)
             if hasattr(controller.balance_manager, 'executor'):
                 controller.balance_manager.executor.shutdown(wait=True)
-            if hasattr(controller.price_handler, 'executor'):  # Added price_handler executor shutdown
+            if hasattr(controller.price_handler, 'executor'):
                 controller.price_handler.executor.shutdown(wait=True)
             if hasattr(controller, 'executor'):
                 controller.executor.shutdown(wait=True)
@@ -270,25 +270,40 @@ def run_async_main(config_manager, loop=None):
 
 async def main(config_manager, loop):
     """Generic main loop that works with any strategy."""
-    await config_manager.controller.main_init_loop()  # This now uses self.loop
+    async with aiohttp.ClientSession() as session:
+        # Pass the session to the controller and strategy if needed
+        config_manager.controller.http_session = session
+        if hasattr(config_manager.strategy_instance, 'http_session'):
+            config_manager.strategy_instance.http_session = session
 
-    flush_timer = time.time()
-    operation_timer = time.time()
+        await config_manager.controller.main_init_loop()
 
-    while True:
-        current_time = time.time()
+        # Perform the first operation immediately on startup
+        config_manager.general_log.info("Performing initial operation...")
+        await config_manager.controller.main_loop()
 
-        if config_manager.controller and config_manager.controller.stop_order:
-            config_manager.general_log.info("Received stop_order")
-            break
+        # Get the operation interval from the strategy
+        operation_interval = config_manager.strategy_instance.get_operation_interval()
+        config_manager.general_log.info(
+            f"Using operation interval of {operation_interval} seconds for {config_manager.strategy} strategy.")
 
-        # Offload blocking xb.dxflushcancelledorders to the thread pool
-        if current_time - flush_timer > FLUSH_DELAY:  # This now uses the passed loop
-            await loop.run_in_executor(None, xb.dxflushcancelledorders)
-            flush_timer = current_time
+        flush_timer = time.time()
+        operation_timer = time.time()
 
-        if current_time - operation_timer > OPERATION_INTERVAL:
-            await config_manager.controller.main_loop()  # Await the async main_loop
-            operation_timer = current_time
+        while True:
+            current_time = time.time()
 
-        await asyncio.sleep(SLEEP_INTERVAL)
+            if config_manager.controller and config_manager.controller.stop_order:
+                config_manager.general_log.info("Received stop_order")
+                break
+
+            # Offload blocking xb.dxflushcancelledorders to the thread pool
+            if current_time - flush_timer > FLUSH_DELAY:
+                await loop.run_in_executor(None, xb.dxflushcancelledorders)
+                flush_timer = current_time
+
+            if current_time - operation_timer > operation_interval:
+                await config_manager.controller.main_loop()
+                operation_timer = current_time
+
+            await asyncio.sleep(SLEEP_INTERVAL)

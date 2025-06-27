@@ -4,7 +4,7 @@ import shutil
 from definitions import xbridge_def
 from definitions.ccxt_def import CCXTManager
 from definitions.logger import setup_logger
-from definitions.strategy import BaseStrategy, PingPongStrategy, BasicSellerStrategy
+from definitions.strategy import BaseStrategy, PingPongStrategy, BasicSellerStrategy, ArbitrageStrategy
 from definitions.token import Token
 from definitions.yaml_mix import YamlToObject
 
@@ -17,6 +17,7 @@ class ConfigManager:
         self.config_ccxt = None
         self.config_coins = None
         self.config_pp = None
+        self.strategy_config = {}
         self.strategy_instance: BaseStrategy = None
         self.load_configs()
         self.tokens = {}  # Token data
@@ -60,12 +61,9 @@ class ConfigManager:
         self.config_coins = YamlToObject("./config/config_coins.yaml")
         self.config_pp = YamlToObject("./config/config_pingpong.yaml") if self.strategy == "pingpong" else None
 
-    def _init_tokens(self, token_to_sell=None, token_to_buy=None):
+    def _init_tokens(self, **kwargs):
         """Initialize token objects based on strategy configuration, delegated to strategy instance."""
-        tokens_list = self.strategy_instance.get_tokens_for_initialization(
-            token_to_sell=token_to_sell,
-            token_to_buy=token_to_buy
-        )
+        tokens_list = self.strategy_instance.get_tokens_for_initialization(**kwargs)
 
         if not tokens_list or len(tokens_list) < 2:
             raise ValueError(f"tokens_list must contain at least two tokens: {tokens_list}")
@@ -76,7 +74,7 @@ class ConfigManager:
                 'BTC',
                 strategy=self.strategy,  # Keep strategy for now, might be removed later
                 config_manager=self,
-                dex_enabled=False
+                dex_enabled=False  # BTC is usually for pricing only, unless specified by strategy
             )
 
         # REMOVE DOUBLE ENTRIES
@@ -84,25 +82,17 @@ class ConfigManager:
         for token_symbol in tokens_list:
             # Only create if not already created (e.g., BTC)
             if token_symbol not in self.tokens:
+                dex_enabled = self.strategy == 'arbitrage' or token_symbol != 'BTC'
                 self.tokens[token_symbol] = Token(
                     token_symbol,
                     strategy=self.strategy,  # Keep strategy for now, might be removed later
-                    config_manager=self
+                    config_manager=self,
+                    dex_enabled=dex_enabled
                 )
 
-    def _init_pairs(self, token_to_sell=None, token_to_buy=None, amount_token_to_sell=None, min_sell_price_usd=None,
-                    sell_price_offset=None,
-                    partial_percent=None):
+    def _init_pairs(self, **kwargs):
         """Initialize trading pairs based on strategy configuration, delegated to strategy instance."""
-        self.pairs = self.strategy_instance.get_pairs_for_initialization(
-            self.tokens,
-            token_to_sell=token_to_sell,
-            token_to_buy=token_to_buy,
-            amount_token_to_sell=amount_token_to_sell,
-            min_sell_price_usd=min_sell_price_usd,
-            sell_price_offset=sell_price_offset,
-            partial_percent=partial_percent
-        )
+        self.pairs = self.strategy_instance.get_pairs_for_initialization(self.tokens, **kwargs)
 
     def _init_ccxt(self):
         """Initialize CCXT instance"""
@@ -117,8 +107,9 @@ class ConfigManager:
         """Initialize XBridge configuration"""
         xbridge_def.dxloadxbridgeconf()  # This is a global call, not strategy specific
 
-    def initialize(self, token_to_sell=None, token_to_buy=None, amount_token_to_sell=None, min_sell_price_usd=None,
-                   sell_price_offset=None, partial_percent=None, loadxbridgeconf=True):
+    def initialize(self, **kwargs):
+        loadxbridgeconf = kwargs.get('loadxbridgeconf', True)
+        self.strategy_config.update(kwargs)
 
         self.tokens = {}  # Token data
         self.pairs = {}  # Pair data
@@ -127,23 +118,17 @@ class ConfigManager:
             self.strategy_instance = PingPongStrategy(self)
         elif self.strategy == "basic_seller":
             self.strategy_instance = BasicSellerStrategy(self)
+        elif self.strategy == "arbitrage":
+            self.strategy_instance = ArbitrageStrategy(self)
         else:
             raise ValueError(f"Unknown strategy: {self.strategy}")
-        self.strategy_instance.initialize_strategy_specifics(
-            token_to_sell=token_to_sell,
-            token_to_buy=token_to_buy,
-            amount_token_to_sell=amount_token_to_sell,
-            min_sell_price_usd=min_sell_price_usd,
-            sell_price_offset=sell_price_offset,
-            partial_percent=partial_percent
-        )
+        self.strategy_instance.initialize_strategy_specifics(**kwargs)
 
         # Initialize tokens based on strategy
-        self._init_tokens(token_to_sell, token_to_buy)
+        self._init_tokens(**kwargs)
 
         # Initialize pairs based on strategy
-        self._init_pairs(token_to_sell, token_to_buy, amount_token_to_sell, min_sell_price_usd, sell_price_offset,
-                         partial_percent)
+        self._init_pairs(**kwargs)
         if self.my_ccxt is None:
             self._init_ccxt()
         if loadxbridgeconf:
