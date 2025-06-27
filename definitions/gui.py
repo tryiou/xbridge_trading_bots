@@ -182,6 +182,7 @@ class GUI_Config:
         self.pairs_treeview: ttk.Treeview | None = None
         self.status_var = tk.StringVar()
         self.status_label: ttk.Label | None = None
+        self.active_dialog: tk.Toplevel | None = None
 
     def open(self) -> None:
         """
@@ -379,6 +380,24 @@ class GUI_Config:
             self.config_window.destroy()
         self.config_window = None
 
+    def _open_single_dialog(self, dialog_class, *dialog_args) -> tk.Toplevel:
+        """
+        Manages opening a single dialog, ensuring any previously open dialog is closed.
+        """
+        if self.active_dialog and self.active_dialog.winfo_exists():
+            self.active_dialog.destroy()
+
+        dialog = dialog_class(self.config_window, *dialog_args)
+        self.active_dialog = dialog
+        self.config_window.wait_window(dialog)
+
+        # If the dialog that just closed is the one we were tracking, clear it.
+        # This prevents a race condition where a new dialog is opened before
+        # this wait_window returns.
+        if self.active_dialog is dialog:
+            self.active_dialog = None
+        return dialog
+
     @staticmethod
     def is_valid_pair(pair_symbol: str) -> bool:
         """
@@ -392,8 +411,11 @@ class GUI_Config:
         """
         if not self.config_window:
             return
-        dialog = AddPairDialog(self.config_window, self)  # type: ignore
-        self.config_window.wait_window(dialog)
+        dialog = self._open_single_dialog(AddPairDialog, self)
+
+        # Check if the window was closed while the dialog was open
+        if not self.config_window or not self.config_window.winfo_exists():
+            return
 
         if dialog.result:
             pair_values = dialog.result
@@ -421,8 +443,11 @@ class GUI_Config:
         selected = self.pairs_treeview.selection()  # type: ignore
         if selected:
             values = self.pairs_treeview.item(selected, 'values')  # type: ignore
-            dialog = PairConfigDialog(self.config_window, values, self)  # type: ignore
-            self.config_window.wait_window(dialog)
+            dialog = self._open_single_dialog(PairConfigDialog, values, self)
+
+            # Check if the window was closed while the dialog was open
+            if not self.config_window or not self.config_window.winfo_exists():
+                return
 
             if dialog.result:
                 # Validate the result before updating
