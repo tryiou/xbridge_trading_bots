@@ -223,10 +223,10 @@ class DexPair:
         )
         self.pair.config_manager.general_log.info(f"Current virtual order details: {self.current_order}")
 
-    def cancel_myorder(self):
+    async def cancel_myorder_async(self):
         if self.order and 'id' in self.order and self.order['id'] is not None:
-            asyncio.create_task(self.pair.config_manager.xbridge_manager.cancelorder(self.order['id']))
-            self.order = None
+            await self.pair.config_manager.xbridge_manager.cancelorder(self.order['id'])
+        self.order = None
 
     async def create_order(self, dry_mode=False):
         self.order = None
@@ -346,7 +346,7 @@ class DexPair:
         if 'side' in self.current_order and not self.check_price_in_range(display=display):
             self._log_price_variation()
             if self.order:
-                await self.cancel_myorder()
+                await self.cancel_myorder_async()
             await self._reinit_virtual_order(disabled_coins)
 
     def _log_price_variation(self):
@@ -374,7 +374,7 @@ class DexPair:
     async def _check_order_status(self, disabled_coins):
         if self.order and 'id' in self.order and self.order['id'] is not None:
             return await self.check_order_status()
-        if not self.disabled and self.current_order:  # Ensure current_order exists before initializing virtual order
+        if not self.disabled and self.current_order:  
             self.init_virtual_order(disabled_coins)
             if self.order and "id" in self.order:
                 return await self.check_order_status()
@@ -399,12 +399,11 @@ class DexPair:
             await self.check_price_variation(disabled_coins, display=display)
 
     def _cancel_order_due_to_disabled_coins(self, disabled_coins):
-        # This method was already here, keep it.
         if self.order:
             self.pair.config_manager.general_log.info(
                 f"Disabled pairs due to cc_height_check {self.symbol}, {disabled_coins}")
             self.pair.config_manager.general_log.info(f"status_check, dex cancel {self.order['id']}")
-            asyncio.create_task(self.cancel_myorder())  # Fire and forget
+            asyncio.create_task(self.cancel_myorder_async())  
 
     async def handle_status_error_swap(self):
         await self.pair.config_manager.strategy_instance.handle_error_swap_status(self)
@@ -412,7 +411,7 @@ class DexPair:
     async def handle_status_default(self):
         if not self.disabled:
             self.pair.config_manager.general_log.error(
-                f"status_check, no valid status: {self.symbol}, {self.order}")  # This log was already here, keep it.
+                f"status_check, no valid status: {self.symbol}, {self.order}")  
             await self.create_order()
 
     async def at_order_finished(self, disabled_coins):
@@ -466,9 +465,9 @@ class CexPair:
             )
 
     async def _update_token_prices(self):
-        if self.t1.cex.cex_price is None:  # This is a blocking call
+        if self.t1.cex.cex_price is None:  
             await self.t1.cex.update_price()
-        if self.t2.cex.cex_price is None:  # This is a blocking call
+        if self.t2.cex.cex_price is None: 
             await self.t2.cex.update_price()
 
     async def update_orderbook(self, limit=25, ignore_timer=False):
