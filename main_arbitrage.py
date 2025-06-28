@@ -13,10 +13,25 @@ def start():
 
     parser = argparse.ArgumentParser(
         prog="main_arbitrage",
-        description="Cross-exchange arbitrage bot between XBridge and Thorchain."
+        description="A cross-exchange arbitrage bot that identifies and evaluates opportunities between\n"
+                    "the XBridge DEX and Thorchain. It operates by comparing order books and quotes\n"
+                    "to find profitable trades.",
+        formatter_class=argparse.RawTextHelpFormatter,
+        add_help=False  # Disable default help to add our own custom help flags
     )
-    parser.add_argument("--live", action="store_true", help="Run in live mode, executing real trades. Default is dry-run.")
-    parser.add_argument("--min-profit", type=float, default=0.01, help="Minimum profit margin to execute a trade (e.g., 0.01 for 1%).")
+
+    # Custom help argument to include '-help'
+    parser.add_argument(
+        "-h", "-help", "--help",
+        action="help",
+        default=argparse.SUPPRESS,
+        help="Show this help message and exit."
+    )
+
+    parser.add_argument("--live", action="store_true",
+                        help="Run in live mode, which executes real trades.\nIf this flag is not present, the bot runs in 'dry mode',\nidentifying and logging opportunities without placing orders.\nDefault: dry-run.")
+    parser.add_argument("--min-profit", type=float, default=0.01,
+                        help="The minimum profit margin required to consider an arbitrage\nopportunity valid for execution.\nFormat: a float representing the ratio (e.g., 0.01 for 1%%).\nDefault: 0.01 (1%%).")
 
     args = parser.parse_args()
 

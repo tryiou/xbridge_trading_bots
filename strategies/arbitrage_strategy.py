@@ -3,6 +3,8 @@ from itertools import combinations
 
 from strategies.base_strategy import BaseStrategy
 
+XBRIDGE_TAKER_FEE = 0.015  # The taker fee in BLOCK
+
 
 class ArbitrageStrategy(BaseStrategy):
 
@@ -21,14 +23,21 @@ class ArbitrageStrategy(BaseStrategy):
 
     def get_tokens_for_initialization(self, **kwargs) -> list:
         # Define the tokens needed for arbitrage as per the proposal
-        return ['LTC', 'DOGE']  # ,'BTC', 'DASH' disabled for testing
+        return ['LTC', 'DOGE', 'BLOCK']  # Add BLOCK for fee calculation
 
     def get_pairs_for_initialization(self, tokens_dict, **kwargs) -> dict:
         from definitions.pair import Pair
+
+        # BLOCK is used for fees and does not need a DEX address.
+        # Disable dex functionality for it to prevent unnecessary address requests.
+        if 'BLOCK' in tokens_dict:
+            tokens_dict['BLOCK'].dex.enabled = False
+
         pairs = {}
         # Create all permutations of the available tokens
-        # for t1_sym, t2_sym in permutations(self.get_tokens_for_initialization(), 2):
-        for t1_sym, t2_sym in combinations(self.get_tokens_for_initialization(), 2):
+        # Use a filtered list to avoid creating pairs with BLOCK as a primary token
+        trading_tokens = [t for t in self.get_tokens_for_initialization() if t != 'BLOCK']
+        for t1_sym, t2_sym in combinations(trading_tokens, 2):
             pair_key = f"{t1_sym}/{t2_sym}"
             pairs[pair_key] = Pair(
                 token1=tokens_dict[t1_sym],
@@ -58,6 +67,16 @@ class ArbitrageStrategy(BaseStrategy):
         check_id = str(uuid.uuid4())[:8]
         if pair_instance.disabled:
             return
+
+        # Check for BLOCK balance for the fee once per cycle
+        if not self.dry_mode:
+            block_balance = self.config_manager.tokens.get('BLOCK').dex.free_balance or 0
+            if block_balance < XBRIDGE_TAKER_FEE:
+                self.config_manager.general_log.debug(
+                    f"[{check_id}] Insufficient BLOCK balance for any trade. "
+                    f"Have: {block_balance:.8f}, Need: {XBRIDGE_TAKER_FEE:.8f}. Skipping {pair_instance.symbol}."
+                )
+                return
 
         self.config_manager.general_log.info(f"[{check_id}] Checking arbitrage for {pair_instance.symbol}...")
 
@@ -96,8 +115,11 @@ class ArbitrageStrategy(BaseStrategy):
         if leg1_result and leg1_result['profitable']:
             self.config_manager.general_log.info(f"[{check_id}] {leg1_result['opportunity_details']}")
             if not self.dry_mode:
-                self.config_manager.general_log.info(
-                    f"[{check_id}] EXECUTING LIVE ARBITRAGE for {pair_instance.symbol} (Leg 1)...")
+                execution_message = (
+                    f"[{check_id}] EXECUTING LIVE ARBITRAGE for {pair_instance.symbol} (Leg 1). "
+                    f"XBridge Taker Fee: {XBRIDGE_TAKER_FEE:.8f} BLOCK"
+                )
+                self.config_manager.general_log.info(execution_message)
                 # TODO: Implement actual trade execution
             else:
                 self.config_manager.general_log.info(
@@ -106,8 +128,11 @@ class ArbitrageStrategy(BaseStrategy):
         if leg2_result and leg2_result['profitable']:
             self.config_manager.general_log.info(f"[{check_id}] {leg2_result['opportunity_details']}")
             if not self.dry_mode:
-                self.config_manager.general_log.info(
-                    f"[{check_id}] EXECUTING LIVE ARBITRAGE for {pair_instance.symbol} (Leg 2)...")
+                execution_message = (
+                    f"[{check_id}] EXECUTING LIVE ARBITRAGE for {pair_instance.symbol} (Leg 2). "
+                    f"XBridge Taker Fee: {XBRIDGE_TAKER_FEE:.8f} BLOCK"
+                )
+                self.config_manager.general_log.info(execution_message)
                 # TODO: Implement actual trade execution
             else:
                 self.config_manager.general_log.info(
@@ -120,110 +145,150 @@ class ArbitrageStrategy(BaseStrategy):
         if not xbridge_bids:
             return None
 
-        best_xbridge_bid_price = float(xbridge_bids[0][0])
-        best_xbridge_bid_amount = float(xbridge_bids[0][1])
-        amount_t2_from_xb_sell = best_xbridge_bid_amount * best_xbridge_bid_price
+        for bid in xbridge_bids:
+            bid_price = float(bid[0])
+            bid_amount = float(bid[1])
+            amount_t2_from_xb_sell = bid_amount * bid_price
 
-        from definitions.thorchain_def import get_thorchain_quote  # Import locally to avoid circular dependency issues
-        try:
-            thorchain_buy_quote = await get_thorchain_quote(
-                from_asset=f"{pair_instance.t2.symbol}.{pair_instance.t2.symbol}",
-                to_asset=f"{pair_instance.t1.symbol}.{pair_instance.t1.symbol}",
-                amount=amount_t2_from_xb_sell,
-                session=self.http_session
-            )
-        except Exception as e:
-            self.config_manager.general_log.error(
-                f"[{check_id}] Exception during Thorchain quote fetch for {pair_instance.symbol} (Sell->Buy): {e}",
-                exc_info=True)
-            return None
+            # Balance Check (ignored in dry mode)
+            t1_balance = pair_instance.t1.dex.free_balance or 0
+            if not self.dry_mode and t1_balance < bid_amount:
+                self.config_manager.general_log.debug(
+                    f"[{check_id}] Cannot afford XBridge bid for {bid_amount:.8f} {pair_instance.t1.symbol}. "
+                    f"Have: {t1_balance:.8f}. Checking next bid."
+                )
+                continue  # Move to the next bid in the order book
 
-        if not (thorchain_buy_quote and thorchain_buy_quote.get('expected_amount_out')):
+            # This is the first affordable order, so we evaluate it and then stop.
             self.config_manager.general_log.debug(
-                f"[{check_id}] Thorchain quote was invalid for {pair_instance.symbol} (Sell->Buy).")
-            return None
-
-        thorchain_received_t1 = float(thorchain_buy_quote['expected_amount_out']) / (10 ** 8)
-        profit_t1_amount = thorchain_received_t1 - best_xbridge_bid_amount
-        profit_t1_ratio = (profit_t1_amount / best_xbridge_bid_amount) * 100 if best_xbridge_bid_amount else 0
-        is_profitable = (profit_t1_ratio / 100) > self.min_profit_margin
-
-        leg_header = f"  Leg 1: Sell {pair_instance.t1.symbol} on XBridge -> Buy {pair_instance.t1.symbol} on Thorchain"
-        report = (
-            f"{leg_header}\n"
-            f"    - XBridge Trade:   Sell {best_xbridge_bid_amount:.8f} {pair_instance.t1.symbol} -> Receive {amount_t2_from_xb_sell:.8f} {pair_instance.t2.symbol} (at {best_xbridge_bid_price:.8f} {pair_instance.t2.symbol}/{pair_instance.t1.symbol})\n"
-            f"    - Thorchain Trade: Sell {amount_t2_from_xb_sell:.8f} {pair_instance.t2.symbol} -> Receive {thorchain_received_t1:.8f} {pair_instance.t1.symbol}\n"
-            f"    - Result:          Profit = {profit_t1_ratio:.2f}% ({profit_t1_amount:+.8f} {pair_instance.t1.symbol})"
-        )
-
-        opportunity_details = None
-        if is_profitable:
-            short_header = f"Sell {pair_instance.t1.symbol} on XBridge -> Buy on Thorchain"
-            opportunity_details = (
-                f"Arbitrage Found ({short_header}): "
-                f"Profit: {profit_t1_ratio:.2f}% on {pair_instance.symbol}."
+                f"[{check_id}] Found affordable XBridge bid: {bid_amount:.8f} {pair_instance.t1.symbol} at {bid_price:.8f}. Evaluating..."
             )
 
-        return {
-            'report': report,
-            'profitable': is_profitable,
-            'opportunity_details': opportunity_details
-        }
+            from definitions.thorchain_def import get_thorchain_quote  # Import locally
+
+            try:
+                thorchain_buy_quote = await get_thorchain_quote(
+                    from_asset=f"{pair_instance.t2.symbol}.{pair_instance.t2.symbol}",
+                    to_asset=f"{pair_instance.t1.symbol}.{pair_instance.t1.symbol}",
+                    amount=amount_t2_from_xb_sell,
+                    session=self.http_session
+                )
+            except Exception as e:
+                self.config_manager.general_log.error(
+                    f"[{check_id}] Exception during Thorchain quote fetch for {pair_instance.symbol} (Sell->Buy): {e}",
+                    exc_info=True)
+                return None  # Stop on error
+
+            if not (thorchain_buy_quote and thorchain_buy_quote.get('expected_amount_out')):
+                self.config_manager.general_log.debug(
+                    f"[{check_id}] Thorchain quote was invalid for {pair_instance.symbol} (Sell->Buy).")
+                return None  # Stop if quote is invalid
+
+            thorchain_received_t1 = float(thorchain_buy_quote['expected_amount_out']) / (10 ** 8)
+            profit_t1_amount = thorchain_received_t1 - bid_amount
+            profit_t1_ratio = (profit_t1_amount / bid_amount) * 100 if bid_amount else 0
+            is_profitable = (profit_t1_ratio / 100) > self.min_profit_margin
+
+            leg_header = f"  Leg 1: Sell {pair_instance.t1.symbol} on XBridge -> Buy {pair_instance.t1.symbol} on Thorchain"
+            report = (
+                f"{leg_header}\n"
+                f"    - XBridge Trade:  Sell {bid_amount:.8f} {pair_instance.t1.symbol} -> Receive {amount_t2_from_xb_sell:.8f} {pair_instance.t2.symbol} (at {bid_price:.8f} {pair_instance.t2.symbol}/{pair_instance.t1.symbol})\n"
+                f"    - Thorchain Swap: Sell {amount_t2_from_xb_sell:.8f} {pair_instance.t2.symbol} -> Receive {thorchain_received_t1:.8f} {pair_instance.t1.symbol}\n"
+                f"    - Gross Profit:   {profit_t1_ratio:.2f}% ({profit_t1_amount:+.8f} {pair_instance.t1.symbol})"
+            )
+
+            opportunity_details = None
+            if is_profitable:
+                short_header = f"Sell {pair_instance.t1.symbol} on XBridge -> Buy on Thorchain"
+                opportunity_details = (
+                    f"Arbitrage Found ({short_header}): "
+                    f"Profit: {profit_t1_ratio:.2f}% on {pair_instance.symbol}."
+                )
+
+            return {
+                'report': report,
+                'profitable': is_profitable,
+                'opportunity_details': opportunity_details
+            }
+
+        # If loop finishes, no affordable orders were found
+        return {'report': f"  Leg 1: No affordable bids found on XBridge for {pair_instance.symbol}.", 'profitable': False,
+                'opportunity_details': None}
 
     async def check_arb_leg_xb_buy_thor_sell(self, pair_instance, xbridge_asks, check_id):
         """ Arbitrage Leg: Buy on XBridge (by hitting an ask), Sell on Thorchain. """
         if not xbridge_asks:
             return None
 
-        best_xbridge_ask_price = float(xbridge_asks[0][0])
-        best_xbridge_ask_amount = float(xbridge_asks[0][1])
-        xbridge_cost_t2 = best_xbridge_ask_amount * best_xbridge_ask_price
+        for ask in xbridge_asks:
+            ask_price = float(ask[0])
+            ask_amount = float(ask[1])
+            xbridge_cost_t2 = ask_amount * ask_price
 
-        from definitions.thorchain_def import get_thorchain_quote  # Import locally to avoid circular dependency issues
-        try:
-            thorchain_sell_quote = await get_thorchain_quote(
-                from_asset=f"{pair_instance.t1.symbol}.{pair_instance.t1.symbol}",
-                to_asset=f"{pair_instance.t2.symbol}.{pair_instance.t2.symbol}",
-                amount=best_xbridge_ask_amount,
-                session=self.http_session
-            )
-        except Exception as e:
-            self.config_manager.general_log.error(
-                f"[{check_id}] Exception during Thorchain quote fetch for {pair_instance.symbol} (Buy->Sell): {e}",
-                exc_info=True)
-            return None
+            # Balance Check (ignored in dry mode)
+            t2_balance = pair_instance.t2.dex.free_balance or 0
+            if not self.dry_mode and t2_balance < xbridge_cost_t2:
+                self.config_manager.general_log.debug(
+                    f"[{check_id}] Cannot afford XBridge ask costing {xbridge_cost_t2:.8f} {pair_instance.t2.symbol}. "
+                    f"Have: {t2_balance:.8f}. Checking next ask."
+                )
+                continue  # Move to the next ask in the order book
 
-        if not (thorchain_sell_quote and thorchain_sell_quote.get('expected_amount_out')):
+            # This is the first affordable order, so we evaluate it and then stop.
             self.config_manager.general_log.debug(
-                f"[{check_id}] Thorchain quote was invalid for {pair_instance.symbol} (Buy->Sell).")
-            return None
-
-        thorchain_received_t2 = float(thorchain_sell_quote['expected_amount_out']) / (10 ** 8)
-        profit_t2_amount = thorchain_received_t2 - xbridge_cost_t2
-        profit_t2_ratio = (profit_t2_amount / xbridge_cost_t2) * 100 if xbridge_cost_t2 else 0
-        is_profitable = (profit_t2_ratio / 100) > self.min_profit_margin
-
-        leg_header = f"  Leg 2: Buy {pair_instance.t1.symbol} on XBridge -> Sell {pair_instance.t1.symbol} on Thorchain"
-        report = (
-            f"{leg_header}\n"
-            f"    - XBridge Trade:   Sell {xbridge_cost_t2:.8f} {pair_instance.t2.symbol} -> Receive {best_xbridge_ask_amount:.8f} {pair_instance.t1.symbol} (at {best_xbridge_ask_price:.8f} {pair_instance.t2.symbol}/{pair_instance.t1.symbol})\n"
-            f"    - Thorchain Trade: Sell {best_xbridge_ask_amount:.8f} {pair_instance.t1.symbol} -> Receive {thorchain_received_t2:.8f} {pair_instance.t2.symbol}\n"
-            f"    - Result:          Profit = {profit_t2_ratio:.2f}% ({profit_t2_amount:+.8f} {pair_instance.t2.symbol})"
-        )
-
-        opportunity_details = None
-        if is_profitable:
-            short_header = f"Buy {pair_instance.t1.symbol} on XBridge -> Sell on Thorchain"
-            opportunity_details = (
-                f"Arbitrage Found ({short_header}): "
-                f"Profit: {profit_t2_ratio:.2f}% on {pair_instance.symbol}."
+                f"[{check_id}] Found affordable XBridge ask: {ask_amount:.8f} {pair_instance.t1.symbol} at {ask_price:.8f}. Evaluating..."
             )
 
-        return {
-            'report': report,
-            'profitable': is_profitable,
-            'opportunity_details': opportunity_details
-        }
+            from definitions.thorchain_def import get_thorchain_quote  # Import locally
+
+            try:
+                thorchain_sell_quote = await get_thorchain_quote(
+                    from_asset=f"{pair_instance.t1.symbol}.{pair_instance.t1.symbol}",
+                    to_asset=f"{pair_instance.t2.symbol}.{pair_instance.t2.symbol}",
+                    amount=ask_amount,
+                    session=self.http_session
+                )
+            except Exception as e:
+                self.config_manager.general_log.error(
+                    f"[{check_id}] Exception during Thorchain quote fetch for {pair_instance.symbol} (Buy->Sell): {e}",
+                    exc_info=True)
+                return None  # Stop on error
+
+            if not (thorchain_sell_quote and thorchain_sell_quote.get('expected_amount_out')):
+                self.config_manager.general_log.debug(
+                    f"[{check_id}] Thorchain quote was invalid for {pair_instance.symbol} (Buy->Sell).")
+                return None  # Stop if quote is invalid
+
+            thorchain_received_t2 = float(thorchain_sell_quote['expected_amount_out']) / (10 ** 8)
+            profit_t2_amount = thorchain_received_t2 - xbridge_cost_t2
+            profit_t2_ratio = (profit_t2_amount / xbridge_cost_t2) * 100 if xbridge_cost_t2 else 0
+            is_profitable = (profit_t2_ratio / 100) > self.min_profit_margin
+
+            leg_header = f"  Leg 2: Buy {pair_instance.t1.symbol} on XBridge -> Sell {pair_instance.t1.symbol} on Thorchain"
+            report = (
+                f"{leg_header}\n"
+                f"    - XBridge Trade:  Sell {xbridge_cost_t2:.8f} {pair_instance.t2.symbol} -> Receive {ask_amount:.8f} {pair_instance.t1.symbol} (at {ask_price:.8f} {pair_instance.t2.symbol}/{pair_instance.t1.symbol})\n"
+                f"    - Thorchain Swap: Sell {ask_amount:.8f} {pair_instance.t1.symbol} -> Receive {thorchain_received_t2:.8f} {pair_instance.t2.symbol}\n"
+                f"    - Gross Profit:   {profit_t2_ratio:.2f}% ({profit_t2_amount:+.8f} {pair_instance.t2.symbol})"
+            )
+
+            opportunity_details = None
+            if is_profitable:
+                short_header = f"Buy {pair_instance.t1.symbol} on XBridge -> Sell on Thorchain"
+                opportunity_details = (
+                    f"Arbitrage Found ({short_header}): "
+                    f"Profit: {profit_t2_ratio:.2f}% on {pair_instance.symbol}."
+                )
+
+            return {
+                'report': report,
+                'profitable': is_profitable,
+                'opportunity_details': opportunity_details
+            }
+
+        # If loop finishes, no affordable orders were found
+        return {'report': f"  Leg 2: No affordable asks found on XBridge for {pair_instance.symbol}.", 'profitable': False,
+                'opportunity_details': None}
 
     # --- Stub out unused abstract methods from BaseStrategy ---
     def build_sell_order_details(self, dex_pair_instance, manual_dex_price=None) -> tuple:

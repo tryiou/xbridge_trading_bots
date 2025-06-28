@@ -35,12 +35,17 @@ class ConfigManager:
 
     def create_configs_from_templates(self):
         # Check and create config files if they don't exist
+        # Common config files
         config_files = {
             "config_ccxt.yaml": os.path.join(self.ROOT_DIR, "config", "config_ccxt.yaml"),
             "config_coins.yaml": os.path.join(self.ROOT_DIR, "config", "config_coins.yaml"),
-            "config_pingpong.yaml": os.path.join(self.ROOT_DIR, "config", "config_pingpong.yaml"),
             "api_keys.local.json": os.path.join(self.ROOT_DIR, "config", "api_keys.local.json")
         }
+
+        # Strategy-specific config files
+        if self.strategy == "pingpong":
+            config_files["config_pingpong.yaml"] = os.path.join(self.ROOT_DIR, "config", "config_pingpong.yaml")
+
         for target_name, target_path in config_files.items():
             # Check if target file exists
             if not os.path.exists(target_path):
