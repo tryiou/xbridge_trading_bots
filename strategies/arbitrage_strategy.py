@@ -184,17 +184,32 @@ class ArbitrageStrategy(BaseStrategy):
                     f"[{check_id}] Thorchain quote was invalid for {pair_instance.symbol} (Sell->Buy).")
                 return None  # Stop if quote is invalid
 
-            thorchain_received_t1 = float(thorchain_buy_quote['expected_amount_out']) / (10 ** 8)
-            profit_t1_amount = thorchain_received_t1 - bid_amount
-            profit_t1_ratio = (profit_t1_amount / bid_amount) * 100 if bid_amount else 0
-            is_profitable = (profit_t1_ratio / 100) > self.min_profit_margin
+            # Gross amount received from Thorchain
+            gross_thorchain_received_t1 = float(thorchain_buy_quote['expected_amount_out']) / (10 ** 8)
+
+            # Extract Thorchain fees
+            thorchain_fees = thorchain_buy_quote.get('fees', {})
+            outbound_fee_t1 = float(thorchain_fees.get('outbound', '0')) / (10 ** 8)
+
+            # Calculate Net Profit
+            net_thorchain_received_t1 = gross_thorchain_received_t1 - outbound_fee_t1
+            net_profit_t1_amount = net_thorchain_received_t1 - bid_amount
+
+            # Profitability check based on NET profit
+            is_profitable = (net_profit_t1_amount > 0) and ((net_profit_t1_amount / bid_amount) > self.min_profit_margin) if bid_amount else False
+
+            # Update report
+            net_profit_t1_ratio = (net_profit_t1_amount / bid_amount) * 100 if bid_amount else 0
+            network_fee_t1_ratio = (outbound_fee_t1 / gross_thorchain_received_t1) * 100 if gross_thorchain_received_t1 else 0
 
             leg_header = f"  Leg 1: Sell {pair_instance.t1.symbol} on XBridge -> Buy {pair_instance.t1.symbol} on Thorchain"
             report = (
                 f"{leg_header}\n"
                 f"    - XBridge Trade:  Sell {bid_amount:.8f} {pair_instance.t1.symbol} -> Receive {amount_t2_from_xb_sell:.8f} {pair_instance.t2.symbol} (at {bid_price:.8f} {pair_instance.t2.symbol}/{pair_instance.t1.symbol})\n"
-                f"    - Thorchain Swap: Sell {amount_t2_from_xb_sell:.8f} {pair_instance.t2.symbol} -> Receive {thorchain_received_t1:.8f} {pair_instance.t1.symbol}\n"
-                f"    - Gross Profit:   {profit_t1_ratio:.2f}% ({profit_t1_amount:+.8f} {pair_instance.t1.symbol})"
+                f"    - Thorchain Swap: Sell {amount_t2_from_xb_sell:.8f} {pair_instance.t2.symbol} -> Gross Receive {gross_thorchain_received_t1:.8f} {pair_instance.t1.symbol}\n"
+                f"    - Thorchain Fee:  {outbound_fee_t1:.8f} {pair_instance.t1.symbol} ({network_fee_t1_ratio:.2f}%)\n"
+                f"    - Net Receive:    {net_thorchain_received_t1:.8f} {pair_instance.t1.symbol}\n"
+                f"    - Net Profit:     {net_profit_t1_ratio:.2f}% ({net_profit_t1_amount:+.8f} {pair_instance.t1.symbol})"
             )
 
             opportunity_details = None
@@ -202,7 +217,7 @@ class ArbitrageStrategy(BaseStrategy):
                 short_header = f"Sell {pair_instance.t1.symbol} on XBridge -> Buy on Thorchain"
                 opportunity_details = (
                     f"Arbitrage Found ({short_header}): "
-                    f"Profit: {profit_t1_ratio:.2f}% on {pair_instance.symbol}."
+                    f"Net Profit: {net_profit_t1_ratio:.2f}% on {pair_instance.symbol}."
                 )
 
             return {
@@ -259,17 +274,32 @@ class ArbitrageStrategy(BaseStrategy):
                     f"[{check_id}] Thorchain quote was invalid for {pair_instance.symbol} (Buy->Sell).")
                 return None  # Stop if quote is invalid
 
-            thorchain_received_t2 = float(thorchain_sell_quote['expected_amount_out']) / (10 ** 8)
-            profit_t2_amount = thorchain_received_t2 - xbridge_cost_t2
-            profit_t2_ratio = (profit_t2_amount / xbridge_cost_t2) * 100 if xbridge_cost_t2 else 0
-            is_profitable = (profit_t2_ratio / 100) > self.min_profit_margin
+            # Gross amount received from Thorchain
+            gross_thorchain_received_t2 = float(thorchain_sell_quote['expected_amount_out']) / (10 ** 8)
+
+            # Extract Thorchain fees
+            thorchain_fees = thorchain_sell_quote.get('fees', {})
+            outbound_fee_t2 = float(thorchain_fees.get('outbound', '0')) / (10 ** 8)
+
+            # Calculate Net Profit
+            net_thorchain_received_t2 = gross_thorchain_received_t2 - outbound_fee_t2
+            net_profit_t2_amount = net_thorchain_received_t2 - xbridge_cost_t2
+
+            # Profitability check based on NET profit
+            is_profitable = (net_profit_t2_amount > 0) and ((net_profit_t2_amount / xbridge_cost_t2) > self.min_profit_margin) if xbridge_cost_t2 else False
+
+            # Update report
+            net_profit_t2_ratio = (net_profit_t2_amount / xbridge_cost_t2) * 100 if xbridge_cost_t2 else 0
+            network_fee_t2_ratio = (outbound_fee_t2 / gross_thorchain_received_t2) * 100 if gross_thorchain_received_t2 else 0
 
             leg_header = f"  Leg 2: Buy {pair_instance.t1.symbol} on XBridge -> Sell {pair_instance.t1.symbol} on Thorchain"
             report = (
                 f"{leg_header}\n"
                 f"    - XBridge Trade:  Sell {xbridge_cost_t2:.8f} {pair_instance.t2.symbol} -> Receive {ask_amount:.8f} {pair_instance.t1.symbol} (at {ask_price:.8f} {pair_instance.t2.symbol}/{pair_instance.t1.symbol})\n"
-                f"    - Thorchain Swap: Sell {ask_amount:.8f} {pair_instance.t1.symbol} -> Receive {thorchain_received_t2:.8f} {pair_instance.t2.symbol}\n"
-                f"    - Gross Profit:   {profit_t2_ratio:.2f}% ({profit_t2_amount:+.8f} {pair_instance.t2.symbol})"
+                f"    - Thorchain Swap: Sell {ask_amount:.8f} {pair_instance.t1.symbol} -> Gross Receive {gross_thorchain_received_t2:.8f} {pair_instance.t2.symbol}\n"
+                f"    - Thorchain Fee:  {outbound_fee_t2:.8f} {pair_instance.t2.symbol} ({network_fee_t2_ratio:.2f}%)\n"
+                f"    - Net Receive:    {net_thorchain_received_t2:.8f} {pair_instance.t2.symbol}\n"
+                f"    - Net Profit:     {net_profit_t2_ratio:.2f}% ({net_profit_t2_amount:+.8f} {pair_instance.t2.symbol})"
             )
 
             opportunity_details = None
@@ -277,7 +307,7 @@ class ArbitrageStrategy(BaseStrategy):
                 short_header = f"Buy {pair_instance.t1.symbol} on XBridge -> Sell on Thorchain"
                 opportunity_details = (
                     f"Arbitrage Found ({short_header}): "
-                    f"Profit: {profit_t2_ratio:.2f}% on {pair_instance.symbol}."
+                    f"Net Profit: {net_profit_t2_ratio:.2f}% on {pair_instance.symbol}."
                 )
 
             return {
