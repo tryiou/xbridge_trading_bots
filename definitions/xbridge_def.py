@@ -8,7 +8,7 @@ class XBridgeManager:
     def __init__(self, config_manager):
         self.config_manager = config_manager
         self.logger = config_manager.general_log
-        self.user_rpc, self.port_rpc, self.password_rpc = detect_rpc()
+        self.blocknet_user_rpc, self.blocknet_port_rpc, self.blocknet_password_rpc , self.blocknet_datadir_path = detect_rpc()
 
         # Optional: Test RPC connection during initialization
         if not self.test_rpc():
@@ -21,9 +21,9 @@ class XBridgeManager:
             params = []
         result = await rpc_call(method=method,
                                 params=params,
-                                rpc_user=self.user_rpc,
-                                rpc_port=self.port_rpc,
-                                rpc_password=self.password_rpc,
+                                rpc_user=self.blocknet_user_rpc,
+                                rpc_port=self.blocknet_port_rpc,
+                                rpc_password=self.blocknet_password_rpc,
                                 logger=self.logger)  # Pass the instance logger
         return result
 

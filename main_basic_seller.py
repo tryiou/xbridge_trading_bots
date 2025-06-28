@@ -21,7 +21,7 @@ def start():
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
     parser = argparse.ArgumentParser(
-        prog="basic_seller",
+        prog="main_basic_seller",
         usage='%(prog)s [options]',
         description="Sell a specified amount of one token to buy another token using CCXT price tickers."
     )

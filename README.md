@@ -158,19 +158,19 @@ A straightforward selling bot that places sell orders at specified price targets
 **View all options:**
 
 ```bash
-python basic_seller.py --help
+python main_basic_seller.py --help
 ```
 
 **Basic Example** - Sell 200 BLOCK for PIVX at minimum $0.33 per BLOCK with 1.5% upscale on live pair price:
 
 ```bash
-python basic_seller.py -tts BLOCK -ttb PIVX -atts 200 -mup 0.33 -spu 0.015
+python main_basic_seller.py -tts BLOCK -ttb PIVX -atts 200 -mup 0.33 -spu 0.015
 ```
 
 **Partial Sell Example** - Partial order allows selling a fraction of the total amount:
 
 ```bash
-python basic_seller.py -tts BLOCK -ttb PIVX -atts 200 -mup 0.33 -spu 0.015 --partial 0.5
+python main_basic_seller.py -tts BLOCK -ttb PIVX -atts 200 -mup 0.33 -spu 0.015 --partial 0.5
 ```
 
 ### Command Line Parameters
@@ -233,7 +233,7 @@ xbridge_trading_bots/
 ├── logs/                   # Store logs
 ├── gui_pingpong.py         # PingPong bot GUI interface
 ├── main_pingpong.py        # PingPong bot console interface
-├── basic_seller.py         # BasicSeller bot
+├── main_basic_seller.py         # BasicSeller bot
 ├── pingpong_logparser.py   # PingPong bot Trade log parsing and analysis tool
 ├── requirements.txt        # Python dependencies
 └── README.md               # This file

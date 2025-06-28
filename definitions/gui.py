@@ -26,7 +26,7 @@ class GUI_Orders:
     def create_orders_treeview(self) -> None:
         # Get enabled pairs from config
         self.sortedpairs = sorted(
-            [cfg['name'] for cfg in self.parent.config_manager.config_pp.pair_configs if cfg.get('enabled', True)]
+            [cfg['name'] for cfg in self.parent.config_manager.config_pingppong.pair_configs if cfg.get('enabled', True)]
         )
         columns = ("Pair", "Status", "Side", "Flag", "Variation")
         self.orders_frame = ttk.LabelFrame(self.parent.root, text="Orders")
@@ -261,12 +261,12 @@ class GUI_Config:
         ttk.Label(parent_frame, text="Debug Level:").grid(row=0, column=0, padx=5, pady=5, sticky='w')
         self.debug_level_entry = ttk.Entry(parent_frame)
         self.debug_level_entry.grid(row=0, column=1, padx=5, pady=5, sticky='ew')
-        self.debug_level_entry.insert(0, str(self.parent.config_manager.config_pp.debug_level))
+        self.debug_level_entry.insert(0, str(self.parent.config_manager.config_pingppong.debug_level))
 
         ttk.Label(parent_frame, text="TTK Theme:").grid(row=1, column=0, padx=5, pady=5, sticky='w')
         self.ttk_theme_entry = ttk.Entry(parent_frame)
         self.ttk_theme_entry.grid(row=1, column=1, padx=5, pady=5, sticky='ew')
-        self.ttk_theme_entry.insert(0, self.parent.config_manager.config_pp.ttk_theme)
+        self.ttk_theme_entry.insert(0, self.parent.config_manager.config_pingppong.ttk_theme)
 
     def _create_pairs_treeview_widgets(self, parent_frame: ttk.Frame) -> None:
         """
@@ -319,7 +319,7 @@ class GUI_Config:
         Populates the pairs Treeview with data from the current configuration.
         """
         if self.pairs_treeview:
-            for cfg in self.parent.config_manager.config_pp.pair_configs:
+            for cfg in self.parent.config_manager.config_pingppong.pair_configs:
                 self.pairs_treeview.insert('', 'end', values=(
                     cfg.get('name', ''),
                     'Yes' if cfg.get('enabled', True) else 'No',
@@ -671,7 +671,7 @@ class GUI_Main:
         self.send_process = None
         self.started = False
 
-        self.style = Style(self.config_manager.config_pp.ttk_theme)
+        self.style = Style(self.config_manager.config_pingppong.ttk_theme)
         self.status_var = tk.StringVar(value="Idle")
 
         self.gui_orders = GUI_Orders(self)

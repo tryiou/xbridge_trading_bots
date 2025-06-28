@@ -3,8 +3,6 @@ from itertools import combinations
 
 from strategies.base_strategy import BaseStrategy
 
-XBRIDGE_TAKER_FEE = 0.015  # The taker fee in BLOCK
-
 
 class ArbitrageStrategy(BaseStrategy):
 
@@ -14,6 +12,7 @@ class ArbitrageStrategy(BaseStrategy):
         self.min_profit_margin = 0.01
         self.dry_mode = True
         self.http_session = None  # Will be set by ConfigManager
+        self.xbridge_taker_fee = self.config_manager.config_xbridge.taker_fee_block
 
     def initialize_strategy_specifics(self, dry_mode: bool = True, min_profit_margin: float = 0.01, **kwargs):
         self.dry_mode = dry_mode
@@ -71,10 +70,10 @@ class ArbitrageStrategy(BaseStrategy):
         # Check for BLOCK balance for the fee once per cycle
         if not self.dry_mode:
             block_balance = self.config_manager.tokens.get('BLOCK').dex.free_balance or 0
-            if block_balance < XBRIDGE_TAKER_FEE:
+            if block_balance < self.xbridge_taker_fee:
                 self.config_manager.general_log.debug(
                     f"[{check_id}] Insufficient BLOCK balance for any trade. "
-                    f"Have: {block_balance:.8f}, Need: {XBRIDGE_TAKER_FEE:.8f}. Skipping {pair_instance.symbol}."
+                    f"Have: {block_balance:.8f}, Need: {self.xbridge_taker_fee:.8f}. Skipping {pair_instance.symbol}."
                 )
                 return
 
@@ -117,7 +116,7 @@ class ArbitrageStrategy(BaseStrategy):
             if not self.dry_mode:
                 execution_message = (
                     f"[{check_id}] EXECUTING LIVE ARBITRAGE for {pair_instance.symbol} (Leg 1). "
-                    f"XBridge Taker Fee: {XBRIDGE_TAKER_FEE:.8f} BLOCK"
+                    f"XBridge Taker Fee: {self.xbridge_taker_fee:.8f} BLOCK"
                 )
                 self.config_manager.general_log.info(execution_message)
                 # TODO: Implement actual trade execution
@@ -130,7 +129,7 @@ class ArbitrageStrategy(BaseStrategy):
             if not self.dry_mode:
                 execution_message = (
                     f"[{check_id}] EXECUTING LIVE ARBITRAGE for {pair_instance.symbol} (Leg 2). "
-                    f"XBridge Taker Fee: {XBRIDGE_TAKER_FEE:.8f} BLOCK"
+                    f"XBridge Taker Fee: {self.xbridge_taker_fee:.8f} BLOCK"
                 )
                 self.config_manager.general_log.info(execution_message)
                 # TODO: Implement actual trade execution
@@ -196,11 +195,13 @@ class ArbitrageStrategy(BaseStrategy):
             net_profit_t1_amount = net_thorchain_received_t1 - bid_amount
 
             # Profitability check based on NET profit
-            is_profitable = (net_profit_t1_amount > 0) and ((net_profit_t1_amount / bid_amount) > self.min_profit_margin) if bid_amount else False
+            is_profitable = (net_profit_t1_amount > 0) and (
+                        (net_profit_t1_amount / bid_amount) > self.min_profit_margin) if bid_amount else False
 
             # Update report
             net_profit_t1_ratio = (net_profit_t1_amount / bid_amount) * 100 if bid_amount else 0
-            network_fee_t1_ratio = (outbound_fee_t1 / gross_thorchain_received_t1) * 100 if gross_thorchain_received_t1 else 0
+            network_fee_t1_ratio = (
+                                               outbound_fee_t1 / gross_thorchain_received_t1) * 100 if gross_thorchain_received_t1 else 0
 
             leg_header = f"  Leg 1: Sell {pair_instance.t1.symbol} on XBridge -> Buy {pair_instance.t1.symbol} on Thorchain"
             report = (
@@ -227,7 +228,8 @@ class ArbitrageStrategy(BaseStrategy):
             }
 
         # If loop finishes, no affordable orders were found
-        return {'report': f"  Leg 1: No affordable bids found on XBridge for {pair_instance.symbol}.", 'profitable': False,
+        return {'report': f"  Leg 1: No affordable bids found on XBridge for {pair_instance.symbol}.",
+                'profitable': False,
                 'opportunity_details': None}
 
     async def check_arb_leg_xb_buy_thor_sell(self, pair_instance, xbridge_asks, check_id):
@@ -286,11 +288,13 @@ class ArbitrageStrategy(BaseStrategy):
             net_profit_t2_amount = net_thorchain_received_t2 - xbridge_cost_t2
 
             # Profitability check based on NET profit
-            is_profitable = (net_profit_t2_amount > 0) and ((net_profit_t2_amount / xbridge_cost_t2) > self.min_profit_margin) if xbridge_cost_t2 else False
+            is_profitable = (net_profit_t2_amount > 0) and (
+                        (net_profit_t2_amount / xbridge_cost_t2) > self.min_profit_margin) if xbridge_cost_t2 else False
 
             # Update report
             net_profit_t2_ratio = (net_profit_t2_amount / xbridge_cost_t2) * 100 if xbridge_cost_t2 else 0
-            network_fee_t2_ratio = (outbound_fee_t2 / gross_thorchain_received_t2) * 100 if gross_thorchain_received_t2 else 0
+            network_fee_t2_ratio = (
+                                               outbound_fee_t2 / gross_thorchain_received_t2) * 100 if gross_thorchain_received_t2 else 0
 
             leg_header = f"  Leg 2: Buy {pair_instance.t1.symbol} on XBridge -> Sell {pair_instance.t1.symbol} on Thorchain"
             report = (
@@ -317,7 +321,8 @@ class ArbitrageStrategy(BaseStrategy):
             }
 
         # If loop finishes, no affordable orders were found
-        return {'report': f"  Leg 2: No affordable asks found on XBridge for {pair_instance.symbol}.", 'profitable': False,
+        return {'report': f"  Leg 2: No affordable asks found on XBridge for {pair_instance.symbol}.",
+                'profitable': False,
                 'opportunity_details': None}
 
     # --- Stub out unused abstract methods from BaseStrategy ---

@@ -4,22 +4,22 @@ from strategies.base_strategy import BaseStrategy
 class PingPongStrategy(BaseStrategy):
     def __init__(self, config_manager, controller=None):
         super().__init__(config_manager, controller)
-        self.config_pp = config_manager.config_pp  # Direct access to pingpong config
+        self.config_pingppong = config_manager.config_pingppong  # Direct access to pingpong config
 
     def initialize_strategy_specifics(self, **kwargs):
         # PingPong doesn't need specific args passed from CLI, its config is loaded
         pass
 
     def get_tokens_for_initialization(self, **kwargs) -> list:
-        tokens_list = [cfg['pair'].split("/")[0] for cfg in self.config_pp.pair_configs if cfg.get('enabled', True)]
+        tokens_list = [cfg['pair'].split("/")[0] for cfg in self.config_pingppong.pair_configs if cfg.get('enabled', True)]
         tokens_list.extend(
-            [cfg['pair'].split("/")[1] for cfg in self.config_pp.pair_configs if cfg.get('enabled', True)])
+            [cfg['pair'].split("/")[1] for cfg in self.config_pingppong.pair_configs if cfg.get('enabled', True)])
         return list(set(tokens_list))
 
     def get_pairs_for_initialization(self, tokens_dict, **kwargs) -> dict:
         from definitions.pair import Pair  # Import here to avoid circular dependency
         pairs = {}
-        enabled_pairs = [cfg for cfg in self.config_pp.pair_configs if cfg.get('enabled', True)]
+        enabled_pairs = [cfg for cfg in self.config_pingppong.pair_configs if cfg.get('enabled', True)]
         for cfg in enabled_pairs:
             t1, t2 = cfg['pair'].split("/")
             pair_name = f"{cfg['name']}"

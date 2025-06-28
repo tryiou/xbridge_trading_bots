@@ -19,7 +19,8 @@ class ConfigManager:
         self.general_log, self.trade_log, self.ccxt_log = setup_logger(strategy, self.ROOT_DIR)
         self.config_ccxt = None
         self.config_coins = None
-        self.config_pp = None
+        self.config_pingppong = None
+        self.config_xbridge = None  # XBridge configuration
         self.strategy_config = {}
         self.strategy_instance: BaseStrategy = None
         self.load_configs()
@@ -29,7 +30,6 @@ class ConfigManager:
         self.xbridge_manager = None
         self.ccxt_manager = CCXTManager(self)
         self.load_xbridge_conf_on_startup = True  # Default value, will be updated by initialize
-        self.xbridge_conf = None  # XBridge configuration
         self.disabled_coins = []  # Centralized disabled coins tracking
         self.controller = None
 
@@ -39,12 +39,10 @@ class ConfigManager:
         config_files = {
             "config_ccxt.yaml": os.path.join(self.ROOT_DIR, "config", "config_ccxt.yaml"),
             "config_coins.yaml": os.path.join(self.ROOT_DIR, "config", "config_coins.yaml"),
-            "api_keys.local.json": os.path.join(self.ROOT_DIR, "config", "api_keys.local.json")
+            "api_keys.local.json": os.path.join(self.ROOT_DIR, "config", "api_keys.local.json"),
+            "config_pingpong.yaml": os.path.join(self.ROOT_DIR, "config", "config_pingpong.yaml"),
+            "config_xbridge.yaml": os.path.join(self.ROOT_DIR, "config", "config_xbridge.yaml")
         }
-
-        # Strategy-specific config files
-        if self.strategy == "pingpong":
-            config_files["config_pingpong.yaml"] = os.path.join(self.ROOT_DIR, "config", "config_pingpong.yaml")
 
         for target_name, target_path in config_files.items():
             # Check if target file exists
@@ -66,10 +64,10 @@ class ConfigManager:
 
     def load_configs(self):
         self.create_configs_from_templates()
-
         self.config_ccxt = YamlToObject("./config/config_ccxt.yaml")
         self.config_coins = YamlToObject("./config/config_coins.yaml")
-        self.config_pp = YamlToObject("./config/config_pingpong.yaml") if self.strategy == "pingpong" else None
+        self.config_pingppong = YamlToObject("./config/config_pingpong.yaml") if self.strategy == "pingpong" else None
+        self.config_xbridge = YamlToObject("./config/config_xbridge.yaml") if self.strategy == "arbitrage" else None
 
     def _init_tokens(self, **kwargs):
         """Initialize token objects based on strategy configuration, delegated to strategy instance."""
