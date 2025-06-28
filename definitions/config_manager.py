@@ -1,10 +1,10 @@
 import os
 import shutil
 
-from definitions.ccxt_def import CCXTManager
+from definitions.ccxt_manager import CCXTManager
 from definitions.logger import setup_logger
 from definitions.token import Token
-from definitions.xbridge_def import XBridgeManager
+from definitions.xbridge_manager import XBridgeManager
 from definitions.yaml_mix import YamlToObject
 from strategies.arbitrage_strategy import ArbitrageStrategy
 from strategies.base_strategy import BaseStrategy

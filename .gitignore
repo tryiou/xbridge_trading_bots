@@ -5,6 +5,7 @@ config/config_ccxt.yaml
 config/config_coins.yaml
 config/config_pingpong.yaml
 config/config_blocknet.yaml
+config/config_xbridge.yaml
 data/
 logs/
 .history

@@ -4,7 +4,7 @@ import asyncio
 import os
 
 from definitions.logger import setup_logger
-from definitions.xbridge_def import XBridgeManager
+from definitions.xbridge_manager import XBridgeManager
 
 if __name__ == '__main__':
     """
