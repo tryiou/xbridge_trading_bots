@@ -32,6 +32,8 @@ def start():
                         help="Run in live mode, which executes real trades.\nIf this flag is not present, the bot runs in 'dry mode',\nidentifying and logging opportunities without placing orders.\nDefault: dry-run.")
     parser.add_argument("--min-profit", type=float, default=0.01,
                         help="The minimum profit margin required to consider an arbitrage\nopportunity valid for execution.\nFormat: a float representing the ratio (e.g., 0.01 for 1%%).\nDefault: 0.01 (1%%).")
+    parser.add_argument("--test-leg", type=int, choices=[1, 2],
+                        help="Run a specific arbitrage leg in test mode to verify the execution flow.\nLeg 1: Sell on XBridge, Buy on Thorchain.\nLeg 2: Buy on XBridge, Sell on Thorchain.")
 
     args = parser.parse_args()
 
@@ -39,11 +41,17 @@ def start():
     # Pass CLI args to be stored in strategy_config
     config_manager.initialize(
         dry_mode=not args.live,
-        min_profit_margin=args.min_profit
+        min_profit_margin=args.min_profit,
+        test_mode=(args.test_leg is not None)  # Set test_mode if --test-leg is used
     )
 
-    # run_async_main will handle the event loop creation and management.
-    run_async_main(config_manager)
+    if args.test_leg:
+        config_manager.general_log.info(f"--- Running Test for Arbitrage Leg {args.test_leg} ---")
+        asyncio.run(config_manager.strategy_instance.run_arbitrage_test(args.test_leg))
+        config_manager.general_log.info(f"--- Test for Arbitrage Leg {args.test_leg} Finished ---")
+    else:
+        # run_async_main will handle the event loop creation and management.
+        run_async_main(config_manager)
 
 if __name__ == '__main__':
     start()

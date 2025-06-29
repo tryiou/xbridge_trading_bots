@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import uuid
 
 import aiohttp
 
@@ -55,7 +56,8 @@ async def execute_thorchain_swap(
     to_address: str,
     amount: float,
     memo: str,
-    config_manager
+    config_manager,
+    test_mode: bool = False
 ):
     """
     Constructs and broadcasts the transaction to initiate a Thorchain swap.
@@ -66,11 +68,11 @@ async def execute_thorchain_swap(
         if not coin_conf:
             logger.error(f"No RPC configuration found for {from_token_symbol} in xbridge.conf.")
             return None
-
         # Get RPC credentials from the parsed xbridge.conf
-        rpc_user = coin_conf.get('rpcuser')
-        rpc_password = coin_conf.get('rpcpassword')
-        rpc_port = coin_conf.get('rpcport')
+        rpc_ip = coin_conf.get('ip', '127.0.0.1')
+        rpc_user = coin_conf.get('username')
+        rpc_password = coin_conf.get('password')
+        rpc_port = coin_conf.get('port')
 
         if not all([rpc_user, rpc_password, rpc_port]):
             logger.error(f"Incomplete RPC configuration for {from_token_symbol} in xbridge.conf.")
@@ -79,13 +81,26 @@ async def execute_thorchain_swap(
         satoshi_multiplier = coin_conf.get('coin', 100000000)
         decimal_places = len(str(satoshi_multiplier)) - 1
         amount_str = f"{amount:.{decimal_places}f}"
+        full_params = [to_address, amount_str, "", "", False, False, None, "UNSET", None, memo]
+
+        if test_mode:
+            mock_txid = f"mock_thor_txid_{uuid.uuid4()}"
+            logger.info(f"[TEST MODE] Would execute Core Wallet RPC Call:")
+            logger.info(f"    - Target Coin: {from_token_symbol}")
+            logger.info(f"    - RPC IP: {rpc_ip}")
+            logger.info(f"    - RPC Port: {rpc_port}")
+            logger.info(f"    - Method: sendtoaddress")
+            logger.info(f"    - Params: {full_params}")
+            logger.info(f"    - Returning mock TXID: {mock_txid}")
+            return mock_txid
 
         logger.info(f"Executing Thorchain Swap: send {amount_str} {from_token_symbol} to {to_address} with memo '{memo}'")
 
         # The actual RPC call to the coin's daemon
         txid = await rpc_call(
             method="sendtoaddress",
-            params=[to_address, amount_str, "", "", False, False, None, "UNSET", None, memo],
+            params=full_params,
+            url=f"http://{rpc_ip}",
             rpc_user=rpc_user,
             rpc_port=rpc_port,
             rpc_password=rpc_password,

@@ -1,6 +1,7 @@
 import asyncio
 import configparser
 import os
+import uuid
 
 from definitions.detect_rpc import detect_rpc
 from definitions.rpc import rpc_call
@@ -199,9 +200,20 @@ class XBridgeManager:
     async def dxgetorderbook(self, detail, maker, taker):
         return await self.rpc_wrapper("dxgetorderbook", [detail, maker, taker])
 
-    async def take_order(self, order_id: str, from_address: str, to_address: str):
+    async def take_order(self, order_id: str, from_address: str, to_address: str, test_mode: bool = False):
         """Takes an XBridge order using dxTakeOrder."""
         self.logger.info(f"Attempting to take XBridge order {order_id} from {from_address} to {to_address}")
+
+        if test_mode:
+            mock_result = {'id': f'mock_xbridge_txid_{uuid.uuid4()}', 'status': 'created'}
+            self.logger.info(f"[TEST MODE] Would execute BLOCKNET WALLET RPC CALL:")
+            self.logger.info(f"    - RPC Port: {self.blocknet_port_rpc}")
+            self.logger.info(f"    - RPC User: {self.blocknet_user_rpc}")
+            self.logger.info(f"    - Method: dxTakeOrder")
+            self.logger.info(f"    - Params: ['{order_id}', '{from_address}', '{to_address}']")
+            self.logger.info(f"    - Returning mock result: {mock_result}")
+            return mock_result
+
         try:
             result = await self.rpc_wrapper("dxTakeOrder", [order_id, from_address, to_address])
             self.logger.info(f"Successfully took XBridge order {order_id}. Result: {result}")

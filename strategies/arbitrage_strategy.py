@@ -1,4 +1,5 @@
 import uuid
+import json
 from itertools import combinations
 
 from strategies.base_strategy import BaseStrategy
@@ -11,14 +12,16 @@ class ArbitrageStrategy(BaseStrategy):
         # Initialize with default values; these will be set by initialize_strategy_specifics
         self.min_profit_margin = 0.01
         self.dry_mode = True
+        self.test_mode = False
         self.http_session = None  # Will be set by ConfigManager
         self.xbridge_taker_fee = self.config_manager.config_xbridge.taker_fee_block
 
-    def initialize_strategy_specifics(self, dry_mode: bool = True, min_profit_margin: float = 0.01, **kwargs):
+    def initialize_strategy_specifics(self, dry_mode: bool = True, min_profit_margin: float = 0.01, test_mode: bool = False, **kwargs):
         self.dry_mode = dry_mode
         self.min_profit_margin = min_profit_margin
+        self.test_mode = test_mode
         self.config_manager.general_log.info(
-            f"ArbitrageStrategy initialized. Dry mode: {self.dry_mode}, Min profit: {self.min_profit_margin * 100:.2f}%")
+            f"ArbitrageStrategy initialized. Dry mode: {self.dry_mode}, Min profit: {self.min_profit_margin * 100:.2f}%, Test mode: {self.test_mode}")
 
     def get_tokens_for_initialization(self, **kwargs) -> list:
         # Define the tokens needed for arbitrage as per the proposal
@@ -389,30 +392,189 @@ class ArbitrageStrategy(BaseStrategy):
             f"[{check_id}] EXECUTING LIVE ARBITRAGE for {exec_data['pair_symbol']} (Leg {leg_num})."
         )
 
-        # Step 1: Execute Thorchain Swap
+        # --- Step 1: XBridge Trade ---
+        self.config_manager.general_log.info(f"[{check_id}] --- Step 1: XBridge Trade ---")
+        xb_from_token = self.config_manager.tokens[exec_data['xbridge_from_token']]
+        xb_to_token = self.config_manager.tokens[exec_data['xbridge_to_token']]
+
+        self.config_manager.general_log.info(f"[{check_id}] Preparing to call take_order with:")
+        self.config_manager.general_log.info(f"    - order_id: {exec_data['xbridge_order_id']}")
+        self.config_manager.general_log.info(f"    - from_address: {xb_from_token.dex.address}")
+        self.config_manager.general_log.info(f"    - to_address: {xb_to_token.dex.address}")
+        self.config_manager.general_log.info(f"    - test_mode: {self.test_mode}")
+
+        xb_result = await self.config_manager.xbridge_manager.take_order(
+            order_id=exec_data['xbridge_order_id'],
+            from_address=xb_from_token.dex.address,
+            to_address=xb_to_token.dex.address,
+            test_mode=self.test_mode
+        )
+
+        if not xb_result or not xb_result.get('id'):
+            self.config_manager.general_log.error(
+                f"[{check_id}] XBridge trade failed or was already taken. Aborting Thorchain swap.")
+            return
+
+        # --- Step 2: Thorchain Swap ---
+        self.config_manager.general_log.info(
+            f"[{check_id}] XBridge trade successful (ID: {xb_result.get('id')}). Proceeding with Thorchain swap.")
+        self.config_manager.general_log.info(f"[{check_id}] --- Step 2: Thorchain Swap ---")
+        self.config_manager.general_log.info(f"[{check_id}] Preparing to call execute_thorchain_swap with:")
+        self.config_manager.general_log.info(f"    - from_token_symbol: {exec_data['thorchain_from_token']}")
+        self.config_manager.general_log.info(f"    - to_address: {exec_data['thorchain_inbound_address']}")
+        self.config_manager.general_log.info(f"    - amount: {exec_data['thorchain_swap_amount']}")
+        self.config_manager.general_log.info(f"    - memo: {exec_data['thorchain_memo']}")
+        self.config_manager.general_log.info(f"    - test_mode: {self.test_mode}")
+
         thor_txid = await execute_thorchain_swap(
             from_token_symbol=exec_data['thorchain_from_token'],
             to_address=exec_data['thorchain_inbound_address'],
             amount=exec_data['thorchain_swap_amount'],
             memo=exec_data['thorchain_memo'],
-            config_manager=self.config_manager
+            config_manager=self.config_manager,
+            test_mode=self.test_mode
         )
 
         if not thor_txid:
-            self.config_manager.general_log.error(f"[{check_id}] Thorchain swap failed. Aborting XBridge trade.")
+            self.config_manager.general_log.critical(
+                f"[{check_id}] CRITICAL: XBridge trade {xb_result.get('id')} was taken, but Thorchain swap FAILED. "
+                f"Manual intervention may be required."
+            )
             return
 
-        # Step 2: Take XBridge Order
-        self.config_manager.general_log.info(f"[{check_id}] Thorchain swap successful (TXID: {thor_txid}). Proceeding with XBridge trade.")
+        self.config_manager.general_log.info(
+            f"[{check_id}] Both trades initiated successfully. XBridge ID: {xb_result.get('id')}, Thorchain TXID: {thor_txid}")
 
-        xb_from_token = self.config_manager.tokens[exec_data['xbridge_from_token']]
-        xb_to_token = self.config_manager.tokens[exec_data['xbridge_to_token']]
+    async def run_arbitrage_test(self, leg_to_test: int):
+        """
+        Runs a one-off test of the arbitrage execution logic for a specific leg.
+        This method constructs mock data and calls the execute_arbitrage method in test mode.
+        """
+        if not self.test_mode:
+            self.config_manager.general_log.error("run_arbitrage_test can only be run if test_mode is enabled.")
+            return
 
-        await self.config_manager.xbridge_manager.take_order(
-            order_id=exec_data['xbridge_order_id'],
-            from_address=xb_from_token.dex.address,
-            to_address=xb_to_token.dex.address
-        )
+        # Use the first configured pair for the test
+        pair_symbol = next(iter(self.config_manager.pairs))
+        pair_instance = self.config_manager.pairs[pair_symbol]
+        t1 = pair_instance.t1.symbol
+        t2 = pair_instance.t2.symbol
+        check_id = "test-run"
+
+        self.config_manager.general_log.info(f"Using pair {pair_symbol} for the test.")
+
+        # Ensure tokens have addresses for the test
+        if not pair_instance.t1.dex.address:
+            await pair_instance.t1.dex.read_address()
+        if not pair_instance.t2.dex.address:
+            await pair_instance.t2.dex.read_address()
+
+        mock_execution_data = {}
+        report = ""
+        opportunity_details = ""
+
+        if leg_to_test == 1:
+            # Leg 1: Sell t1 on XBridge, Buy t1 on Thorchain
+            self.config_manager.general_log.info("Constructing mock data for Leg 1 (Sell XBridge, Buy Thorchain)")
+
+            # Mock trade values for report
+            mock_xb_sell_amount_t1 = 0.05  # e.g., selling 0.05 LTC
+            mock_xb_price = 1500.0  # e.g., 1500 DOGE per LTC
+            mock_xb_receive_amount_t2 = mock_xb_sell_amount_t1 * mock_xb_price
+            mock_thor_gross_receive_t1 = 0.0515  # What we get back from Thorchain before fees
+            mock_thor_fee_t1 = 0.0001
+            mock_xb_fee_t1 = 0.00005
+
+            # Calculations for report
+            net_thor_received_t1 = mock_thor_gross_receive_t1 - mock_thor_fee_t1
+            net_profit_t1 = net_thor_received_t1 - mock_xb_sell_amount_t1 - mock_xb_fee_t1
+            net_profit_t1_ratio = (net_profit_t1 / mock_xb_sell_amount_t1) * 100 if mock_xb_sell_amount_t1 else 0
+            thor_fee_ratio = (mock_thor_fee_t1 / mock_thor_gross_receive_t1) * 100 if mock_thor_gross_receive_t1 else 0
+            xb_fee_ratio = (mock_xb_fee_t1 / mock_xb_sell_amount_t1) * 100 if mock_xb_sell_amount_t1 else 0
+
+            # Construct report strings
+            leg_header = f"  Leg 1: Sell {t1} on XBridge -> Buy {t1} on Thorchain"
+            report = (
+                f"{leg_header}\n"
+                f"    - XBridge Trade:  Sell {mock_xb_sell_amount_t1:.8f} {t1} -> Receive {mock_xb_receive_amount_t2:.8f} {t2} (at {mock_xb_price:.8f} {t2}/{t1})\n"
+                f"    - XBridge Fee:    {mock_xb_fee_t1:.8f} {t1} ({xb_fee_ratio:.2f}%)\n"
+                f"    - Thorchain Swap: Sell {mock_xb_receive_amount_t2:.8f} {t2} -> Gross Receive {mock_thor_gross_receive_t1:.8f} {t1}\n"
+                f"    - Thorchain Fee:  {mock_thor_fee_t1:.8f} {t1} ({thor_fee_ratio:.2f}%)\n"
+                f"    - Net Receive:    {net_thor_received_t1:.8f} {t1}\n"
+                f"    - Net Profit:     {net_profit_t1_ratio:.2f}% ({net_profit_t1:+.8f} {t1})"
+            )
+            short_header = f"Sell {t1} on XBridge -> Buy on Thorchain"
+            opportunity_details = (
+                f"Arbitrage Found ({short_header}): "
+                f"Net Profit: {net_profit_t1_ratio:.2f}% on {pair_symbol}."
+            )
+
+            # Construct execution data
+            mock_execution_data = {
+                'leg': 1, 'pair_symbol': pair_symbol, 'xbridge_order_id': f'mock_xb_bid_{uuid.uuid4()}',
+                'xbridge_from_token': t1, 'xbridge_to_token': t2,
+                'thorchain_memo': f'SWAP:{t1}.{t1}:{pair_instance.t1.dex.address}',
+                'thorchain_inbound_address': 'mock_thor_inbound_address_for_' + t2,
+                'thorchain_from_token': t2, 'thorchain_to_token': t1, 'thorchain_swap_amount': mock_xb_receive_amount_t2,
+            }
+        elif leg_to_test == 2:
+            # Leg 2: Buy t1 on XBridge, Sell t1 on Thorchain
+            self.config_manager.general_log.info("Constructing mock data for Leg 2 (Buy XBridge, Sell Thorchain)")
+
+            # Mock trade values for report
+            mock_xb_buy_amount_t1 = 0.05  # e.g. buying 0.05 LTC
+            mock_xb_price = 1500.0  # e.g. 1500 DOGE per LTC
+            mock_xb_cost_t2 = mock_xb_buy_amount_t1 * mock_xb_price
+            mock_thor_gross_receive_t2 = 76.0  # What we get back from Thorchain before fees
+            mock_thor_fee_t2 = 0.1
+            mock_xb_fee_t2 = 0.001
+
+            # Calculations for report
+            net_thor_received_t2 = mock_thor_gross_receive_t2 - mock_thor_fee_t2
+            net_profit_t2 = net_thor_received_t2 - mock_xb_cost_t2 - mock_xb_fee_t2
+            net_profit_t2_ratio = (net_profit_t2 / mock_xb_cost_t2) * 100 if mock_xb_cost_t2 else 0
+            thor_fee_ratio = (mock_thor_fee_t2 / mock_thor_gross_receive_t2) * 100 if mock_thor_gross_receive_t2 else 0
+            xb_fee_ratio = (mock_xb_fee_t2 / mock_xb_cost_t2) * 100 if mock_xb_cost_t2 else 0
+
+            # Construct report strings
+            leg_header = f"  Leg 2: Buy {t1} on XBridge -> Sell {t1} on Thorchain"
+            report = (
+                f"{leg_header}\n"
+                f"    - XBridge Trade:  Sell {mock_xb_cost_t2:.8f} {t2} -> Receive {mock_xb_buy_amount_t1:.8f} {t1} (at {mock_xb_price:.8f} {t2}/{t1})\n"
+                f"    - XBridge Fee:    {mock_xb_fee_t2:.8f} {t2} ({xb_fee_ratio:.2f}%)\n"
+                f"    - Thorchain Swap: Sell {mock_xb_buy_amount_t1:.8f} {t1} -> Gross Receive {mock_thor_gross_receive_t2:.8f} {t2}\n"
+                f"    - Thorchain Fee:  {mock_thor_fee_t2:.8f} {t2} ({thor_fee_ratio:.2f}%)\n"
+                f"    - Net Receive:    {net_thor_received_t2:.8f} {t2}\n"
+                f"    - Net Profit:     {net_profit_t2_ratio:.2f}% ({net_profit_t2:+.8f} {t2})"
+            )
+            short_header = f"Buy {t1} on XBridge -> Sell on Thorchain"
+            opportunity_details = (
+                f"Arbitrage Found ({short_header}): "
+                f"Net Profit: {net_profit_t2_ratio:.2f}% on {pair_symbol}."
+            )
+
+            # Construct execution data
+            mock_execution_data = {
+                'leg': 2, 'pair_symbol': pair_symbol, 'xbridge_order_id': f'mock_xb_ask_{uuid.uuid4()}',
+                'xbridge_from_token': t2, 'xbridge_to_token': t1,
+                'thorchain_memo': f'SWAP:{t2}.{t2}:{pair_instance.t2.dex.address}',
+                'thorchain_inbound_address': 'mock_thor_inbound_address_for_' + t1,
+                'thorchain_from_token': t1, 'thorchain_to_token': t2, 'thorchain_swap_amount': mock_xb_buy_amount_t1,
+            }
+
+        mock_leg_result = {
+            'report': report,
+            'profitable': True,  # Assume profitable for test
+            'opportunity_details': opportunity_details,
+            'execution_data': mock_execution_data
+        }
+
+        # Log the profitability report
+        self.config_manager.general_log.info(f"--- [TEST] Profitability Report ---")
+        self.config_manager.general_log.info(mock_leg_result['report'])
+        self.config_manager.general_log.info(f"--- [TEST] End of Report ---")
+
+        await self.execute_arbitrage(mock_leg_result, check_id)
 
     def build_sell_order_details(self, dex_pair_instance, manual_dex_price=None) -> tuple:
         pass
