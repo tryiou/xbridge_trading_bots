@@ -3,6 +3,8 @@ import logging
 
 import aiohttp
 
+from definitions.rpc import rpc_call
+
 # Using THORNode for quotes. Midgard is for historical data. This can be made configurable.
 THORNODE_QUOTE_URL = "https://thornode.ninerealms.com/thorchain"
 # A public THORNode endpoint. This can also be made configurable.
@@ -48,16 +50,55 @@ async def get_inbound_addresses(session: aiohttp.ClientSession):
         return None
 
 
-def execute_thorchain_swap(chain: str, to_address: str, amount: str, memo: str):
+async def execute_thorchain_swap(
+    from_token_symbol: str,
+    to_address: str,
+    amount: float,
+    memo: str,
+    config_manager
+):
     """
     Constructs and broadcasts the transaction to initiate a Thorchain swap.
-    This is a placeholder for a complex operation that requires wallet/node interaction.
-    For BTC, LTC, etc., this would involve using their respective RPC clients,
-    which aligns with the bot's current architecture.
     """
-    logging.info(f"[DRY RUN] Executing Thorchain Swap: send {amount} {chain} to {to_address} with memo '{memo}'")
-    # Example for a real implementation:
-    # rpc_params = [to_address, amount, "", "", False, False, None, "UNSET", None, memo]
-    # rpc_call(method="sendtoaddress", params=rpc_params, rpc_user=..., ...)
-    # For now, we will not implement the actual broadcast.
-    pass
+    logger = config_manager.general_log
+    try:
+        coin_conf = config_manager.xbridge_manager.xbridge_conf.get(from_token_symbol)
+        if not coin_conf:
+            logger.error(f"No RPC configuration found for {from_token_symbol} in xbridge.conf.")
+            return None
+
+        # Get RPC credentials from the parsed xbridge.conf
+        rpc_user = coin_conf.get('rpcuser')
+        rpc_password = coin_conf.get('rpcpassword')
+        rpc_port = coin_conf.get('rpcport')
+
+        if not all([rpc_user, rpc_password, rpc_port]):
+            logger.error(f"Incomplete RPC configuration for {from_token_symbol} in xbridge.conf.")
+            return None
+
+        satoshi_multiplier = coin_conf.get('coin', 100000000)
+        decimal_places = len(str(satoshi_multiplier)) - 1
+        amount_str = f"{amount:.{decimal_places}f}"
+
+        logger.info(f"Executing Thorchain Swap: send {amount_str} {from_token_symbol} to {to_address} with memo '{memo}'")
+
+        # The actual RPC call to the coin's daemon
+        txid = await rpc_call(
+            method="sendtoaddress",
+            params=[to_address, amount_str, "", "", False, False, None, "UNSET", None, memo],
+            rpc_user=rpc_user,
+            rpc_port=rpc_port,
+            rpc_password=rpc_password,
+            logger=logger
+        )
+
+        if txid:
+            logger.info(f"Thorchain swap initiated successfully. TXID: {txid}")
+            return txid
+        else:
+            logger.error(f"Thorchain swap failed. RPC call did not return a TXID.")
+            return None
+
+    except Exception as e:
+        logger.error(f"Exception during Thorchain swap execution for {from_token_symbol}: {e}", exc_info=True)
+        return None

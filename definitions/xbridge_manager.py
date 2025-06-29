@@ -198,3 +198,14 @@ class XBridgeManager:
 
     async def dxgetorderbook(self, detail, maker, taker):
         return await self.rpc_wrapper("dxgetorderbook", [detail, maker, taker])
+
+    async def take_order(self, order_id: str, from_address: str, to_address: str):
+        """Takes an XBridge order using dxTakeOrder."""
+        self.logger.info(f"Attempting to take XBridge order {order_id} from {from_address} to {to_address}")
+        try:
+            result = await self.rpc_wrapper("dxTakeOrder", [order_id, from_address, to_address])
+            self.logger.info(f"Successfully took XBridge order {order_id}. Result: {result}")
+            return result
+        except Exception as e:
+            self.logger.error(f"Failed to take XBridge order {order_id}. Error: {e}", exc_info=True)
+            return None

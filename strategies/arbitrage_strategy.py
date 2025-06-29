@@ -111,31 +111,20 @@ class ArbitrageStrategy(BaseStrategy):
             self.config_manager.general_log.debug("\n".join(report_lines))
 
         # 4. Log any profitable opportunities at INFO level and execute if not in dry mode
-        if leg1_result and leg1_result['profitable']:
-            self.config_manager.general_log.info(f"[{check_id}] {leg1_result['opportunity_details']}")
-            if not self.dry_mode:
-                execution_message = (
-                    f"[{check_id}] EXECUTING LIVE ARBITRAGE for {pair_instance.symbol} (Leg 1). "
-                    f"XBridge Taker Fee: {self.xbridge_taker_fee:.8f} BLOCK"
-                )
-                self.config_manager.general_log.info(execution_message)
-                # TODO: Implement actual trade execution
-            else:
-                self.config_manager.general_log.info(
-                    f"[{check_id}] [DRY RUN] Would execute arbitrage for {pair_instance.symbol} (Leg 1).")
+        profitable_leg = None
+        if leg1_result and leg1_result.get('profitable'):
+            profitable_leg = leg1_result
+        elif leg2_result and leg2_result.get('profitable'):
+            profitable_leg = leg2_result
 
-        if leg2_result and leg2_result['profitable']:
-            self.config_manager.general_log.info(f"[{check_id}] {leg2_result['opportunity_details']}")
+        if profitable_leg:
+            self.config_manager.general_log.info(f"[{check_id}] {profitable_leg['opportunity_details']}")
             if not self.dry_mode:
-                execution_message = (
-                    f"[{check_id}] EXECUTING LIVE ARBITRAGE for {pair_instance.symbol} (Leg 2). "
-                    f"XBridge Taker Fee: {self.xbridge_taker_fee:.8f} BLOCK"
-                )
-                self.config_manager.general_log.info(execution_message)
-                # TODO: Implement actual trade execution
+                await self.execute_arbitrage(profitable_leg, check_id)
             else:
+                leg_num = profitable_leg['execution_data']['leg']
                 self.config_manager.general_log.info(
-                    f"[{check_id}] [DRY RUN] Would execute arbitrage for {pair_instance.symbol} (Leg 2).")
+                    f"[{check_id}] [DRY RUN] Would execute arbitrage for {pair_instance.symbol} (Leg {leg_num}).")
 
         self.config_manager.general_log.info(f"[{check_id}] Finished check for {pair_instance.symbol}.")
 
@@ -147,6 +136,7 @@ class ArbitrageStrategy(BaseStrategy):
         for bid in xbridge_bids:
             bid_price = float(bid[0])
             bid_amount = float(bid[1])
+            bid_id = bid[2]
             amount_t2_from_xb_sell = bid_amount * bid_price
 
             # Balance Check (ignored in dry mode)
@@ -163,7 +153,7 @@ class ArbitrageStrategy(BaseStrategy):
                 f"[{check_id}] Found affordable XBridge bid: {bid_amount:.8f} {pair_instance.t1.symbol} at {bid_price:.8f}. Evaluating..."
             )
 
-            from definitions.thorchain_def import get_thorchain_quote  # Import locally
+            from definitions.thorchain_def import get_thorchain_quote, get_inbound_addresses
 
             try:
                 thorchain_buy_quote = await get_thorchain_quote(
@@ -182,6 +172,17 @@ class ArbitrageStrategy(BaseStrategy):
                 self.config_manager.general_log.debug(
                     f"[{check_id}] Thorchain quote was invalid for {pair_instance.symbol} (Sell->Buy).")
                 return None  # Stop if quote is invalid
+
+            # Get Thorchain inbound address for the swap
+            inbound_addresses = await get_inbound_addresses(self.http_session)
+            if not inbound_addresses:
+                self.config_manager.general_log.error(f"[{check_id}] Could not fetch Thorchain inbound addresses.")
+                return None
+            thorchain_inbound_address = next(
+                (addr['address'] for addr in inbound_addresses if addr['chain'] == pair_instance.t2.symbol), None)
+            if not thorchain_inbound_address:
+                self.config_manager.general_log.error(f"[{check_id}] No Thorchain inbound address found for {pair_instance.t2.symbol}.")
+                return None
 
             # Gross amount received from Thorchain
             gross_thorchain_received_t1 = float(thorchain_buy_quote['expected_amount_out']) / (10 ** 8)
@@ -228,16 +229,30 @@ class ArbitrageStrategy(BaseStrategy):
                     f"Net Profit: {net_profit_t1_ratio:.2f}% on {pair_instance.symbol}."
                 )
 
+            execution_data = None
+            if thorchain_buy_quote.get('memo'):
+                execution_data = {
+                    'leg': 1,
+                    'pair_symbol': pair_instance.symbol,
+                    'xbridge_order_id': bid_id,
+                    'xbridge_from_token': pair_instance.t1.symbol,
+                    'xbridge_to_token': pair_instance.t2.symbol,
+                    'thorchain_memo': thorchain_buy_quote.get('memo'),
+                    'thorchain_inbound_address': thorchain_inbound_address,
+                    'thorchain_from_token': pair_instance.t2.symbol,
+                    'thorchain_to_token': pair_instance.t1.symbol,
+                    'thorchain_swap_amount': amount_t2_from_xb_sell,
+                }
+
             return {
                 'report': report,
                 'profitable': is_profitable,
-                'opportunity_details': opportunity_details
+                'opportunity_details': opportunity_details,
+                'execution_data': execution_data
             }
 
         # If loop finishes, no affordable orders were found
-        return {'report': f"  Leg 1: No affordable bids found on XBridge for {pair_instance.symbol}.",
-                'profitable': False,
-                'opportunity_details': None}
+        return None
 
     async def check_arb_leg_xb_buy_thor_sell(self, pair_instance, xbridge_asks, check_id):
         """ Arbitrage Leg: Buy on XBridge (by hitting an ask), Sell on Thorchain. """
@@ -247,6 +262,7 @@ class ArbitrageStrategy(BaseStrategy):
         for ask in xbridge_asks:
             ask_price = float(ask[0])
             ask_amount = float(ask[1])
+            ask_id = ask[2]
             xbridge_cost_t2 = ask_amount * ask_price
 
             # Balance Check (ignored in dry mode)
@@ -263,7 +279,7 @@ class ArbitrageStrategy(BaseStrategy):
                 f"[{check_id}] Found affordable XBridge ask: {ask_amount:.8f} {pair_instance.t1.symbol} at {ask_price:.8f}. Evaluating..."
             )
 
-            from definitions.thorchain_def import get_thorchain_quote  # Import locally
+            from definitions.thorchain_def import get_thorchain_quote, get_inbound_addresses
 
             try:
                 thorchain_sell_quote = await get_thorchain_quote(
@@ -282,6 +298,17 @@ class ArbitrageStrategy(BaseStrategy):
                 self.config_manager.general_log.debug(
                     f"[{check_id}] Thorchain quote was invalid for {pair_instance.symbol} (Buy->Sell).")
                 return None  # Stop if quote is invalid
+
+            # Get Thorchain inbound address for the swap
+            inbound_addresses = await get_inbound_addresses(self.http_session)
+            if not inbound_addresses:
+                self.config_manager.general_log.error(f"[{check_id}] Could not fetch Thorchain inbound addresses.")
+                return None
+            thorchain_inbound_address = next(
+                (addr['address'] for addr in inbound_addresses if addr['chain'] == pair_instance.t1.symbol), None)
+            if not thorchain_inbound_address:
+                self.config_manager.general_log.error(f"[{check_id}] No Thorchain inbound address found for {pair_instance.t1.symbol}.")
+                return None
 
             # Gross amount received from Thorchain
             gross_thorchain_received_t2 = float(thorchain_sell_quote['expected_amount_out']) / (10 ** 8)
@@ -328,18 +355,65 @@ class ArbitrageStrategy(BaseStrategy):
                     f"Net Profit: {net_profit_t2_ratio:.2f}% on {pair_instance.symbol}."
                 )
 
+            execution_data = None
+            if thorchain_sell_quote.get('memo'):
+                execution_data = {
+                    'leg': 2,
+                    'pair_symbol': pair_instance.symbol,
+                    'xbridge_order_id': ask_id,
+                    'xbridge_from_token': pair_instance.t2.symbol,
+                    'xbridge_to_token': pair_instance.t1.symbol,
+                    'thorchain_memo': thorchain_sell_quote.get('memo'),
+                    'thorchain_inbound_address': thorchain_inbound_address,
+                    'thorchain_from_token': pair_instance.t1.symbol,
+                    'thorchain_to_token': pair_instance.t2.symbol,
+                    'thorchain_swap_amount': ask_amount,
+                }
+
             return {
                 'report': report,
                 'profitable': is_profitable,
-                'opportunity_details': opportunity_details
+                'opportunity_details': opportunity_details,
+                'execution_data': execution_data
             }
 
         # If loop finishes, no affordable orders were found
-        return {'report': f"  Leg 2: No affordable asks found on XBridge for {pair_instance.symbol}.",
-                'profitable': False,
-                'opportunity_details': None}
+        return None
 
-    # --- Stub out unused abstract methods from BaseStrategy ---
+    async def execute_arbitrage(self, leg_result, check_id):
+        """Executes the arbitrage trade for a profitable leg."""
+        from definitions.thorchain_def import execute_thorchain_swap
+        exec_data = leg_result['execution_data']
+        leg_num = exec_data['leg']
+        self.config_manager.general_log.info(
+            f"[{check_id}] EXECUTING LIVE ARBITRAGE for {exec_data['pair_symbol']} (Leg {leg_num})."
+        )
+
+        # Step 1: Execute Thorchain Swap
+        thor_txid = await execute_thorchain_swap(
+            from_token_symbol=exec_data['thorchain_from_token'],
+            to_address=exec_data['thorchain_inbound_address'],
+            amount=exec_data['thorchain_swap_amount'],
+            memo=exec_data['thorchain_memo'],
+            config_manager=self.config_manager
+        )
+
+        if not thor_txid:
+            self.config_manager.general_log.error(f"[{check_id}] Thorchain swap failed. Aborting XBridge trade.")
+            return
+
+        # Step 2: Take XBridge Order
+        self.config_manager.general_log.info(f"[{check_id}] Thorchain swap successful (TXID: {thor_txid}). Proceeding with XBridge trade.")
+
+        xb_from_token = self.config_manager.tokens[exec_data['xbridge_from_token']]
+        xb_to_token = self.config_manager.tokens[exec_data['xbridge_to_token']]
+
+        await self.config_manager.xbridge_manager.take_order(
+            order_id=exec_data['xbridge_order_id'],
+            from_address=xb_from_token.dex.address,
+            to_address=xb_to_token.dex.address
+        )
+
     def build_sell_order_details(self, dex_pair_instance, manual_dex_price=None) -> tuple:
         pass
 
