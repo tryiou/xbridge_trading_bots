@@ -21,11 +21,11 @@ class XBridgeManager:
             # Depending on desired behavior, you might want to raise an exception or exit here.
             # For now, just log the error.
 
-        # Load and parse the xbridge.conf file
-        self.parse_xbridge_conf()
-
-        # Calculate fee estimates
-        self.calculate_xbridge_fees()
+        if self.config_manager.strategy == "arbitrage":
+            # Load and parse the xbridge.conf file
+            self.parse_xbridge_conf()
+            # Calculate fee estimates
+            self.calculate_xbridge_fees()
 
     async def rpc_wrapper(self, method, params=None):
         if params is None:
@@ -138,7 +138,7 @@ class XBridgeManager:
                 self.xbridge_fees_estimate[coin] = None
 
         self.logger.info(f"XBridge fee estimates calculated for {len(self.xbridge_fees_estimate)} coins")
-        self.logger.info(f"XBridge fee estimates: {self.xbridge_fees_estimate}")
+        # self.logger.info(f"XBridge fee estimates: {self.xbridge_fees_estimate}")
 
     async def getnewtokenadress(self, token):
         return await self.rpc_wrapper("dxGetNewTokenAddress", [token])
