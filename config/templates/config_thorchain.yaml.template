@@ -1,0 +1,20 @@
+# -----------------------------------------------------------------------------
+# THORChain Configuration
+# -----------------------------------------------------------------------------
+
+# API endpoints for interacting with THORChain.
+# It is recommended to use a reliable public node or your own.
+api:
+  # Base URL for general THORNode queries (e.g., inbound_addresses).
+  thornode_url: "https://thornode.ninerealms.com"
+  # URL for fetching swap quotes.
+  thornode_quote_url: "https://thornode.ninerealms.com/thorchain"
+  # URL for checking transaction status.
+  thornode_tx_url: "https://thornode.ninerealms.com/thorchain/tx"
+
+# Monitoring settings for Thorchain swap execution loops.
+monitoring:
+  # Timeout in seconds for waiting for a Thorchain swap to complete.
+  timeout: 600
+  # Interval in seconds to poll for Thorchain swap status.
+  poll_interval: 30
