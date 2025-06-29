@@ -208,7 +208,6 @@ class XBridgeManager:
             mock_result = {'id': f'mock_xbridge_txid_{uuid.uuid4()}', 'status': 'created'}
             self.logger.info(f"[TEST MODE] Would execute BLOCKNET WALLET RPC CALL:")
             self.logger.info(f"    - RPC Port: {self.blocknet_port_rpc}")
-            self.logger.info(f"    - RPC User: {self.blocknet_user_rpc}")
             self.logger.info(f"    - Method: dxTakeOrder")
             self.logger.info(f"    - Params: ['{order_id}', '{from_address}', '{to_address}']")
             self.logger.info(f"    - Returning mock result: {mock_result}")
