@@ -1,4 +1,6 @@
 import asyncio
+import configparser
+import os
 
 from definitions.detect_rpc import detect_rpc
 from definitions.rpc import rpc_call
@@ -8,13 +10,21 @@ class XBridgeManager:
     def __init__(self, config_manager):
         self.config_manager = config_manager
         self.logger = config_manager.general_log
-        self.blocknet_user_rpc, self.blocknet_port_rpc, self.blocknet_password_rpc , self.blocknet_datadir_path = detect_rpc()
+        self.blocknet_user_rpc, self.blocknet_port_rpc, self.blocknet_password_rpc, self.blocknet_datadir_path = detect_rpc()
+        self.xbridge_conf = None
+        self.xbridge_fees_estimate = {}
 
         # Optional: Test RPC connection during initialization
         if not self.test_rpc():
             self.logger.error(f'Blocknet core rpc server not responding or credentials incorrect.')
             # Depending on desired behavior, you might want to raise an exception or exit here.
             # For now, just log the error.
+
+        # Load and parse the xbridge.conf file
+        self.parse_xbridge_conf()
+
+        # Calculate fee estimates
+        self.calculate_xbridge_fees()
 
     async def rpc_wrapper(self, method, params=None):
         if params is None:
@@ -38,6 +48,96 @@ class XBridgeManager:
         else:
             self.logger.error(f'XBridge RPC connection failed: getwalletinfo returned {result}')
             return False
+
+    def parse_xbridge_conf(self):
+        """Parse the xbridge.conf file and store the configuration in self.xbridge_conf."""
+        if not self.blocknet_datadir_path:
+            self.logger.error("No Blocknet datadir path found, cannot parse xbridge.conf")
+            return
+
+        conf_path = os.path.join(self.blocknet_datadir_path, 'xbridge.conf')
+        if not os.path.exists(conf_path):
+            self.logger.error(f"xbridge.conf not found at {conf_path}")
+            return
+
+        config = configparser.ConfigParser()
+        try:
+            config.read(conf_path)
+            self.xbridge_conf = {}
+
+            # Get all supported coins (sections after [Main])                                                                                                                                   
+            for section in config.sections():
+                if section == 'Main':
+                    continue
+
+                # Skip if the section is not a coin (unlikely, but just in case)
+                if not section.isupper() or not section.isalpha():
+                    continue
+
+                coin = section
+                self.xbridge_conf[coin] = {}
+
+                # Get all key-value pairs in the section                                                                                                                                        
+                for key, value in config.items(section):
+                    # Convert numeric values to appropriate types    
+                    # self.logger.info(f"key: {key}, value: {value}")
+                    if key in ['coin', 'minimumamount', 'dustamount', 'txversion', 'blocktime', 'feeperbyte',
+                               'mintxfee', 'confirmations', 'addressprefix', 'scriptprefix', 'secretprefix']:
+                        self.xbridge_conf[coin][key] = int(value)
+                    elif key in ['getnewkeysupported', 'importwithnoscansupported', 'lockcoinssupported',
+                                 'txwithtimefield']:
+                        self.xbridge_conf[coin][key] = bool(value)
+                    else:
+                        self.xbridge_conf[coin][key] = value
+
+            self.logger.info(f"Successfully parsed xbridge.conf with {len(self.xbridge_conf)} coins")
+            # self.logger.info(f"Parsed xbridge.conf {self.xbridge_conf}")
+        except Exception as e:
+            self.logger.error(f"Error parsing xbridge.conf: {str(e)}")
+            self.xbridge_conf = None
+
+    def calculate_xbridge_fees(self):
+        """Calculate and store estimated XBridge transaction fees for each coin."""
+        if not self.xbridge_conf:
+            self.logger.error("Cannot calculate fees: xbridge.conf not loaded")
+            return
+
+        self.xbridge_fees_estimate = {}
+
+        for coin, config in self.xbridge_conf.items():
+            try:
+                # Get the fee per byte and minimum transaction fee
+                fee_per_byte = config.get('feeperbyte', 0)
+                min_tx_fee = config.get('mintxfee', 0)
+
+                # Estimate the fee for a typical transaction
+                # We'll assume a typical transaction size of 500 bytes (this might need adjustment)
+                typical_tx_size = 500
+                estimated_fee = fee_per_byte * typical_tx_size
+
+                # Ensure the fee doesn't go below the minimum
+                estimated_fee = max(estimated_fee, min_tx_fee)
+
+                # Convert to absolute value (in satoshis)
+                estimated_fee_satoshis = estimated_fee
+
+                # Convert to coin units (BTC, LTC, etc.)
+                coin_units = config.get('coin', 100000000)
+                estimated_fee_coin = estimated_fee_satoshis / coin_units
+
+                self.xbridge_fees_estimate[coin] = {
+                    'fee_per_byte': fee_per_byte,
+                    'min_tx_fee': min_tx_fee,
+                    'estimated_fee_satoshis': estimated_fee_satoshis,
+                    'estimated_fee_coin': estimated_fee_coin,
+                    'typical_tx_size': typical_tx_size
+                }
+            except Exception as e:
+                self.logger.error(f"Error calculating fee estimate for {coin}: {str(e)}")
+                self.xbridge_fees_estimate[coin] = None
+
+        self.logger.info(f"XBridge fee estimates calculated for {len(self.xbridge_fees_estimate)} coins")
+        self.logger.info(f"XBridge fee estimates: {self.xbridge_fees_estimate}")
 
     async def getnewtokenadress(self, token):
         return await self.rpc_wrapper("dxGetNewTokenAddress", [token])

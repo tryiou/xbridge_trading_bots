@@ -188,7 +188,7 @@ def detect_rpc():
 
     rpc_user, rpc_password, rpc_port = read_config_file(config_path)
 
-    return rpc_user, rpc_port, rpc_password, config_path
+    return rpc_user, rpc_port, rpc_password, os.path.dirname(config_path)
 
 
 def detect_rpc_json():

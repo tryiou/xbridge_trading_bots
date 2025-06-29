@@ -186,27 +186,34 @@ class ArbitrageStrategy(BaseStrategy):
             # Gross amount received from Thorchain
             gross_thorchain_received_t1 = float(thorchain_buy_quote['expected_amount_out']) / (10 ** 8)
 
+            # Get XBridge fee for t1
+            xbridge_fee_t1 = self.config_manager.xbridge_manager.xbridge_fees_estimate.get(pair_instance.t1.symbol,
+                                                                                           {}).get(
+                'estimated_fee_coin', 0)
+
             # Extract Thorchain fees
             thorchain_fees = thorchain_buy_quote.get('fees', {})
             outbound_fee_t1 = float(thorchain_fees.get('outbound', '0')) / (10 ** 8)
 
             # Calculate Net Profit
             net_thorchain_received_t1 = gross_thorchain_received_t1 - outbound_fee_t1
-            net_profit_t1_amount = net_thorchain_received_t1 - bid_amount
+            net_profit_t1_amount = net_thorchain_received_t1 - bid_amount - xbridge_fee_t1
 
             # Profitability check based on NET profit
             is_profitable = (net_profit_t1_amount > 0) and (
-                        (net_profit_t1_amount / bid_amount) > self.min_profit_margin) if bid_amount else False
+                    (net_profit_t1_amount / bid_amount) > self.min_profit_margin) if bid_amount else False
 
             # Update report
             net_profit_t1_ratio = (net_profit_t1_amount / bid_amount) * 100 if bid_amount else 0
             network_fee_t1_ratio = (
-                                               outbound_fee_t1 / gross_thorchain_received_t1) * 100 if gross_thorchain_received_t1 else 0
+                                           outbound_fee_t1 / gross_thorchain_received_t1) * 100 if gross_thorchain_received_t1 else 0
+            xbridge_fee_t1_ratio = (xbridge_fee_t1 / bid_amount) * 100 if bid_amount else 0
 
             leg_header = f"  Leg 1: Sell {pair_instance.t1.symbol} on XBridge -> Buy {pair_instance.t1.symbol} on Thorchain"
             report = (
                 f"{leg_header}\n"
                 f"    - XBridge Trade:  Sell {bid_amount:.8f} {pair_instance.t1.symbol} -> Receive {amount_t2_from_xb_sell:.8f} {pair_instance.t2.symbol} (at {bid_price:.8f} {pair_instance.t2.symbol}/{pair_instance.t1.symbol})\n"
+                f"    - XBridge Fee:    {xbridge_fee_t1:.8f} {pair_instance.t1.symbol} ({xbridge_fee_t1_ratio:.2f}%)\n"
                 f"    - Thorchain Swap: Sell {amount_t2_from_xb_sell:.8f} {pair_instance.t2.symbol} -> Gross Receive {gross_thorchain_received_t1:.8f} {pair_instance.t1.symbol}\n"
                 f"    - Thorchain Fee:  {outbound_fee_t1:.8f} {pair_instance.t1.symbol} ({network_fee_t1_ratio:.2f}%)\n"
                 f"    - Net Receive:    {net_thorchain_received_t1:.8f} {pair_instance.t1.symbol}\n"
@@ -279,27 +286,34 @@ class ArbitrageStrategy(BaseStrategy):
             # Gross amount received from Thorchain
             gross_thorchain_received_t2 = float(thorchain_sell_quote['expected_amount_out']) / (10 ** 8)
 
+            # Get XBridge fee for t2
+            xbridge_fee_t2 = self.config_manager.xbridge_manager.xbridge_fees_estimate.get(pair_instance.t2.symbol,
+                                                                                           {}).get(
+                'estimated_fee_coin', 0)
+
             # Extract Thorchain fees
             thorchain_fees = thorchain_sell_quote.get('fees', {})
             outbound_fee_t2 = float(thorchain_fees.get('outbound', '0')) / (10 ** 8)
 
             # Calculate Net Profit
             net_thorchain_received_t2 = gross_thorchain_received_t2 - outbound_fee_t2
-            net_profit_t2_amount = net_thorchain_received_t2 - xbridge_cost_t2
+            net_profit_t2_amount = net_thorchain_received_t2 - xbridge_cost_t2 - xbridge_fee_t2
 
             # Profitability check based on NET profit
             is_profitable = (net_profit_t2_amount > 0) and (
-                        (net_profit_t2_amount / xbridge_cost_t2) > self.min_profit_margin) if xbridge_cost_t2 else False
+                    (net_profit_t2_amount / xbridge_cost_t2) > self.min_profit_margin) if xbridge_cost_t2 else False
 
             # Update report
             net_profit_t2_ratio = (net_profit_t2_amount / xbridge_cost_t2) * 100 if xbridge_cost_t2 else 0
             network_fee_t2_ratio = (
-                                               outbound_fee_t2 / gross_thorchain_received_t2) * 100 if gross_thorchain_received_t2 else 0
+                                           outbound_fee_t2 / gross_thorchain_received_t2) * 100 if gross_thorchain_received_t2 else 0
+            xbridge_fee_t2_ratio = (xbridge_fee_t2 / xbridge_cost_t2) * 100 if xbridge_cost_t2 else 0
 
             leg_header = f"  Leg 2: Buy {pair_instance.t1.symbol} on XBridge -> Sell {pair_instance.t1.symbol} on Thorchain"
             report = (
                 f"{leg_header}\n"
                 f"    - XBridge Trade:  Sell {xbridge_cost_t2:.8f} {pair_instance.t2.symbol} -> Receive {ask_amount:.8f} {pair_instance.t1.symbol} (at {ask_price:.8f} {pair_instance.t2.symbol}/{pair_instance.t1.symbol})\n"
+                f"    - XBridge Fee:    {xbridge_fee_t2:.8f} {pair_instance.t2.symbol} ({xbridge_fee_t2_ratio:.2f}%)\n"
                 f"    - Thorchain Swap: Sell {ask_amount:.8f} {pair_instance.t1.symbol} -> Gross Receive {gross_thorchain_received_t2:.8f} {pair_instance.t2.symbol}\n"
                 f"    - Thorchain Fee:  {outbound_fee_t2:.8f} {pair_instance.t2.symbol} ({network_fee_t2_ratio:.2f}%)\n"
                 f"    - Net Receive:    {net_thorchain_received_t2:.8f} {pair_instance.t2.symbol}\n"
