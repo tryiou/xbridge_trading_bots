@@ -6,14 +6,9 @@ import aiohttp
 
 from definitions.rpc import rpc_call
 
-# Using THORNode for quotes. Midgard is for historical data. This can be made configurable.
-THORNODE_QUOTE_URL = "https://thornode.ninerealms.com/thorchain"
-# A public THORNode endpoint. This can also be made configurable.
-THORNODE_URL = "https://thornode.ninerealms.com"
-
 
 @asyncio.coroutine
-async def get_thorchain_quote(from_asset: str, to_asset: str, amount: float, session: aiohttp.ClientSession):
+async def get_thorchain_quote(from_asset: str, to_asset: str, amount: float, session: aiohttp.ClientSession, quote_url: str):
     """
     Fetches a swap quote from Thorchain's Midgard API.
     Amount is in base units (e.g., 1.5 for 1.5 BTC, not satoshis).
@@ -21,7 +16,7 @@ async def get_thorchain_quote(from_asset: str, to_asset: str, amount: float, ses
     # Thorchain expects amount in 1e8 format (sats, litoshis, etc.)
     # And asset format is CHAIN.SYMBOL, e.g. BTC.BTC
     amount_1e8 = int(amount * (10 ** 8))
-    url = f"{THORNODE_QUOTE_URL}/quote/swap?from_asset={from_asset.upper()}&to_asset={to_asset.upper()}&amount={amount_1e8}"
+    url = f"{quote_url}/quote/swap?from_asset={from_asset.upper()}&to_asset={to_asset.upper()}&amount={amount_1e8}"
 
     try:
         async with session.get(url) as response:
@@ -35,12 +30,12 @@ async def get_thorchain_quote(from_asset: str, to_asset: str, amount: float, ses
 
 
 @asyncio.coroutine
-async def get_inbound_addresses(session: aiohttp.ClientSession):
+async def get_inbound_addresses(session: aiohttp.ClientSession, api_url: str):
     """
     Fetches the inbound addresses from a THORNode.
     This is necessary to know where to send funds for a swap.
     """
-    url = f"{THORNODE_URL}/thorchain/inbound_addresses"
+    url = f"{api_url}/thorchain/inbound_addresses"
     try:
         async with session.get(url) as response:
             response.raise_for_status()
@@ -117,3 +112,39 @@ async def execute_thorchain_swap(
     except Exception as e:
         logger.error(f"Exception during Thorchain swap execution for {from_token_symbol}: {e}", exc_info=True)
         return None
+
+
+async def get_thorchain_tx_status(txid: str, session: aiohttp.ClientSession, tx_url: str) -> str:
+    """
+    Checks the status of a Thorchain transaction.
+    Returns 'success', 'refunded', or 'pending'.
+    """
+    logger = logging.getLogger('general_log')
+    url = f"{tx_url}/{txid}"
+    try:
+        async with session.get(url) as response:
+            if response.status == 404:
+                # Not found yet, still pending
+                return 'pending'
+            response.raise_for_status()
+            tx_data = await response.json()
+
+            out_txs = tx_data.get('out_txs')
+            if not out_txs:
+                # No outbound transaction yet, still pending
+                return 'pending'
+
+            # Check the memo of the first outbound transaction
+            first_out_memo = out_txs[0].get('memo', '')
+            if 'REFUND:' in first_out_memo.upper():
+                return 'refunded'
+
+            # If there's an out_tx and it's not a refund, it's a success
+            return 'success'
+
+    except aiohttp.ClientError as e:
+        logger.warning(f"Network error checking Thorchain tx {txid}: {e}. Treating as pending.")
+        return 'pending'
+    except Exception as e:
+        logger.error(f"Unexpected error checking Thorchain tx {txid}: {e}. Treating as pending.", exc_info=True)
+        return 'pending'

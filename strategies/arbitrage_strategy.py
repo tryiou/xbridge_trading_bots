@@ -1,5 +1,7 @@
 import uuid
 import json
+import time
+import asyncio
 from itertools import combinations
 from unittest.mock import patch, AsyncMock
 
@@ -16,11 +18,35 @@ class ArbitrageStrategy(BaseStrategy):
         self.test_mode = False
         self.http_session = None  # Will be set by ConfigManager
         self.xbridge_taker_fee = self.config_manager.config_xbridge.taker_fee_block
+        self.xb_monitor_timeout = 300
+        self.xb_monitor_poll = 15
+        self.thor_monitor_timeout = 600
+        self.thor_monitor_poll = 30
+        self.thor_api_url = "https://thornode.ninerealms.com"
+        self.thor_quote_url = "https://thornode.ninerealms.com/thorchain"
+        self.thor_tx_url = "https://thornode.ninerealms.com/thorchain/tx"
 
     def initialize_strategy_specifics(self, dry_mode: bool = True, min_profit_margin: float = 0.01, test_mode: bool = False, **kwargs):
         self.dry_mode = dry_mode
         self.min_profit_margin = min_profit_margin
         self.test_mode = test_mode
+        # Safely access monitoring config using attribute access, falling back to defaults.
+        xb_monitoring_config = getattr(self.config_manager.config_xbridge, 'monitoring', None)
+        if xb_monitoring_config:
+            self.xb_monitor_timeout = getattr(xb_monitoring_config, 'timeout', self.xb_monitor_timeout)
+            self.xb_monitor_poll = getattr(xb_monitoring_config, 'poll_interval', self.xb_monitor_poll)
+
+        thor_config = self.config_manager.config_thorchain
+        if thor_config:
+            thor_monitoring_config = getattr(thor_config, 'monitoring', None)
+            if thor_monitoring_config:
+                self.thor_monitor_timeout = getattr(thor_monitoring_config, 'timeout', self.thor_monitor_timeout)
+                self.thor_monitor_poll = getattr(thor_monitoring_config, 'poll_interval', self.thor_monitor_poll)
+            thor_api_config = getattr(thor_config, 'api', None)
+            if thor_api_config:
+                self.thor_api_url = getattr(thor_api_config, 'thornode_url', self.thor_api_url)
+                self.thor_quote_url = getattr(thor_api_config, 'thornode_quote_url', self.thor_quote_url)
+                self.thor_tx_url = getattr(thor_api_config, 'thornode_tx_url', self.thor_tx_url)
         self.config_manager.general_log.info(
             f"ArbitrageStrategy initialized. Dry mode: {self.dry_mode}, Min profit: {self.min_profit_margin * 100:.2f}%, Test mode: {self.test_mode}")
 
@@ -219,16 +245,16 @@ class ArbitrageStrategy(BaseStrategy):
                 thorchain_swap_amount = order_amount
                 thorchain_from_asset = f"{pair_instance.t1.symbol}.{pair_instance.t1.symbol}"
                 thorchain_to_asset = f"{pair_instance.t2.symbol}.{pair_instance.t2.symbol}"
-                inbound_chain = pair_instance.t1.symbol
 
-            from definitions.thorchain_def import get_thorchain_quote, get_inbound_addresses
+            from definitions.thorchain_def import get_thorchain_quote
 
             try:
                 thorchain_quote = await get_thorchain_quote(
                     from_asset=thorchain_from_asset,
                     to_asset=thorchain_to_asset,
                     amount=thorchain_swap_amount,
-                    session=self.http_session
+                    session=self.http_session,
+                    quote_url=self.thor_quote_url
                 )
             except Exception as e:
                 direction_desc = "Sell->Buy" if is_bid else "Buy->Sell"
@@ -243,15 +269,10 @@ class ArbitrageStrategy(BaseStrategy):
                     f"[{check_id}] Thorchain quote was invalid for {pair_instance.symbol} ({direction_desc}).")
                 return None  # Stop if quote is invalid
 
-            # Get Thorchain inbound address for the swap
-            inbound_addresses = await get_inbound_addresses(self.http_session)
-            if not inbound_addresses:
-                self.config_manager.general_log.error(f"[{check_id}] Could not fetch Thorchain inbound addresses.")
-                return None
-            thorchain_inbound_address = next(
-                (addr['address'] for addr in inbound_addresses if addr['chain'] == inbound_chain), None)
+            # The inbound address is provided directly in the quote response
+            thorchain_inbound_address = thorchain_quote.get('inbound_address')
             if not thorchain_inbound_address:
-                self.config_manager.general_log.error(f"[{check_id}] No Thorchain inbound address found for {inbound_chain}.")
+                self.config_manager.general_log.error(f"[{check_id}] No Thorchain inbound address found in the quote response.")
                 return None
 
             # Gross amount received from Thorchain
@@ -386,65 +407,162 @@ class ArbitrageStrategy(BaseStrategy):
 
     async def execute_arbitrage(self, leg_result, check_id):
         """Executes the arbitrage trade for a profitable leg."""
-        from definitions.thorchain_def import execute_thorchain_swap
+        from definitions.thorchain_def import execute_thorchain_swap, get_thorchain_tx_status
         exec_data = leg_result['execution_data']
         leg_num = exec_data['leg']
+
+        xb_trade_id = None
+        thor_txid = None
+
         self.config_manager.general_log.info(
             f"[{check_id}] EXECUTING LIVE ARBITRAGE for {exec_data['pair_symbol']} (Leg {leg_num})."
         )
 
-        # --- Step 1: XBridge Trade ---
-        self.config_manager.general_log.info(f"[{check_id}] --- Step 1: XBridge Trade ---")
-        xb_from_token = self.config_manager.tokens[exec_data['xbridge_from_token']]
-        xb_to_token = self.config_manager.tokens[exec_data['xbridge_to_token']]
+        try:
+            # --- Step 1: Initiate XBridge Trade ---
+            self.config_manager.general_log.info(f"[{check_id}] --- Step 1: Initiate XBridge Trade ---")
+            xb_from_token = self.config_manager.tokens[exec_data['xbridge_from_token']]
+            xb_to_token = self.config_manager.tokens[exec_data['xbridge_to_token']]
 
-        self.config_manager.general_log.info(f"[{check_id}] Preparing to call take_order with:")
-        self.config_manager.general_log.info(f"    - order_id: {exec_data['xbridge_order_id']}")
-        self.config_manager.general_log.info(f"    - from_address: {xb_from_token.dex.address}")
-        self.config_manager.general_log.info(f"    - to_address: {xb_to_token.dex.address}")
-        self.config_manager.general_log.info(f"    - test_mode: {self.test_mode}")
+            self.config_manager.general_log.info(f"[{check_id}] Preparing to call take_order with:")
+            self.config_manager.general_log.info(f"    - order_id: {exec_data['xbridge_order_id']}")
+            self.config_manager.general_log.info(f"    - from_address: {xb_from_token.dex.address}")
+            self.config_manager.general_log.info(f"    - to_address: {xb_to_token.dex.address}")
+            self.config_manager.general_log.info(f"    - test_mode: {self.test_mode}")
 
-        xb_result = await self.config_manager.xbridge_manager.take_order(
-            order_id=exec_data['xbridge_order_id'],
-            from_address=xb_from_token.dex.address,
-            to_address=xb_to_token.dex.address,
-            test_mode=self.test_mode
-        )
-
-        if not xb_result or not xb_result.get('id'):
-            self.config_manager.general_log.error(
-                f"[{check_id}] XBridge trade failed or was already taken. Aborting Thorchain swap.")
-            return
-
-        # --- Step 2: Thorchain Swap ---
-        self.config_manager.general_log.info(
-            f"[{check_id}] XBridge trade successful (ID: {xb_result.get('id')}). Proceeding with Thorchain swap.")
-        self.config_manager.general_log.info(f"[{check_id}] --- Step 2: Thorchain Swap ---")
-        self.config_manager.general_log.info(f"[{check_id}] Preparing to call execute_thorchain_swap with:")
-        self.config_manager.general_log.info(f"    - from_token_symbol: {exec_data['thorchain_from_token']}")
-        self.config_manager.general_log.info(f"    - to_address: {exec_data['thorchain_inbound_address']}")
-        self.config_manager.general_log.info(f"    - amount: {exec_data['thorchain_swap_amount']}")
-        self.config_manager.general_log.info(f"    - memo: {exec_data['thorchain_memo']}")
-        self.config_manager.general_log.info(f"    - test_mode: {self.test_mode}")
-
-        thor_txid = await execute_thorchain_swap(
-            from_token_symbol=exec_data['thorchain_from_token'],
-            to_address=exec_data['thorchain_inbound_address'],
-            amount=exec_data['thorchain_swap_amount'],
-            memo=exec_data['thorchain_memo'],
-            config_manager=self.config_manager,
-            test_mode=self.test_mode
-        )
-
-        if not thor_txid:
-            self.config_manager.general_log.critical(
-                f"[{check_id}] CRITICAL: XBridge trade {xb_result.get('id')} was taken, but Thorchain swap FAILED. "
-                f"Manual intervention may be required."
+            xb_result = await self.config_manager.xbridge_manager.take_order(
+                order_id=exec_data['xbridge_order_id'],
+                from_address=xb_from_token.dex.address,
+                to_address=xb_to_token.dex.address,
+                test_mode=self.test_mode
             )
-            return
 
-        self.config_manager.general_log.info(
-            f"[{check_id}] Both trades initiated successfully. XBridge ID: {xb_result.get('id')}, Thorchain TXID: {thor_txid}")
+            if not xb_result or not xb_result.get('id'):
+                self.config_manager.general_log.error(
+                    f"[{check_id}] XBridge trade failed to initiate or was already taken. Aborting arbitrage.")
+                return
+
+            xb_trade_id = xb_result.get('id')
+            self.config_manager.general_log.info(
+                f"[{check_id}] XBridge trade initiated (ID: {xb_trade_id}). Now monitoring for completion...")
+
+            # --- Step 2: Monitor XBridge Trade ---
+            xbridge_completed = await self._monitor_xbridge_order(xb_trade_id, check_id)
+            if not xbridge_completed:
+                self.config_manager.general_log.error(
+                    f"[{check_id}] XBridge trade {xb_trade_id} did not complete successfully. Aborting arbitrage."
+                )
+                return
+
+            self.config_manager.general_log.info(
+                f"[{check_id}] XBridge trade {xb_trade_id} completed successfully. Proceeding with Thorchain swap."
+            )
+
+            # --- Step 3: Initiate Thorchain Swap ---
+            self.config_manager.general_log.info(f"[{check_id}] --- Step 3: Initiate Thorchain Swap ---")
+            self.config_manager.general_log.info(f"[{check_id}] Preparing to call execute_thorchain_swap with:")
+            self.config_manager.general_log.info(f"    - from_token_symbol: {exec_data['thorchain_from_token']}")
+            self.config_manager.general_log.info(f"    - to_address: {exec_data['thorchain_inbound_address']}")
+            self.config_manager.general_log.info(f"    - amount: {exec_data['thorchain_swap_amount']}")
+            self.config_manager.general_log.info(f"    - memo: {exec_data['thorchain_memo']}")
+            self.config_manager.general_log.info(f"    - test_mode: {self.test_mode}")
+
+            thor_txid = await execute_thorchain_swap(
+                from_token_symbol=exec_data['thorchain_from_token'],
+                to_address=exec_data['thorchain_inbound_address'],
+                amount=exec_data['thorchain_swap_amount'],
+                memo=exec_data['thorchain_memo'],
+                config_manager=self.config_manager,
+                test_mode=self.test_mode
+            )
+
+            if not thor_txid:
+                self.config_manager.general_log.critical(
+                    f"[{check_id}] CRITICAL: XBridge trade {xb_trade_id} was completed, but Thorchain swap FAILED to initiate. "
+                    f"Manual intervention REQUIRED."
+                )
+                return
+
+            self.config_manager.general_log.info(
+                f"[{check_id}] Thorchain swap initiated (TXID: {thor_txid}). Now monitoring for completion...")
+
+            # --- Step 4: Monitor Thorchain Swap ---
+            thorchain_completed = await self._monitor_thorchain_swap(thor_txid, check_id)
+            if not thorchain_completed:
+                self.config_manager.general_log.critical(
+                    f"[{check_id}] CRITICAL: Thorchain swap {thor_txid} did not complete successfully after initiation. "
+                    f"Manual intervention may be required to check balances."
+                )
+                return
+
+            self.config_manager.general_log.info(
+                f"[{check_id}] SUCCESS: Full arbitrage cycle completed. XBridge ID: {xb_trade_id}, Thorchain TXID: {thor_txid}")
+
+        except Exception as e:
+            self.config_manager.general_log.error(
+                f"[{check_id}] An unexpected error occurred during arbitrage execution: {e}", exc_info=True
+            )
+            self.config_manager.general_log.critical(
+                f"[{check_id}] Arbitrage failed. Last known state: XBridge ID: {xb_trade_id}, Thorchain TXID: {thor_txid}. Manual intervention may be required."
+            )
+
+    async def _monitor_xbridge_order(self, order_id: str, check_id: str) -> bool:
+        """Monitors an XBridge order until it reaches a terminal state."""
+        if self.test_mode:
+            self.config_manager.general_log.info(f"[{check_id}] [TEST MODE] Simulating successful XBridge order completion for {order_id}.")
+            return True
+
+        timeout = self.xb_monitor_timeout
+        poll_interval = self.xb_monitor_poll
+        start_time = time.time()
+
+        while time.time() - start_time < timeout:
+            try:
+                status_result = await self.config_manager.xbridge_manager.getorderstatus(order_id)
+                status = status_result.get('status')
+                self.config_manager.general_log.info(f"[{check_id}] Monitoring XBridge order {order_id}: status is '{status}'.")
+
+                if status == 'finished':
+                    return True
+                if status in ['expired', 'canceled', 'invalid', 'rolled back', 'rollback failed', 'offline']:
+                    self.config_manager.general_log.error(f"[{check_id}] XBridge order {order_id} failed with status: {status}.")
+                    return False
+            except Exception as e:
+                self.config_manager.general_log.warning(
+                    f"[{check_id}] Error checking status for XBridge order {order_id}: {e}. Retrying..."
+                )
+            await asyncio.sleep(poll_interval)
+
+        self.config_manager.general_log.error(f"[{check_id}] Timed out waiting for XBridge order {order_id} to complete.")
+        return False
+
+    async def _monitor_thorchain_swap(self, txid: str, check_id: str) -> bool:
+        """Monitors a Thorchain swap until it reaches a terminal state."""
+        from definitions.thorchain_def import get_thorchain_tx_status
+
+        if self.test_mode:
+            self.config_manager.general_log.info(f"[{check_id}] [TEST MODE] Simulating successful Thorchain swap completion for {txid}.")
+            return True
+
+        timeout = self.thor_monitor_timeout
+        poll_interval = self.thor_monitor_poll
+        start_time = time.time()
+
+        while time.time() - start_time < timeout:
+            status = await get_thorchain_tx_status(txid, self.http_session, self.thor_tx_url)
+            self.config_manager.general_log.info(f"[{check_id}] Monitoring Thorchain tx {txid}: status is '{status}'.")
+
+            if status == 'success':
+                return True
+            if status == 'refunded':
+                self.config_manager.general_log.error(f"[{check_id}] Thorchain swap {txid} was refunded.")
+                return False
+
+            # if status is 'pending', just sleep and retry
+            await asyncio.sleep(poll_interval)
+
+        self.config_manager.general_log.error(f"[{check_id}] Timed out waiting for Thorchain swap {txid} to complete.")
+        return False
 
     async def run_arbitrage_test(self, leg_to_test: int):
         """
@@ -484,15 +602,14 @@ class ArbitrageStrategy(BaseStrategy):
         if leg_to_test == 1:
             # Leg 1: Sell t1 on XBridge, Buy t1 on Thorchain
             self.config_manager.general_log.info("Testing Leg 1: Sell XBridge, Buy Thorchain")
-            with patch('definitions.thorchain_def.get_thorchain_quote', mock_thorchain_quote), \
-                 patch('definitions.thorchain_def.get_inbound_addresses', mock_inbound_addresses):
+            with patch('definitions.thorchain_def.get_thorchain_quote', mock_thorchain_quote):
                 # Mock Thorchain quote for profitability. We sell 0.05 t1 for 75 t2. We want to get back > 0.05 t1.
                 mock_thorchain_quote.return_value = {
                     'expected_amount_out': str(int(0.0515 * 10**8)),  # e.g., 0.0515 t1
                     'fees': {'outbound': str(int(0.0001 * 10**8))},  # e.g., 0.0001 t1 fee
-                    'memo': f'SWAP:{pair_instance.t1.symbol}.{pair_instance.t1.symbol}:{pair_instance.t1.dex.address}'
+                    'memo': f'SWAP:{pair_instance.t1.symbol}.{pair_instance.t1.symbol}:{pair_instance.t1.dex.address}',
+                    'inbound_address': 'mock_thor_inbound_address_for_' + pair_instance.t2.symbol
                 }
-                mock_inbound_addresses.return_value = [{'chain': pair_instance.t2.symbol, 'address': 'mock_thor_inbound_address_for_' + pair_instance.t2.symbol}]
 
                 # Mock XBridge bids (profitable)
                 mock_bids = [[str(mock_xb_price), str(mock_order_amount_t1), mock_order_id]]
@@ -502,15 +619,14 @@ class ArbitrageStrategy(BaseStrategy):
         elif leg_to_test == 2:
             # Leg 2: Buy t1 on XBridge, Sell t1 on Thorchain
             self.config_manager.general_log.info("Testing Leg 2: Buy XBridge, Sell Thorchain")
-            with patch('definitions.thorchain_def.get_thorchain_quote', mock_thorchain_quote), \
-                 patch('definitions.thorchain_def.get_inbound_addresses', mock_inbound_addresses):
+            with patch('definitions.thorchain_def.get_thorchain_quote', mock_thorchain_quote):
                 # Mock Thorchain quote for profitability. We buy 0.05 t1 for 75 t2. We sell 0.05 t1 and want > 75 t2 back.
                 mock_thorchain_quote.return_value = {
                     'expected_amount_out': str(int(80 * 10**8)),  # e.g., 80 t2
                     'fees': {'outbound': str(int(0.1 * 10**8))},  # e.g., 0.1 t2 fee
-                    'memo': f'SWAP:{pair_instance.t2.symbol}.{pair_instance.t2.symbol}:{pair_instance.t2.dex.address}'
+                    'memo': f'SWAP:{pair_instance.t2.symbol}.{pair_instance.t2.symbol}:{pair_instance.t2.dex.address}',
+                    'inbound_address': 'mock_thor_inbound_address_for_' + pair_instance.t1.symbol
                 }
-                mock_inbound_addresses.return_value = [{'chain': pair_instance.t1.symbol, 'address': 'mock_thor_inbound_address_for_' + pair_instance.t1.symbol}]
 
                 # Mock XBridge asks (profitable)
                 mock_asks = [[str(mock_xb_price), str(mock_order_amount_t1), mock_order_id]]

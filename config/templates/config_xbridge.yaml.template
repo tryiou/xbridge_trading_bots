@@ -1,2 +1,9 @@
 # XBridge Taker Fee in BLOCK, paid to service nodes for matching an order.
 taker_fee_block: 0.015
+
+# Monitoring settings for XBridge order execution loops
+monitoring:
+  # Timeout in seconds for waiting for an XBridge order to complete.
+  timeout: 300
+  # Interval in seconds to poll for XBridge order status.
+  poll_interval: 15

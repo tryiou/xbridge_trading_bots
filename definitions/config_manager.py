@@ -21,6 +21,7 @@ class ConfigManager:
         self.config_coins = None
         self.config_pingppong = None
         self.config_xbridge = None  # XBridge configuration
+        self.config_thorchain = None  # Thorchain configuration
         self.strategy_config = {}
         self.strategy_instance: BaseStrategy = None
         self.load_configs()
@@ -41,7 +42,8 @@ class ConfigManager:
             "config_coins.yaml": os.path.join(self.ROOT_DIR, "config", "config_coins.yaml"),
             "api_keys.local.json": os.path.join(self.ROOT_DIR, "config", "api_keys.local.json"),
             "config_pingpong.yaml": os.path.join(self.ROOT_DIR, "config", "config_pingpong.yaml"),
-            "config_xbridge.yaml": os.path.join(self.ROOT_DIR, "config", "config_xbridge.yaml")
+            "config_xbridge.yaml": os.path.join(self.ROOT_DIR, "config", "config_xbridge.yaml"),
+            "config_thorchain.yaml": os.path.join(self.ROOT_DIR, "config", "config_thorchain.yaml")
         }
 
         for target_name, target_path in config_files.items():
@@ -67,7 +69,9 @@ class ConfigManager:
         self.config_ccxt = YamlToObject("./config/config_ccxt.yaml")
         self.config_coins = YamlToObject("./config/config_coins.yaml")
         self.config_pingppong = YamlToObject("./config/config_pingpong.yaml") if self.strategy == "pingpong" else None
-        self.config_xbridge = YamlToObject("./config/config_xbridge.yaml") if self.strategy == "arbitrage" else None
+        if self.strategy == "arbitrage":
+            self.config_xbridge = YamlToObject("./config/config_xbridge.yaml")
+            self.config_thorchain = YamlToObject("./config/config_thorchain.yaml")
 
     def _init_tokens(self, **kwargs):
         """Initialize token objects based on strategy configuration, delegated to strategy instance."""
