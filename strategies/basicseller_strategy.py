@@ -95,10 +95,6 @@ class BasicSellerStrategy(MakerStrategy):
 
     def calculate_variation_based_on_side(self, dex_pair_instance, current_order_side: str, cex_price: float,
                                           original_price: float) -> float:
-        # BasicSeller only sells, so this logic is simpler
-        return float(cex_price / original_price)
-
-    def calculate_default_variation(self, dex_pair_instance, cex_price: float, original_price: float) -> float:
         # BasicSeller specific default variation logic
         if dex_pair_instance.pair.min_sell_price_usd and dex_pair_instance.t1.cex.usd_price < dex_pair_instance.pair.min_sell_price_usd:
             return (dex_pair_instance.pair.min_sell_price_usd / dex_pair_instance.t2.cex.usd_price) / original_price
@@ -121,7 +117,7 @@ class BasicSellerStrategy(MakerStrategy):
         if self.config_manager.controller:
             self.config_manager.controller.stop_order = True
 
-    def handle_error_swap_status(self, dex_pair_instance):
+    async def handle_error_swap_status(self, dex_pair_instance):
         self.config_manager.general_log.error(
             f"Order Error:\n{dex_pair_instance.current_order}\n{dex_pair_instance.order}")
         dex_pair_instance.disabled = True  # Disable pair on error

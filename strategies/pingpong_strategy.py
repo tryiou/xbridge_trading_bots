@@ -42,54 +42,99 @@ class PingPongStrategy(MakerStrategy):
     def get_dex_token_address_file_path(self, token_symbol: str) -> str:
         return f"{self.config_manager.ROOT_DIR}/data/pingpong_{token_symbol}_addr.yaml"
 
-    def build_sell_order_details(self, dex_pair_instance, manual_dex_price=None) -> tuple:
+    def build_sell_order_details(self, dex_pair_instance) -> tuple:
         # PingPong specific logic for amount and offset for sell side
         usd_amount = dex_pair_instance.pair.cfg['usd_amount']
         btc_usd_price = self.config_manager.tokens['BTC'].cex.usd_price
-        amount = (
-                         usd_amount / btc_usd_price) / dex_pair_instance.t1.cex.cex_price if dex_pair_instance.t1.cex.cex_price and btc_usd_price else 0
-        offset = dex_pair_instance.pair.sell_price_offset
+        t1_cex_price = dex_pair_instance.t1.cex.cex_price
+
+        # Add robustness to prevent division by zero or TypeError if prices are not available
+        if not all([btc_usd_price, t1_cex_price, btc_usd_price > 0, t1_cex_price > 0]):
+            self.config_manager.general_log.warning(
+                f"Cannot calculate sell amount for {dex_pair_instance.pair.name} due to missing or zero CEX price. "
+                f"BTC/USD: {btc_usd_price}, {dex_pair_instance.t1.symbol}/BTC: {t1_cex_price}"
+            )
+            amount = 0
+        else:
+            amount = (usd_amount / btc_usd_price) / t1_cex_price
+
+        offset = dex_pair_instance.pair.cfg.get('sell_price_offset', 0.05)
         return amount, offset
 
-    def calculate_sell_price(self, dex_pair_instance, manual_dex_price=None) -> float:
-        # PingPong sells at CEX price + offset
+    def calculate_sell_price(self, dex_pair_instance) -> float:
+        # Sell price is always based on the current live CEX price.
+        # The offset is applied in _build_sell_order in pair.py
         return dex_pair_instance.pair.cex.price
 
-    def build_buy_order_details(self, dex_pair_instance, manual_dex_price=None) -> tuple:
+    def build_buy_order_details(self, dex_pair_instance) -> tuple:
         # PingPong specific logic for amount and spread for buy side
         amount = float(dex_pair_instance.order_history['maker_size'])
         spread = dex_pair_instance.pair.cfg.get('spread')
         return amount, spread
 
-    def determine_buy_price(self, dex_pair_instance, manual_dex_price=None) -> float:
-        # PingPong buys at min(live_price, sold_price)
-        if manual_dex_price:
-            return min(dex_pair_instance.pair.cex.price, dex_pair_instance.order_history['dex_price'])
-        return dex_pair_instance.pair.cex.price
+    def determine_buy_price(self, dex_pair_instance) -> float:
+        """
+        Determines the base price for a BUY order.
+        The logic is to take the minimum of the current live price and the
+        price of the last completed SELL order. This ensures the bot never
+        buys back higher than it sold, and takes advantage of price drops.
+        """
+        live_cex_price = dex_pair_instance.pair.cex.price
+        last_sell_price = dex_pair_instance.order_history.get('dex_price')
+
+        if not last_sell_price:
+            # This should not happen in a BUY state, but as a fallback, use live price.
+            self.config_manager.general_log.warning(
+                f"Could not find 'dex_price' in order history for {dex_pair_instance.pair.name}. "
+                f"Defaulting BUY price to live CEX price."
+            )
+            return live_cex_price
+
+        # The core logic: never buy higher than the last sell.
+        base_price = min(live_cex_price, float(last_sell_price))
+        self.config_manager.general_log.debug(
+            f"Determined BUY base price for {dex_pair_instance.pair.name}: "
+            f"min(live: {live_cex_price:.8f}, last_sell: {float(last_sell_price):.8f}) -> {base_price:.8f}"
+        )
+        return base_price
 
     def get_price_variation_tolerance(self, dex_pair_instance) -> float:
         return dex_pair_instance.pair.cfg.get('price_variation_tolerance')
 
     def calculate_variation_based_on_side(self, dex_pair_instance, current_order_side: str, cex_price: float,
                                           original_price: float) -> float:
-        # LOCK PRICE TO POSITIVE ACTION ONLY, PINGPONG DO NOT REBUY UNDER SELL PRICE
-        if current_order_side == 'BUY' and cex_price < dex_pair_instance.order_history['org_pprice']:
-            return float(cex_price / original_price)
-        # SELL SIDE FLOAT ON CURRENT PRICE
+        """
+        Calculates the price variation to decide if an open order should be
+        cancelled and recreated.
+        """
         if current_order_side == 'SELL':
+            # For SELL orders, we always track the live price. If it drops too much,
+            # we cancel and recreate to follow the market down.
             return float(cex_price / original_price)
-        else:
-            return 1  # Should not happen for pingpong
 
-    def calculate_default_variation(self, dex_pair_instance, cex_price: float, original_price: float) -> float:
-        # PingPong doesn't have a specific default variation logic beyond the side-based one
-        return float(cex_price / original_price)
+        if current_order_side == 'BUY':
+            last_sell_price = dex_pair_instance.order_history.get('dex_price')
+            # If the live price goes *above* our last sell price, we lock the order
+            # by reporting no variation, preventing a cancel/recreate.
+            if last_sell_price and cex_price > float(last_sell_price):
+                self.config_manager.general_log.debug(
+                    f"BUY order for {dex_pair_instance.pair.name} is locked. "
+                    f"Live price ({cex_price:.8f}) is above last sell price ({float(last_sell_price):.8f}). Not cancelling."
+                )
+                return 1.0  # No variation, do not cancel.
+
+            # If the live price is at or below our last sell price, we track it.
+            # If it drops significantly, we cancel and recreate to get a better deal.
+            return float(cex_price / original_price)
+
+        # Fallback for any other case
+        return 1.0
 
     def init_virtual_order_logic(self, dex_pair_instance, order_history: dict):
         if not order_history or ('side' in order_history and order_history['side'] == 'BUY'):
             dex_pair_instance.create_virtual_sell_order()
         elif 'side' in order_history and order_history['side'] == 'SELL':
-            dex_pair_instance.create_virtual_buy_order(manual_dex_price=True)
+            dex_pair_instance.create_virtual_buy_order()
         else:
             self.config_manager.general_log.critical(
                 f"Fatal error during init_order: Unexpected order history state\n{order_history}")
@@ -107,7 +152,7 @@ class PingPongStrategy(MakerStrategy):
         dex_pair_instance.init_virtual_order(disabled_coins)
         await dex_pair_instance.create_order()
 
-    def handle_error_swap_status(self, dex_pair_instance):
+    async def handle_error_swap_status(self, dex_pair_instance):
         self.config_manager.general_log.error(
             f"Order Error:\n{dex_pair_instance.current_order}\n{dex_pair_instance.order}")
         self.config_manager.general_log.critical("Signaling bot termination due to order error.")

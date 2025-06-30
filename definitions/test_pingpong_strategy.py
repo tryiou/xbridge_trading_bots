@@ -75,6 +75,8 @@ class PingPongStrategyTester:
         await self._test_price_variation_cancel_and_recreate_sell()
         await self._test_price_variation_no_cancel_buy()
         await self._test_order_completion_flow()
+        await self._test_buy_price_logic_on_market_moves()
+        await self._test_order_expiration_recreates_order()
         await self._test_insufficient_balance()
         self.config_manager.general_log.info("\n--- PingPong Strategy Test Suite Finished ---")
         self._print_summary()
@@ -286,6 +288,97 @@ class PingPongStrategyTester:
                 self.config_manager.general_log.error(
                     f"[TEST FAILED] Incorrect next order side. Expected BUY (maker={self.pair.t2.symbol}), got maker={call_args[0]}")
         self.test_results.append({'name': test_name, 'passed': passed})
+
+    async def _test_order_expiration_recreates_order(self):
+        """
+        Tests that if an open order expires, the bot recreates it based on the
+        same side, rather than moving to the next step in the cycle.
+        """
+        test_name = "Order Expiration Recreates Order"
+        self.config_manager.general_log.info(f"\n--- [TEST CASE] Running: {test_name} ---")
+        passed = False
+
+        with self._patch_dependencies() as mocks:
+            # Arrange: An open SELL order exists (no history).
+            mocks['yaml_load'].return_value = None
+            self.pair.dex.read_last_order_history()
+            self._set_mock_cex_price(0.3)
+            self.pair.dex.init_virtual_order()
+            self.pair.dex.order = {'id': 'mock_order_id_123', 'status': 'open'}
+
+            # Act: The order status check now returns 'expired'.
+            mocks['get_status'].return_value = {'id': 'mock_order_id_123', 'status': 'expired'}
+            await self.pair.dex.status_check()
+
+            # Assert:
+            # 1. The bot should not have written a new history file, as the trade didn't finish.
+            mocks['yaml_dump'].assert_not_called()
+
+            # 2. The bot should have tried to create a new order, and it should be another SELL.
+            mocks['make_order'].assert_called_once()
+            call_args = mocks['make_order'].call_args[0]
+            if call_args[0] == self.pair.t1.symbol:
+                self.config_manager.general_log.info("[TEST PASSED] Correctly recreated a SELL order after expiration.")
+                passed = True
+            else:
+                self.config_manager.general_log.error(
+                    f"[TEST FAILED] Incorrect order side after expiration. Expected SELL (maker={self.pair.t1.symbol}), got maker={call_args[0]}")
+        self.test_results.append({'name': test_name, 'passed': passed})
+
+    async def _test_buy_price_logic_on_market_moves(self):
+        """
+        Tests the core profit-locking algorithm for BUY orders.
+        - Verifies that the bot extends the profit spread on favorable market moves.
+        - Verifies that the bot locks the buy price on unfavorable market moves.
+        """
+        test_name = "Buy Price Logic (Profit Algorithm Resilience)"
+        self.config_manager.general_log.info(f"\n--- [TEST CASE] Running: {test_name} ---")
+
+        # Use a single patch for both sub-tests
+        with self._patch_dependencies() as mocks:
+            # --- Sub-test 1: Favorable move (price drops) ---
+            self.config_manager.general_log.info("  - Testing favorable market move (price drops)...")
+
+            # Arrange: History of a finished SELL order at 0.3
+            last_sell_price = 0.3
+            mocks['yaml_load'].return_value = {'side': 'SELL', 'maker_size': '1.0', 'dex_price': last_sell_price}
+            self.pair.dex.read_last_order_history()
+
+            # Act: Live price drops to 0.28, which is lower than the last sell price
+            favorable_live_price = 0.28
+            self._set_mock_cex_price(favorable_live_price)
+            self.pair.dex.init_virtual_order()
+
+            # Assert: The bot should use the new, lower price as its base
+            favorable_base_price = self.pair.dex.current_order['org_pprice']
+            passed_favorable = favorable_base_price == favorable_live_price
+            if passed_favorable:
+                self.config_manager.general_log.info(
+                    f"    [SUB-TEST PASSED] Bot correctly used the lower live price ({favorable_live_price}) as the new base.")
+            else:
+                self.config_manager.general_log.error(
+                    f"    [SUB-TEST FAILED] Expected base price {favorable_live_price}, but got {favorable_base_price}.")
+
+            # --- Sub-test 2: Unfavorable move (price rises) ---
+            self.config_manager.general_log.info("\n  - Testing unfavorable market move (price rises)...")
+
+            # Act: Live price rises to 0.32, which is higher than the last sell price
+            self._set_mock_cex_price(0.32)
+            self.pair.dex.init_virtual_order()
+
+            # Assert: The bot should lock its price to the last sell price, ignoring the higher live price
+            unfavorable_base_price = self.pair.dex.current_order['org_pprice']
+            passed_unfavorable = unfavorable_base_price == last_sell_price
+            if passed_unfavorable:
+                self.config_manager.general_log.info(
+                    f"    [SUB-TEST PASSED] Bot correctly locked the base price to the last sell price ({last_sell_price}).")
+            else:
+                self.config_manager.general_log.error(
+                    f"    [SUB-TEST FAILED] Expected locked base price {last_sell_price}, but got {unfavorable_base_price}.")
+
+        # Final result for the whole test case
+        final_passed = passed_favorable and passed_unfavorable
+        self.test_results.append({'name': test_name, 'passed': final_passed})
 
     async def _test_insufficient_balance(self):
         """

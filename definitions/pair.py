@@ -96,8 +96,8 @@ class DexPair:
         except Exception as e:
             self.pair.config_manager.general_log.error(f"error write_pair_last_order_history: {type(e)}, {e}")
 
-    def create_virtual_sell_order(self, manual_dex_price=None):
-        self.current_order = self._build_sell_order(manual_dex_price)
+    def create_virtual_sell_order(self):
+        self.current_order = self._build_sell_order()
         self.pair.config_manager.general_log.info(
             f"Virtual sell order created for {self.pair.name} | "
             f"Symbol: {self.symbol} | "
@@ -111,31 +111,43 @@ class DexPair:
     def truncate(self, value, digits=8):
         return float(f"{{:.{digits}f}}".format(value))
 
-    def _build_sell_order(self, manual_dex_price):
-        price = self.pair.config_manager.strategy_instance.calculate_sell_price(self, manual_dex_price)
-        amount, offset = self.pair.config_manager.strategy_instance.build_sell_order_details(self, manual_dex_price)
+    def _construct_order_dict(self, side, maker_token, taker_token, maker_size, taker_size, original_price,
+                              final_price):
+        """A helper to construct the common order dictionary structure."""
         order = {
             'symbol': self.symbol,
-            'manual_dex_price': bool(manual_dex_price),
-            'side': 'SELL',
-            'maker': self.t1.symbol,
-            'maker_address': self.t1.dex.address,
-            'taker': self.t2.symbol,
-            'taker_address': self.t2.dex.address,
-            'type': 'partial' if self.partial_percent else 'exact',
-            'maker_size': self.truncate(amount),
-            'taker_size': self.truncate(amount * (price * (1 + offset))),
-            'dex_price': self.truncate((amount * (price * (1 + offset))) / amount),
-            'org_pprice': self.truncate(price),
+            'side': side,
+            'maker': maker_token.symbol,
+            'maker_address': maker_token.dex.address,
+            'taker': taker_token.symbol,
+            'taker_address': taker_token.dex.address,
+            'type': 'partial' if self.partial_percent and side == 'SELL' else 'exact',
+            'maker_size': self.truncate(maker_size),
+            'taker_size': self.truncate(taker_size),
+            'dex_price': self.truncate(final_price),  # The effective price of the order
+            'org_pprice': self.truncate(original_price),
             'org_t1price': self.truncate(self.t1.cex.cex_price),
             'org_t2price': self.truncate(self.t2.cex.cex_price),
         }
-        if self.partial_percent:
-            order['minimum_size'] = amount * self.partial_percent
+        if self.partial_percent and side == 'SELL':
+            order['minimum_size'] = maker_size * self.partial_percent
         return order
 
-    def create_virtual_buy_order(self, manual_dex_price=False):
-        self.current_order = self._build_buy_order(manual_dex_price)
+    def _build_sell_order(self):
+        original_price = self.pair.config_manager.strategy_instance.calculate_sell_price(self)
+        maker_size, offset = self.pair.config_manager.strategy_instance.build_sell_order_details(self)
+
+        final_price = original_price * (1 + offset)
+        taker_size = maker_size * final_price
+
+        return self._construct_order_dict(
+            side='SELL', maker_token=self.t1, taker_token=self.t2,
+            maker_size=maker_size, taker_size=taker_size,
+            original_price=original_price, final_price=final_price
+        )
+
+    def create_virtual_buy_order(self):
+        self.current_order = self._build_buy_order()
         self.pair.config_manager.general_log.info(
             f"Virtual buy order created for {self.pair.name} | "
             f"Symbol: {self.symbol} | "
@@ -146,39 +158,30 @@ class DexPair:
             f"Price: {self.current_order['dex_price']:.8f}"
         )
 
-    def _build_buy_order(self, manual_dex_price):
-        price = self.pair.config_manager.strategy_instance.determine_buy_price(self, manual_dex_price)
-        amount, spread = self.pair.config_manager.strategy_instance.build_buy_order_details(self, manual_dex_price)
+    def _build_buy_order(self):
+        original_price = self.pair.config_manager.strategy_instance.determine_buy_price(self)
+        taker_size, spread = self.pair.config_manager.strategy_instance.build_buy_order_details(self)
 
-        order = {
-            'symbol': self.symbol,
-            'manual_dex_price': manual_dex_price,
-            'side': 'BUY',
-            'maker': self.t2.symbol,
-            'maker_address': self.t2.dex.address,
-            'taker': self.t1.symbol,
-            'taker_address': self.t1.dex.address,
-            'type': 'exact',
-            'maker_size': self.truncate(amount * price * (1 - spread)),
-            'taker_size': self.truncate(amount),
-            'dex_price': self.truncate((amount * price * (1 - spread)) / amount),
-            'org_pprice': self.truncate(price),
-            'org_t1price': self.truncate(self.t1.cex.cex_price),
-            'org_t2price': self.truncate(self.t2.cex.cex_price),
-        }
-        return order
+        final_price = original_price * (1 - spread)
+        maker_size = taker_size * final_price
+
+        return self._construct_order_dict(
+            side='BUY', maker_token=self.t2, taker_token=self.t1,
+            maker_size=maker_size, taker_size=taker_size,
+            original_price=original_price, final_price=final_price
+        )
 
     def check_price_in_range(self, display=False):
         self.variation = None
         price_variation_tolerance = self.pair.config_manager.strategy_instance.get_price_variation_tolerance(self)
 
-        if self.current_order.get('side') and self.current_order['manual_dex_price']:
-            var = self.pair.config_manager.strategy_instance.calculate_variation_based_on_side(self, self.current_order[
-                'side'], self.pair.cex.price, self.current_order['org_pprice'])
-        else:
-            var = self.pair.config_manager.strategy_instance.calculate_default_variation(self, self.pair.cex.price,
-                                                                                         self.current_order[
-                                                                                             'org_pprice'])
+        # The strategy itself now determines how to calculate variation based on the order side.
+        var = self.pair.config_manager.strategy_instance.calculate_variation_based_on_side(
+            self,
+            self.current_order.get('side'),
+            self.pair.cex.price,
+            self.current_order['org_pprice']
+        )
 
         self._set_variation(var)
         if display:
@@ -327,7 +330,7 @@ class DexPair:
             "initialized": self.STATUS_OTHERS,
             "committed": self.STATUS_OTHERS,
             "finished": self.STATUS_FINISHED,
-            "expired": self.STATUS_ERROR_SWAP,
+            "expired": self.STATUS_CANCELLED_WITHOUT_CALL,
             "offline": self.STATUS_ERROR_SWAP,
             "canceled": self.STATUS_CANCELLED_WITHOUT_CALL,
             "invalid": self.STATUS_ERROR_SWAP,
@@ -409,10 +412,13 @@ class DexPair:
         await self.pair.config_manager.strategy_instance.handle_error_swap_status(self)
 
     async def handle_status_default(self):
+        # This handles statuses like 'canceled' and 'expired'
         if not self.disabled:
-            self.pair.config_manager.general_log.error(
-                f"status_check, no valid status: {self.symbol}, {self.order}")
-            await self.create_order()
+            self.pair.config_manager.general_log.info(
+                f"Order {self.order.get('id')} is {self.order.get('status')}. Re-initializing order for {self.symbol}.")
+            self.order = None  # Clear the completed/cancelled/expired order
+            self.init_virtual_order()  # Re-create the virtual order based on history
+            await self.create_order()  # Attempt to place it again
 
     async def at_order_finished(self, disabled_coins):
         if self.current_order['maker'] == self.pair.t1.symbol:

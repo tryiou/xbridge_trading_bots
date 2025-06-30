@@ -73,13 +73,6 @@ class MakerStrategy(BaseStrategy):
         pass
 
     @abstractmethod
-    def calculate_default_variation(self, dex_pair_instance: 'DexPair', cex_price: float, original_price: float) -> float:
-        """
-        Strategy-specific logic to calculate default price variation.
-        """
-        pass
-
-    @abstractmethod
     def init_virtual_order_logic(self, dex_pair_instance: 'DexPair', order_history: dict):
         pass
 
@@ -96,5 +89,5 @@ class MakerStrategy(BaseStrategy):
         pass
 
     @abstractmethod
-    def handle_error_swap_status(self, dex_pair_instance: 'DexPair'):
+    async def handle_error_swap_status(self, dex_pair_instance: 'DexPair'):
         pass

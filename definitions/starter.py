@@ -281,12 +281,12 @@ async def main(config_manager, loop, startup_tasks=None):
                 await asyncio.gather(*startup_tasks)
                 config_manager.general_log.info("Startup tasks finished.")
 
+            # Perform the first operation immediately on startup
+            config_manager.general_log.info("Performing initial operation (creating or resuming orders)...")
             await config_manager.controller.main_init_loop()
 
-            # Perform the first operation immediately on startup
-            config_manager.general_log.info("Performing initial operation...")
+            config_manager.general_log.info("Entering main monitoring loop...")
             await config_manager.controller.main_loop()
-
             # Get the operation interval from the strategy
             operation_interval = config_manager.strategy_instance.get_operation_interval()
             config_manager.general_log.info(
