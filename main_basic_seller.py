@@ -1,10 +1,8 @@
 import argparse
-import asyncio
 import logging
-import os
 
 from definitions.config_manager import ConfigManager
-from starter import run_async_main
+from definitions.starter import run_async_main
 
 
 class ValidatePercentArg(argparse.Action):
@@ -17,8 +15,6 @@ class ValidatePercentArg(argparse.Action):
 
 def start():
     """Parse CLI args, initialize ConfigManager, and run the centralized main loop."""
-    if os.name == 'nt':
-        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
     parser = argparse.ArgumentParser(
         prog="main_basic_seller",
@@ -46,16 +42,14 @@ def start():
         partial_percent=args.partial
     )
 
-    async def run_startup_tasks():
-        """Helper coroutine to run async startup tasks."""
-        await config_manager.xbridge_manager.cancelallorders()
-        await config_manager.xbridge_manager.dxflushcancelledorders()
-
-    # Run the async startup tasks in a temporary event loop
-    asyncio.run(run_startup_tasks())
+    # Define startup tasks to be run inside the main event loop
+    startup_tasks = [
+        config_manager.xbridge_manager.cancelallorders(),
+        config_manager.xbridge_manager.dxflushcancelledorders()
+    ]
 
     # Run the main bot logic, which will create and manage its own event loop.
-    run_async_main(config_manager)
+    run_async_main(config_manager, startup_tasks=startup_tasks)
 
 
 if __name__ == '__main__':

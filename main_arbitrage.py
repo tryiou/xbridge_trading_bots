@@ -1,16 +1,13 @@
 import argparse
 import asyncio
-import os
 
 from definitions.config_manager import ConfigManager
 from definitions.test_arbitrage_strategy import ArbitrageStrategyTester
-from starter import run_async_main
+from definitions.starter import run_async_main
 
 
 def start():
     """Parse CLI args, initialize ConfigManager, and run the arbitrage main loop."""
-    if os.name == 'nt':
-        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
     parser = argparse.ArgumentParser(
         prog="main_arbitrage",

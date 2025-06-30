@@ -769,7 +769,6 @@ class GUI_Main:
             self.config_manager.general_log.info("Stop requested, but bot was not running.")
 
         # Always attempt to cancel all orders and reset GUI state
-        self.cancel_all()  # Ensure all orders are cancelled regardless of thread state
         self.started = False
         self.btn_stop.config(state="disabled")
         self.btn_start.config(state="active")

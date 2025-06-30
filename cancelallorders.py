@@ -13,9 +13,15 @@ if __name__ == '__main__':
     """
 
 
+    class MinimalXBridgeConfig:
+        """A minimal mock for the xbridge config to provide a debug_level."""
+        debug_level = 3  # Default debug level for this script
+
+
     class MinimalConfig:
         def __init__(self, logger):
             self.general_log = logger
+            self.config_xbridge = MinimalXBridgeConfig()
 
 
     # Setup a basic logger for this script

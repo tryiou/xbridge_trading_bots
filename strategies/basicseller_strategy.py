@@ -1,7 +1,7 @@
-from strategies.base_strategy import BaseStrategy
+from .maker_strategy import MakerStrategy
 
 
-class BasicSellerStrategy(BaseStrategy):
+class BasicSellerStrategy(MakerStrategy):
     def __init__(self, config_manager, controller=None):
         super().__init__(config_manager, controller)
         # BasicSeller specific args are passed directly to initialize_strategy_specifics

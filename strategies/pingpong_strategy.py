@@ -1,7 +1,7 @@
-from strategies.base_strategy import BaseStrategy
+from .maker_strategy import MakerStrategy
 
 
-class PingPongStrategy(BaseStrategy):
+class PingPongStrategy(MakerStrategy):
     def __init__(self, config_manager, controller=None):
         super().__init__(config_manager, controller)
         self.config_pingppong = config_manager.config_pingppong  # Direct access to pingpong config
@@ -110,7 +110,9 @@ class PingPongStrategy(BaseStrategy):
     def handle_error_swap_status(self, dex_pair_instance):
         self.config_manager.general_log.error(
             f"Order Error:\n{dex_pair_instance.current_order}\n{dex_pair_instance.order}")
-        raise SystemExit(1)  # Raise an exception to allow for graceful shutdown
+        self.config_manager.general_log.critical("Signaling bot termination due to order error.")
+        if self.controller:
+            self.controller.stop_order = True
 
     async def thread_init_async_action(self, pair_instance):
         pair_instance.dex.init_virtual_order(self.controller.disabled_coins)

@@ -1,27 +1,15 @@
-import json
 import logging
 import os
 import platform
 
 import yaml
 
-from definitions.logger import setup_logging
+from .logger import setup_logging
 
 debug_level = 2
 
 autoconf_rpc_log = setup_logging(name="autoconf_rpc_log",
                                  level=logging.DEBUG, console=True)
-
-
-def load_config_path_from_json(json_path):
-    if os.path.exists(json_path):
-        autoconf_rpc_log.debug(f'Loading config path from {json_path}')
-        with open(json_path, 'r') as json_file:
-            json_data = json.load(json_file)
-            if 'blocknet_path' in json_data and os.path.exists(json_data['blocknet_path']):
-                autoconf_rpc_log.debug(f'Loaded config path: {json_data["blocknet_path"]}')
-                return json_data['blocknet_path']
-    return ''
 
 
 def get_default_config_path():
@@ -43,9 +31,6 @@ def get_default_config_path():
 
 
 def prompt_user_for_config_path():
-    max_attempts = 1
-    attempt_count = 0
-
     def _prompt_with_dialog():
         from tkinter import filedialog, Tk
         import ttkbootstrap
@@ -60,43 +45,26 @@ def prompt_user_for_config_path():
         )
         root.destroy()
         ttkbootstrap.Style.instance = None
+
         return config_path
 
     def _prompt_on_console():
         return input("Enter path to blocknet.conf (including filename): ")
 
-    while True:  # Keep asking until a valid path is provided or max attempts reached
-        attempt_count += 1
-        if attempt_count > max_attempts:
-            autoconf_rpc_log.error('Maximum attempts exceeded.')
-            exit()
-
-        try:
-            config_path = _prompt_with_dialog()
-        except ImportError:
-            config_path = _prompt_on_console()
-
-        if not config_path:
-            autoconf_rpc_log.warning('No path provided. Please enter the correct path.')
-            continue
-
-        if not os.path.basename(config_path) == 'blocknet.conf':
-            autoconf_rpc_log.warning('Selected file is not blocknet.conf. Please select the correct file.')
-        else:
-            break  # Valid path provided, exit loop
+    try:
+        config_path = _prompt_with_dialog()
+    except (ImportError, RuntimeError):
+        # Fallback to console if tkinter/ttkbootstrap are not available or fail.
+        config_path = _prompt_on_console()
 
     if config_path:
         autoconf_rpc_log.debug(f'User selected config path: {config_path}')
+        if not os.path.basename(config_path) == 'blocknet.conf':
+            autoconf_rpc_log.warning('Selected file is not named blocknet.conf. Please ensure it is the correct file.')
     else:
         autoconf_rpc_log.warning('No valid path provided.')
 
     return config_path
-
-
-def save_config_path_to_json(json_path, config_path):
-    with open(json_path, 'w') as json_file:
-        json.dump({'blocknet_path': config_path}, json_file)
-    autoconf_rpc_log.debug(f'Saved config path to {json_path}: {config_path}')
 
 
 def read_config_file(config_path):
@@ -189,34 +157,6 @@ def detect_rpc():
     rpc_user, rpc_password, rpc_port = read_config_file(config_path)
 
     return rpc_user, rpc_port, rpc_password, os.path.dirname(config_path)
-
-
-def detect_rpc_json():
-    json_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'config', 'blocknet_cfg.json')
-
-    # 1. Check if "blocknet_cfg.json" exists
-    config_path = load_config_path_from_json(json_path)
-    # 2. If "blocknet_cfg.json" does not exist, try "get_default_config_path"
-    if not config_path or not os.path.exists(config_path):
-        config_path = get_default_config_path()
-
-        # 3. If the default path does not exist, ask the user for the "blocknet.conf" path
-        if not config_path or not os.path.exists(config_path):
-            config_path = prompt_user_for_config_path()
-
-            if config_path:
-                # Store the selected path into "blocknet_cfg.json"
-                save_config_path_to_json(json_path, config_path)
-
-    if not config_path or not os.path.exists(config_path):
-        autoconf_rpc_log.error("No valid Blocknet Core Config path found.")
-        exit()
-    else:
-        autoconf_rpc_log.info(f"Blocknet Core Config found at {config_path}")
-
-    rpc_user, rpc_password, rpc_port = read_config_file(config_path)
-
-    return rpc_user, rpc_port, rpc_password, config_path
 
 
 if __name__ == "__main__":

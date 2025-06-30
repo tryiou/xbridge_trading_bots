@@ -4,7 +4,7 @@ import os
 import time
 import uuid
 from itertools import combinations
-from typing import List, Dict, Any, Optional, Callable, Coroutine, Tuple, TYPE_CHECKING
+from typing import List, Dict, Any, Optional, Callable, Coroutine, TYPE_CHECKING
 
 from definitions.trade_state import TradeState
 from strategies.base_strategy import BaseStrategy
@@ -12,7 +12,7 @@ from strategies.base_strategy import BaseStrategy
 if TYPE_CHECKING:
     from definitions.config_manager import ConfigManager
     from definitions.pair import Pair
-    from starter import MainController
+    from definitions.starter import MainController
     import aiohttp
 
 
@@ -843,43 +843,6 @@ class ArbitrageStrategy(BaseStrategy):
             success_statuses=['success'], failure_statuses=['refunded'],
             entity_name="Thorchain swap"
         )
-
-    def build_sell_order_details(self, dex_pair_instance: 'Pair', manual_dex_price: Optional[float] = None) -> Tuple:
-        pass
-
-    def calculate_sell_price(self, dex_pair_instance: 'Pair', manual_dex_price: Optional[float] = None) -> float:
-        pass
-
-    def build_buy_order_details(self, dex_pair_instance: 'Pair', manual_dex_price: Optional[float] = None) -> Tuple:
-        pass
-
-    def determine_buy_price(self, dex_pair_instance: 'Pair', manual_dex_price: Optional[float] = None) -> float:
-        pass
-
-    def get_price_variation_tolerance(self, dex_pair_instance: 'Pair') -> float:
-        pass
-
-    def calculate_variation_based_on_side(self, dex_pair_instance: 'Pair', current_order_side: str, cex_price: float,
-                                          original_price: float) -> float:
-        pass
-
-    def calculate_default_variation(self, dex_pair_instance: 'Pair', cex_price: float, original_price: float) -> float:
-        pass
-
-    def init_virtual_order_logic(self, dex_pair_instance: 'Pair', order_history: Dict[str, Any]):
-        pass
-
-    def handle_order_status_error(self, dex_pair_instance):
-        pass
-
-    def reinit_virtual_order_after_price_variation(self, dex_pair_instance, disabled_coins: list):
-        pass
-
-    def handle_finished_order(self, dex_pair_instance, disabled_coins: list):
-        pass
-
-    def handle_error_swap_status(self, dex_pair_instance):
-        pass
 
     async def thread_init_async_action(self, pair_instance: 'Pair'):
         pass

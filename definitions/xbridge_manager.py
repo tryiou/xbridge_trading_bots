@@ -35,6 +35,7 @@ class XBridgeManager:
                                 rpc_user=self.blocknet_user_rpc,
                                 rpc_port=self.blocknet_port_rpc,
                                 rpc_password=self.blocknet_password_rpc,
+                                debug=self.config_manager.config_xbridge.debug_level,
                                 logger=self.logger)  # Pass the instance logger
         return result
 

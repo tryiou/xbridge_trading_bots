@@ -22,12 +22,14 @@ trading without intermediaries.
 ### Installation
 
 1. **Clone the repository**
+
    ```bash
    git clone https://github.com/tryiou/xbridge_trading_bots.git
    cd xbridge_trading_bots
    ```
 
 2. **Set up virtual environment** (recommended)
+
    ```bash
    # Create virtual environment
    python -m venv venv
@@ -38,6 +40,7 @@ trading without intermediaries.
    ```
 
 3. **Install dependencies**
+
    ```bash
    pip install -r requirements.txt
    ```
@@ -109,7 +112,7 @@ copy config\templates\config_ccxt.yaml.template config\config_ccxt.yaml
 A market-making bot that places buy and sell orders around current market prices, profiting from spread on
 ping-SELL/pong-BUY cycles.
 
-### Required Configuration
+### PingPong Bot Configuration
 
 - ✅ `config_pingpong.yaml` - Primary bot configuration
 - ✅ `config_coins.yaml` - Price fallback data
@@ -123,7 +126,7 @@ ping-SELL/pong-BUY cycles.
 | **macOS**   | [Installation Guide](https://www.pythonguis.com/installation/install-tkinter-mac/)   |
 | **Linux**   | [Installation Guide](https://www.pythonguis.com/installation/install-tkinter-linux/) |
 
-### Usage
+### PingPong Bot Usage
 
 **Config**:
 
@@ -149,12 +152,12 @@ python main_pingpong.py
 
 A straightforward selling bot that places sell orders at specified price targets with market-based pricing.
 
-### Required Configuration
+### BasicSeller Bot Configuration
 
 - ✅ `config_coins.yaml` - Price fallback data
 - ✅ `config_ccxt.yaml` - Market data source
 
-### Usage
+### BasicSeller Bot Usage
 
 **View all options:**
 
@@ -214,28 +217,43 @@ python main_basic_seller.py -tts BLOCK -ttb PIVX -atts 200 -mup 0.33 -spu 0.015 
 
 ## 📁 Project Structure
 
-```
+```text
 xbridge_trading_bots/
 ├── config/
 │   ├── templates/          # Configuration templates
 │   └── [generated configs] # Your customized configurations
-├── definitions/            # Core functionality definitions
+├── data/                   # Stores trade history, state files, and generated addresses
+├── definitions/            # Core functionality, data models, and API managers
 │   ├── bcolors.py          # Color definitions for console output
-│   ├── ccxt_def.py         # CCXT exchange API wrappers
+│   ├── ccxt_manager.py     # CCXT exchange API wrapper
 │   ├── config_manager.py   # Configuration loading and management
+│   ├── decorators.py       # Decorators for retries, etc.
 │   ├── detect_rpc.py       # RPC connection detection utilities
 │   ├── gui.py              # GUI components and dialogs
 │   ├── logger.py           # Logging configuration and handlers
-│   ├── pair.py             # Trading pair management
+│   ├── pair.py             # Trading pair data model
 │   ├── pingpong_loader.py  # Configuration loading utilities
 │   ├── rpc.py              # RPC communication wrappers
-│   ├── token.py            # Token management
-│   └── xbridge_def.py      # Xbridge protocol API wrappers
+│   ├── starter.py          # Core application controller and main async loop
+│   ├── test_arbitrage_strategy.py # Internal test suite for arbitrage logic
+│   ├── thorchain_def.py    # Thorchain API wrappers
+│   ├── token.py            # Token data model
+│   ├── trade_state.py      # Manages state for recoverable trades (arbitrage)
+│   ├── xbridge_manager.py  # Xbridge protocol API wrapper
+│   └── yaml_mix.py         # YAML to object conversion utility
 ├── data/                   # Store trades history and generated addresses
 ├── logs/                   # Store logs
+├── strategies/             # Contains the logic for different trading strategies
+│   ├── arbitrage_strategy.py
+│   ├── base_strategy.py
+│   ├── basicseller_strategy.py
+│   ├── maker_strategy.py
+│   └── pingpong_strategy.py
+├── cancelallorders.py      # Utility script to cancel all open XBridge orders
 ├── gui_pingpong.py         # PingPong bot GUI interface
+├── main_arbitrage.py       # Arbitrage bot console interface
+├── main_basic_seller.py    # BasicSeller bot console interface
 ├── main_pingpong.py        # PingPong bot console interface
-├── main_basic_seller.py         # BasicSeller bot
 ├── pingpong_logparser.py   # PingPong bot Trade log parsing and analysis tool
 ├── requirements.txt        # Python dependencies
 └── README.md               # This file
@@ -253,4 +271,4 @@ without warranty. Always test with small amounts first and understand the risks 
 
 ---
 
-*Built for the Blocknet ecosystem - Enabling truly decentralized cross-chain trading*
+>*Built for the Blocknet ecosystem - Enabling truly decentralized cross-chain trading*

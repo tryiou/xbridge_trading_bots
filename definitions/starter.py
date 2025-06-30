@@ -1,5 +1,6 @@
 import asyncio
 import time
+import os
 import traceback
 
 debug_level = 2
@@ -100,12 +101,12 @@ class PriceHandler:
         keys = [self._construct_key(token) for token in self.tokens_dict if token not in custom_coins]
 
         tickers = await self.config_manager.ccxt_manager.ccxt_call_fetch_tickers(self.ccxt_i, keys)
-        await self._update_token_prices_blocking(tickers)
+        await self._update_token_prices(tickers)
 
     def _construct_key(self, token):
         return f"{token}/USDT" if token == 'BTC' else f"{token}/BTC"
 
-    async def _update_token_prices_blocking(self, tickers):
+    async def _update_token_prices(self, tickers):
         lastprice_string = self._get_last_price_string()
         for token, token_data in sorted(self.tokens_dict.items(), key=lambda item: (item[0] != 'BTC', item[0])):
             if self.main_controller.stop_order:
@@ -113,7 +114,7 @@ class PriceHandler:
             if token not in self.config_manager.config_coins.usd_ticker_custom:
                 symbol = f"{token_data.symbol}/USDT" if token_data.symbol == 'BTC' else f"{token_data.symbol}/BTC"
                 # This is a blocking call
-                await self._update_token_price_blocking(tickers, symbol, lastprice_string, token_data)
+                await self._update_token_price(tickers, symbol, lastprice_string, token_data)
 
         for token in self.config_manager.config_coins.usd_ticker_custom:
             if self.main_controller.stop_order:
@@ -127,8 +128,7 @@ class PriceHandler:
             "binance": "lastPrice"
         }.get(self.config_manager.my_ccxt.id, "lastTradeRate")
 
-    # def _update_token_price(self, tickers, symbol, lastprice_string, token_data):
-    async def _update_token_price_blocking(self, tickers, symbol, lastprice_string, token_data):
+    async def _update_token_price(self, tickers, symbol, lastprice_string, token_data):
         if symbol in tickers:
             last_price = float(tickers[symbol]['info'][lastprice_string])  # This is a blocking call
             if token_data.symbol == 'BTC':
@@ -179,9 +179,9 @@ class MainController:
         futures = []
         for pair in self.pairs_dict.values():
             if self.stop_order:
-                return  # This is a blocking call
-            if self.config_manager.strategy_instance.should_update_cex_prices():  # This is a blocking call
-                futures.append(pair.cex.update_pricing())  # This is a blocking call
+                return
+            if self.config_manager.strategy_instance.should_update_cex_prices():
+                futures.append(pair.cex.update_pricing())
 
         if futures:
             await asyncio.gather(*futures)
@@ -197,9 +197,9 @@ class MainController:
 
         for pair in self.pairs_dict.values():
             if self.stop_order:
-                return  # This is a blocking call
-            if self.config_manager.strategy_instance.should_update_cex_prices():  # This is a blocking call
-                futures.append(pair.cex.update_pricing())  # This is a blocking call
+                return
+            if self.config_manager.strategy_instance.should_update_cex_prices():
+                futures.append(pair.cex.update_pricing())
         if futures:
             await asyncio.gather(*futures)
 
@@ -217,17 +217,22 @@ class MainController:
             self.config_manager.general_log.error(f"Error in thread_loop: {e}", exc_info=True)
 
 
-def run_async_main(config_manager, loop=None):
+def run_async_main(config_manager, loop=None, startup_tasks=None):
     """Runs the main application loop, with graceful shutdown handling."""
+    # Centralize the event loop policy for Windows
+    if os.name == 'nt':
+        # This is where the logic was moved to.
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
     if loop is None:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
 
+    startup_tasks = startup_tasks or []
     controller = MainController(config_manager, loop)
     config_manager.controller = controller
 
-    # Create the main task
-    main_task = loop.create_task(main(config_manager, loop))
+    main_task = loop.create_task(main(config_manager, loop, startup_tasks))
 
     try:
         # Run the event loop until the main task is complete.
@@ -261,7 +266,7 @@ def run_async_main(config_manager, loop=None):
             loop.close()
 
 
-async def main(config_manager, loop):
+async def main(config_manager, loop, startup_tasks=None):
     import aiohttp  # Import aiohttp
     """Generic main loop that works with any strategy. Handles graceful cancellation."""
     try:
@@ -270,6 +275,11 @@ async def main(config_manager, loop):
             config_manager.controller.http_session = session
             if hasattr(config_manager.strategy_instance, 'http_session'):
                 config_manager.strategy_instance.http_session = session
+
+            if startup_tasks:
+                config_manager.general_log.info("Running startup tasks...")
+                await asyncio.gather(*startup_tasks)
+                config_manager.general_log.info("Startup tasks finished.")
 
             await config_manager.controller.main_init_loop()
 

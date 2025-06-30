@@ -67,11 +67,18 @@ async def rpc_call(method, params=None, url="http://127.0.0.1", rpc_user=None, r
 
                     result = json_response.get('result')
                     if result is not None:
-                        if debug >= 2 and display:
+                        if display and debug >= 2:
                             log_func = logger.info if logger else print
-                            msg = f"{prefix}_rpc_call( {method}, {params} )"
-                            log_func(msg)
-                            if debug >= 3:  # Log full JSON response only if debug level is 3 or higher
+                            # Level 2: Log method name only
+                            if debug == 2:
+                                msg = f"{prefix}_rpc_call( {method} )"
+                                log_func(msg)
+                            # Level 3: Log method and parameters
+                            elif debug >= 3:
+                                msg = f"{prefix}_rpc_call( {method}, {params} )"
+                                log_func(msg)
+                            # Level 4: Also log the full JSON response
+                            if debug >= 4:
                                 log_func(f"Full JSON response: {json_response}")
                         return result
                     else:

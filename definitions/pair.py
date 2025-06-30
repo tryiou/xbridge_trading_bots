@@ -314,7 +314,7 @@ class DexPair:
                 self.pair.config_manager.general_log.error(
                     f"Error in dex_check_order_status: {type(e).__name__}, {e}\n{self.order}")
             counter += 1
-            time.sleep(counter)
+            await asyncio.sleep(counter)
 
         self._handle_order_status_error()
         return self.STATUS_CANCELLED_WITHOUT_CALL

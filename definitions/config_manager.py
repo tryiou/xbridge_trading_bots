@@ -68,9 +68,9 @@ class ConfigManager:
         self.create_configs_from_templates()
         self.config_ccxt = YamlToObject("./config/config_ccxt.yaml")
         self.config_coins = YamlToObject("./config/config_coins.yaml")
+        self.config_xbridge = YamlToObject("./config/config_xbridge.yaml")
         self.config_pingppong = YamlToObject("./config/config_pingpong.yaml") if self.strategy == "pingpong" else None
         if self.strategy == "arbitrage":
-            self.config_xbridge = YamlToObject("./config/config_xbridge.yaml")
             self.config_thorchain = YamlToObject("./config/config_thorchain.yaml")
 
     def _init_tokens(self, **kwargs):
@@ -128,14 +128,15 @@ class ConfigManager:
         self.xbridge_manager = XBridgeManager(self)
         self.load_xbridge_conf_on_startup = loadxbridgeconf  # Store the flag
 
-        if self.strategy == "pingpong":
-            self.strategy_instance = PingPongStrategy(self)
-        elif self.strategy == "basic_seller":
-            self.strategy_instance = BasicSellerStrategy(self)
-        elif self.strategy == "arbitrage":
-            self.strategy_instance = ArbitrageStrategy(self)
-        else:
+        strategy_map = {
+            "pingpong": PingPongStrategy,
+            "basic_seller": BasicSellerStrategy,
+            "arbitrage": ArbitrageStrategy,
+        }
+        strategy_class = strategy_map.get(self.strategy)
+        if not strategy_class:
             raise ValueError(f"Unknown strategy: {self.strategy}")
+        self.strategy_instance = strategy_class(self)
         self.strategy_instance.initialize_strategy_specifics(**kwargs)
 
         # Initialize tokens based on strategy

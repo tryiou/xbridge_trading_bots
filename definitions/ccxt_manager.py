@@ -153,12 +153,24 @@ class CCXTManager:
             time.sleep(err_count * 1)
 
     def _debug_display(self, func, params, result, timer=None):
+        debug_level = self.config_manager.config_ccxt.debug_level
+        if debug_level < 2:
+            return
+
         if timer is None:
             timer = ''
         else:
             timer = " exec_timer: " + str(round(timer, 2))
 
-        msg = f"ccxt_rpc_call( {func[10::]} {params} ){timer}"
-        self.config_manager.general_log.info(msg)
-        if self.config_manager.config_ccxt.debug_level >= 3:
+        # Level 2: Log method name only
+        if debug_level == 2:
+            msg = f"ccxt_rpc_call( {func[10::]} ){timer}"
+            self.config_manager.general_log.info(msg)
+        # Level 3: Log method and parameters
+        elif debug_level >= 3:
+            msg = f"ccxt_rpc_call( {func[10::]} {params} ){timer}"
+            self.config_manager.general_log.info(msg)
+
+        # Level 4: Also log the full result
+        if debug_level >= 4:
             self.config_manager.general_log.debug(str(result))
