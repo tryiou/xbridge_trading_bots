@@ -9,7 +9,7 @@ import asyncio
 
 from definitions.config_manager import ConfigManager
 from definitions.starter import run_async_main  # Import run_async_main
-from definitions.test_pingpong_strategy import PingPongStrategyTester
+from test_units.test_pingpong_strategy import PingPongStrategyTester
 
 
 def start():
