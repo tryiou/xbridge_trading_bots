@@ -3,4 +3,4 @@
 
 ccxt_exchange: binance
 ccxt_hostname: None  # "global.bittrex.com"  # CUSTOM CCXT HOSTNAME, SET TO None TO USE DEFAULT
-debug_level: 2
+debug_level: 3

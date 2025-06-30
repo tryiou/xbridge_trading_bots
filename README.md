@@ -76,34 +76,24 @@ of these templates:
 
 #### Available Templates
 
-| Template File                   | Purpose                                              | Used By      |
-|---------------------------------|------------------------------------------------------|--------------|
-| `config_pingpong.yaml.template` | Trading pairs, amounts, and strategy parameters      | PingPong Bot |
-| `config_coins.yaml.template`    | Static USD prices for coins without live market data | Both Bots    |
-| `config_ccxt.yaml.template`     | Exchange API configuration for real-time price feeds | Both Bots    |
+| Template File                   | Purpose                                                         | Used By                    |
+|---------------------------------|-----------------------------------------------------------------|----------------------------|
+| `config_pingpong.yaml.template` | Trading pairs, amounts, and strategy parameters                 | PingPong Bot               |
+| `config_coins.yaml.template`    | (Optional) Static USD prices for coins without live market data | PingPong & BasicSeller Bots|
+| `config_ccxt.yaml.template`     | Exchange API configuration for real-time price feeds            | PingPong Bots              |
+| `config_xbridge.yaml.template`  | XBridge specific fees and monitoring settings                   | All Bots                   |
+| `config_thorchain.yaml.template`| Thorchain API and monitoring settings                           | Arbitrage Bot              |
+| `api_keys.local.json.template`  | (Optional) Private API keys for CCXT exchange                   | None                       |
 
 #### Setup Commands
 
-**Linux/macOS:**
+( Optional )
+Run the configuration preparation script. This will copy all necessary template files
+to your `config/` directory without overwriting any existing configurations. Trading bot will create missing config files at start.
 
 ```bash
-# Copy all templates (recommended)
-cp config/templates/config_pingpong.yaml.template config/config_pingpong.yaml
-cp config/templates/config_coins.yaml.template config/config_coins.yaml
-cp config/templates/config_ccxt.yaml.template config/config_ccxt.yaml
+python prepare_configs.py
 ```
-
-**Windows:**
-
-```cmd
-REM Copy all templates (recommended)
-copy config\templates\config_pingpong.yaml.template config\config_pingpong.yaml
-copy config\templates\config_coins.yaml.template config\config_coins.yaml
-copy config\templates\config_ccxt.yaml.template config\config_ccxt.yaml
-```
-
-> **Note**: You can copy only the templates needed for your chosen trading strategy, but copying all is recommended for
-> flexibility.
 
 ## 🤖 Trading Strategies
 

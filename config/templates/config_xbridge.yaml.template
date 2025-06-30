@@ -8,4 +8,4 @@ monitoring:
   # Interval in seconds to poll for XBridge order status.
   poll_interval: 15
 
-debug_level: 2
+debug_level: 3

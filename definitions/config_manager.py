@@ -1,5 +1,6 @@
 import os
 import shutil
+from ruamel.yaml import YAML
 
 from definitions.ccxt_manager import CCXTManager
 from definitions.logger import setup_logger
@@ -64,14 +65,62 @@ class ConfigManager:
                 # Target file exists
                 self.general_log.info(f"{target_name}: Already exists")
 
+    def _load_and_update_config(self, config_name: str):
+        """
+        Loads a YAML config, compares it to its template, adds missing keys from
+        the template, and saves it back if changed.
+        Returns the config as a YamlToObject instance.
+        """
+        config_path = os.path.join(self.ROOT_DIR, "config", config_name)
+        template_path = os.path.join(self.ROOT_DIR, "config", "templates", config_name + ".template")
+
+        if not os.path.exists(template_path):
+            self.general_log.warning(f"Template file not found: {template_path}. Cannot check for missing keys.")
+            return YamlToObject(config_path)
+
+        yaml = YAML()
+        yaml.preserve_quotes = True
+        yaml.indent(mapping=2, sequence=4, offset=2)
+
+        with open(config_path, 'r') as f:
+            user_config = yaml.load(f) or {}
+
+        with open(template_path, 'r') as f:
+            template_config = yaml.load(f) or {}
+
+        def merge_configs(template, user):
+            updated = False
+            if not isinstance(user, dict) or not isinstance(template, dict):
+                return False
+            for key, value in template.items():
+                if key not in user:
+                    user[key] = value
+                    updated = True
+                    self.general_log.info(f"Added missing key '{key}' to {os.path.basename(config_path)} from template.")
+                elif isinstance(value, dict) and isinstance(user.get(key), dict):
+                    if merge_configs(value, user.get(key, {})):
+                        updated = True
+            return updated
+
+        if merge_configs(template_config, user_config):
+            try:
+                with open(config_path, 'w') as f:
+                    yaml.dump(user_config, f)
+                self.general_log.info(f"Updated {os.path.basename(config_path)} with missing keys from template.")
+            except Exception as e:
+                self.general_log.error(f"Failed to save updated config file {config_path}: {e}")
+
+        return YamlToObject(user_config)
+
     def load_configs(self):
         self.create_configs_from_templates()
-        self.config_ccxt = YamlToObject("./config/config_ccxt.yaml")
-        self.config_coins = YamlToObject("./config/config_coins.yaml")
-        self.config_xbridge = YamlToObject("./config/config_xbridge.yaml")
-        self.config_pingppong = YamlToObject("./config/config_pingpong.yaml") if self.strategy == "pingpong" else None
+        self.config_ccxt = self._load_and_update_config("config_ccxt.yaml")
+        self.config_coins = self._load_and_update_config("config_coins.yaml")
+        self.config_xbridge = self._load_and_update_config("config_xbridge.yaml")
+        if self.strategy == "pingpong":
+            self.config_pingppong = self._load_and_update_config("config_pingpong.yaml")
         if self.strategy == "arbitrage":
-            self.config_thorchain = YamlToObject("./config/config_thorchain.yaml")
+            self.config_thorchain = self._load_and_update_config("config_thorchain.yaml")
 
     def _init_tokens(self, **kwargs):
         """Initialize token objects based on strategy configuration, delegated to strategy instance."""

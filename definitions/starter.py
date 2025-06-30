@@ -97,7 +97,7 @@ class PriceHandler:
                 self.config_manager.general_log.error(f"Error in update_ccxt_prices: {e}", exc_info=True)
 
     async def _fetch_and_update_prices(self):
-        custom_coins = self.config_manager.config_coins.usd_ticker_custom.keys()
+        custom_coins = vars(self.config_manager.config_coins.usd_ticker_custom).keys()
         keys = [self._construct_key(token) for token in self.tokens_dict if token not in custom_coins]
 
         tickers = await self.config_manager.ccxt_manager.ccxt_call_fetch_tickers(self.ccxt_i, keys)
@@ -111,12 +111,12 @@ class PriceHandler:
         for token, token_data in sorted(self.tokens_dict.items(), key=lambda item: (item[0] != 'BTC', item[0])):
             if self.main_controller.stop_order:
                 return
-            if token not in self.config_manager.config_coins.usd_ticker_custom:
+            if not hasattr(self.config_manager.config_coins.usd_ticker_custom, token):
                 symbol = f"{token_data.symbol}/USDT" if token_data.symbol == 'BTC' else f"{token_data.symbol}/BTC"
                 # This is a blocking call
                 await self._update_token_price(tickers, symbol, lastprice_string, token_data)
 
-        for token in self.config_manager.config_coins.usd_ticker_custom:
+        for token in vars(self.config_manager.config_coins.usd_ticker_custom):
             if self.main_controller.stop_order:
                 return
             if token in self.tokens_dict:
