@@ -1,4 +1,3 @@
-import asyncio
 import logging
 import uuid
 
@@ -7,8 +6,8 @@ import aiohttp
 from definitions.rpc import rpc_call
 
 
-@asyncio.coroutine
-async def get_thorchain_quote(from_asset: str, to_asset: str, amount: float, session: aiohttp.ClientSession, quote_url: str):
+async def get_thorchain_quote(from_asset: str, to_asset: str, amount: float, session: aiohttp.ClientSession,
+                              quote_url: str):
     """
     Fetches a swap quote from Thorchain's Midgard API.
     Amount is in base units (e.g., 1.5 for 1.5 BTC, not satoshis).
@@ -29,7 +28,6 @@ async def get_thorchain_quote(from_asset: str, to_asset: str, amount: float, ses
         return None
 
 
-@asyncio.coroutine
 async def get_inbound_addresses(session: aiohttp.ClientSession, api_url: str):
     """
     Fetches the inbound addresses from a THORNode.
@@ -46,41 +44,72 @@ async def get_inbound_addresses(session: aiohttp.ClientSession, api_url: str):
         return None
 
 
+async def check_thorchain_path_status(from_chain: str, to_chain: str, session: aiohttp.ClientSession, api_url: str) -> tuple[bool, str]:
+    """
+    Checks if the trading path between two chains is active on Thorchain by inspecting inbound addresses.
+    Returns a tuple (is_active: bool, reason: str).
+    """
+    logger = logging.getLogger('general_log')
+    try:
+        inbound_addresses = await get_inbound_addresses(session, api_url)
+        if not inbound_addresses:
+            return False, "Could not fetch Thorchain inbound addresses."
+
+        from_chain_data = next((addr for addr in inbound_addresses if addr.get('chain') == from_chain), None)
+        to_chain_data = next((addr for addr in inbound_addresses if addr.get('chain') == to_chain), None)
+
+        if not from_chain_data:
+            return False, f"Source chain {from_chain} not found in Thorchain inbound addresses."
+        if not to_chain_data:
+            return False, f"Destination chain {to_chain} not found in Thorchain inbound addresses."
+
+        # If the chain you are sending *from* is halted, you cannot initiate a swap.
+        if from_chain_data.get('halted'):
+            return False, f"Trading is halted for the source chain: {from_chain}."
+
+        # If the chain you are swapping *to* is halted, you cannot receive the outbound funds.
+        if to_chain_data.get('halted'):
+            return False, f"Trading is halted for the destination chain: {to_chain}."
+
+        return True, "Path is active."
+    except Exception as e:
+        logger.error(f"Exception checking Thorchain path status for {from_chain}->{to_chain}: {e}", exc_info=True)
+        return False, "An exception occurred during path status check."
+
+
 async def execute_thorchain_swap(
-    from_token_symbol: str,
-    to_address: str,
-    amount: float,
-    memo: str,
-    config_manager,
-    test_mode: bool = False
+        from_token_symbol: str,
+        to_address: str,
+        amount: float,
+        memo: str,
+        rpc_config: dict,
+        decimal_places: int,
+        logger,
+        test_mode: bool = False
 ):
     """
     Constructs and broadcasts the transaction to initiate a Thorchain swap.
     """
-    logger = config_manager.general_log
     try:
-        coin_conf = config_manager.xbridge_manager.xbridge_conf.get(from_token_symbol)
-        if not coin_conf:
-            logger.error(f"No RPC configuration found for {from_token_symbol} in xbridge.conf.")
+        if not rpc_config:
+            logger.error(f"No RPC configuration provided for {from_token_symbol}.")
             return None
         # Get RPC credentials from the parsed xbridge.conf
-        rpc_ip = coin_conf.get('ip', '127.0.0.1')
-        rpc_user = coin_conf.get('username')
-        rpc_password = coin_conf.get('password')
-        rpc_port = coin_conf.get('port')
+        rpc_ip = rpc_config.get('ip', '127.0.0.1')
+        rpc_user = rpc_config.get('username')
+        rpc_password = rpc_config.get('password')
+        rpc_port = rpc_config.get('port')
 
         if not all([rpc_user, rpc_password, rpc_port]):
-            logger.error(f"Incomplete RPC configuration for {from_token_symbol} in xbridge.conf.")
+            logger.error(f"Incomplete RPC configuration for {from_token_symbol}.")
             return None
 
-        satoshi_multiplier = coin_conf.get('coin', 100000000)
-        decimal_places = len(str(satoshi_multiplier)) - 1
         amount_str = f"{amount:.{decimal_places}f}"
         full_params = [to_address, amount_str, "", "", False, False, None, "UNSET", None, memo]
 
         if test_mode:
             mock_txid = f"mock_thor_txid_{uuid.uuid4()}"
-            logger.info(f"[TEST MODE] Would execute Core Wallet RPC Call:")
+            logger.info("[TEST MODE] Would execute Core Wallet RPC Call:")
             logger.info(f"    - Target Coin: {from_token_symbol}")
             logger.info(f"    - RPC IP: {rpc_ip}")
             logger.info(f"    - RPC Port: {rpc_port}")
@@ -89,7 +118,8 @@ async def execute_thorchain_swap(
             logger.info(f"    - Returning mock TXID: {mock_txid}")
             return mock_txid
 
-        logger.info(f"Executing Thorchain Swap: send {amount_str} {from_token_symbol} to {to_address} with memo '{memo}'")
+        logger.info(
+            f"Executing Thorchain Swap: send {amount_str} {from_token_symbol} to {to_address} with memo '{memo}'")
 
         # The actual RPC call to the coin's daemon
         txid = await rpc_call(

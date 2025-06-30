@@ -125,10 +125,6 @@ class CexToken:
                 f"BTC_USD_PRICE: {format(float(self.token.config_manager.tokens['BTC'].cex.usd_price), '.8f').rstrip('0').rstrip('.')}"
             )
 
-
-
-
-
         else:
             self.usd_price = None
             self.cex_price = None
