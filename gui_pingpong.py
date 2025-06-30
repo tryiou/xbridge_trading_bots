@@ -1,7 +1,7 @@
 import signal
 import sys
 
-from definitions.gui import GUI_Main
+from gui.gui import GUI_Main
 
 
 def signal_handler(sig, frame):
