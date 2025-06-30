@@ -21,7 +21,7 @@ class XBridgeManager:
             # Depending on desired behavior, you might want to raise an exception or exit here.
             # For now, just log the error.
 
-        if self.config_manager.strategy == "arbitrage":
+        if getattr(self.config_manager, 'strategy', None) == "arbitrage":
             # Load and parse the xbridge.conf file
             self.parse_xbridge_conf()
             # Calculate fee estimates

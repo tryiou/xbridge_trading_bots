@@ -26,7 +26,8 @@ class GUI_Orders:
     def create_orders_treeview(self) -> None:
         # Get enabled pairs from config
         self.sortedpairs = sorted(
-            [cfg['name'] for cfg in self.parent.config_manager.config_pingppong.pair_configs if cfg.get('enabled', True)]
+            [cfg['name'] for cfg in self.parent.config_manager.config_pingppong.pair_configs if
+             cfg.get('enabled', True)]
         )
         columns = ("Pair", "Status", "Side", "Flag", "Variation")
         self.orders_frame = ttk.LabelFrame(self.parent.root, text="Orders")

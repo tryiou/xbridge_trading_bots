@@ -11,7 +11,8 @@ class PingPongStrategy(BaseStrategy):
         pass
 
     def get_tokens_for_initialization(self, **kwargs) -> list:
-        tokens_list = [cfg['pair'].split("/")[0] for cfg in self.config_pingppong.pair_configs if cfg.get('enabled', True)]
+        tokens_list = [cfg['pair'].split("/")[0] for cfg in self.config_pingppong.pair_configs if
+                       cfg.get('enabled', True)]
         tokens_list.extend(
             [cfg['pair'].split("/")[1] for cfg in self.config_pingppong.pair_configs if cfg.get('enabled', True)])
         return list(set(tokens_list))

@@ -374,7 +374,7 @@ class DexPair:
     async def _check_order_status(self, disabled_coins):
         if self.order and 'id' in self.order and self.order['id'] is not None:
             return await self.check_order_status()
-        if not self.disabled and self.current_order:  
+        if not self.disabled and self.current_order:
             self.init_virtual_order(disabled_coins)
             if self.order and "id" in self.order:
                 return await self.check_order_status()
@@ -403,7 +403,7 @@ class DexPair:
             self.pair.config_manager.general_log.info(
                 f"Disabled pairs due to cc_height_check {self.symbol}, {disabled_coins}")
             self.pair.config_manager.general_log.info(f"status_check, dex cancel {self.order['id']}")
-            asyncio.create_task(self.cancel_myorder_async())  
+            asyncio.create_task(self.cancel_myorder_async())
 
     async def handle_status_error_swap(self):
         await self.pair.config_manager.strategy_instance.handle_error_swap_status(self)
@@ -411,7 +411,7 @@ class DexPair:
     async def handle_status_default(self):
         if not self.disabled:
             self.pair.config_manager.general_log.error(
-                f"status_check, no valid status: {self.symbol}, {self.order}")  
+                f"status_check, no valid status: {self.symbol}, {self.order}")
             await self.create_order()
 
     async def at_order_finished(self, disabled_coins):
@@ -465,9 +465,9 @@ class CexPair:
             )
 
     async def _update_token_prices(self):
-        if self.t1.cex.cex_price is None:  
+        if self.t1.cex.cex_price is None:
             await self.t1.cex.update_price()
-        if self.t2.cex.cex_price is None: 
+        if self.t2.cex.cex_price is None:
             await self.t2.cex.update_price()
 
     async def update_orderbook(self, limit=25, ignore_timer=False):

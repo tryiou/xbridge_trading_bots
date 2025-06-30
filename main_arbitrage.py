@@ -3,8 +3,8 @@ import asyncio
 import os
 
 from definitions.config_manager import ConfigManager
-from starter import run_async_main
 from definitions.test_arbitrage_strategy import ArbitrageStrategyTester
+from starter import run_async_main
 
 
 def start():

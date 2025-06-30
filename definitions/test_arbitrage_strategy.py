@@ -1,12 +1,17 @@
-import asyncio
+import os
+import json
 import os
 import uuid
-import json
-from unittest.mock import patch, AsyncMock
+from typing import List, Dict, Any, TYPE_CHECKING
+from unittest.mock import patch
 
-from strategies.arbitrage_strategy import TradeState
+from definitions.trade_state import TradeState
+
+if TYPE_CHECKING:
+    from strategies.arbitrage_strategy import ArbitrageStrategy
 
 from contextlib import contextmanager
+
 
 class ArbitrageStrategyTester:
     """
@@ -14,61 +19,44 @@ class ArbitrageStrategyTester:
     of the ArbitrageStrategy.
     """
 
-    def __init__(self, strategy_instance):
+    def __init__(self, strategy_instance: 'ArbitrageStrategy'):
         self.strategy = strategy_instance
         self.config_manager = strategy_instance.config_manager
-        self.test_results = []
+        self.test_results: List[Dict[str, Any]] = []
 
     @contextmanager
-    def _patch_dependencies(self):
+    def _patch_dependencies(self, mock_thor_exec: bool = True):
         """A context manager to patch all external dependencies for tests."""
         with patch.object(self.strategy, '_monitor_xbridge_order', return_value=True) as mock_monitor_xb, \
-             patch.object(self.strategy, '_monitor_thorchain_swap', return_value=True) as mock_monitor_thor, \
-             patch('definitions.thorchain_def.execute_thorchain_swap', return_value="mock_thor_txid") as mock_exec_thor, \
-             patch('definitions.thorchain_def.get_thorchain_quote') as mock_get_quote, \
-             patch('definitions.thorchain_def.get_inbound_addresses') as mock_get_inbound, \
-             patch('definitions.thorchain_def.check_thorchain_path_status', return_value=(True, "Path is active.")) as mock_check_path, \
-             patch('asyncio.sleep', return_value=None):  # Patch sleep to make tests run instantly
-            mock_get_inbound.return_value = [
-                {'chain': 'LTC', 'address': 'ltc_inbound_addr', 'halted': False, 'decimals': 8},
-                {'chain': 'DOGE', 'address': 'doge_inbound_addr', 'halted': False, 'decimals': 8},
-                {'chain': 'BTC', 'address': 'btc_inbound_addr', 'halted': False, 'decimals': 8},
-            ]
-            yield {
+                patch.object(self.strategy, '_monitor_thorchain_swap', return_value=True) as mock_monitor_thor, \
+                patch('definitions.thorchain_def.get_thorchain_quote') as mock_get_quote, \
+                patch('definitions.thorchain_def.get_inbound_addresses') as mock_get_inbound, \
+                patch('definitions.thorchain_def.check_thorchain_path_status',
+                      return_value=(True, "Path is active.")) as mock_check_path, \
+                patch('asyncio.sleep', return_value=None):
+
+            mocks = {
                 'monitor_xb': mock_monitor_xb,
                 'monitor_thor': mock_monitor_thor,
-                'exec_thor': mock_exec_thor,
                 'get_quote': mock_get_quote,
+                'get_inbound': mock_get_inbound,
                 'check_path': mock_check_path,
-                'get_inbound': mock_get_inbound
             }
-
-    @contextmanager
-    def _patch_dependencies_for_leg_test(self):
-        """
-        A context manager for the --test-leg command. It mocks all external
-        dependencies EXCEPT execute_thorchain_swap, allowing its internal
-        test-mode logging to run.
-        """
-        with patch.object(self.strategy, '_monitor_xbridge_order', return_value=True), \
-             patch.object(self.strategy, '_monitor_thorchain_swap', return_value=True), \
-             patch('definitions.thorchain_def.get_thorchain_quote') as mock_get_quote, \
-             patch('definitions.thorchain_def.get_inbound_addresses') as mock_get_inbound, \
-             patch('definitions.thorchain_def.check_thorchain_path_status', return_value=(True, "Path is active.")), \
-             patch('asyncio.sleep', return_value=None):
-            # Note: execute_thorchain_swap is NOT mocked here, so its internal logging will run.
-            # The function's own test_mode flag will prevent a real RPC call.
-            # Provide a realistic mock response for get_inbound_addresses to test the decimal logic
             mock_get_inbound.return_value = [
                 {'chain': 'LTC', 'address': 'ltc_inbound_addr', 'halted': False, 'decimals': 8},
                 {'chain': 'DOGE', 'address': 'doge_inbound_addr', 'halted': False, 'decimals': 8},
                 {'chain': 'BTC', 'address': 'btc_inbound_addr', 'halted': False, 'decimals': 8},
             ]
-            yield {'get_quote': mock_get_quote, 'get_inbound': mock_get_inbound}
 
+            if mock_thor_exec:
+                with patch('definitions.thorchain_def.execute_thorchain_swap',
+                           return_value="mock_thor_txid") as mock_exec_thor:
+                    mocks['exec_thor'] = mock_exec_thor
+                    yield mocks
+            else:
+                yield mocks
 
-
-    async def _get_mock_leg_result(self, profitable=True):
+    async def _get_mock_leg_result(self, profitable: bool = True) -> Dict[str, Any]:
         """
         Generates a mock leg_result dictionary, similar to what
         _check_arbitrage_leg would produce. This decouples the tests from
@@ -103,7 +91,7 @@ class ArbitrageStrategyTester:
             'leg': 1,
             'xbridge_from_amount': 0.05,
             'pair_symbol': pair_symbol,
-            'xbridge_fee': 0.00005, # Add the fee for consistent re-evaluation
+            'xbridge_fee': 0.00005,  # Add the fee for consistent re-evaluation
             'xbridge_order_id': f'mock_xb_order_{uuid.uuid4()}',
             'xbridge_from_token': pair_instance.t1.symbol,
             'xbridge_to_token': pair_instance.t2.symbol,
@@ -122,7 +110,7 @@ class ArbitrageStrategyTester:
             'report': 'Mocked report'
         }
 
-    async def run_arbitrage_test(self, leg_to_test: int):
+    async def run_arbitrage_test(self, leg_to_test: int) -> None:
         """
         Runs a one-off test of the arbitrage execution logic for a specific leg.
         This method constructs mock data, calls the internal _check_arbitrage_leg
@@ -150,7 +138,7 @@ class ArbitrageStrategyTester:
         mock_order_amount_t1 = 0.05
         leg_result = None
 
-        with self._patch_dependencies_for_leg_test() as mocks:
+        with self._patch_dependencies(mock_thor_exec=False) as mocks:
             if leg_to_test == 1:
                 self.config_manager.general_log.info("Testing Leg 1: Sell XBridge, Buy Thorchain")
                 mock_quote_leg1 = {
@@ -180,16 +168,20 @@ class ArbitrageStrategyTester:
                 return
 
             if leg_result and leg_result.get('profitable'):
-                self.config_manager.general_log.info(f"--- [TEST] Profitability Report ---\n{leg_result['report']}\n--- [TEST] End of Report ---")
-                self.config_manager.general_log.info(f"Leg {leg_to_test} Test: Profitable arbitrage found: {leg_result['opportunity_details']}")
+                self.config_manager.general_log.info(
+                    f"--- [TEST] Profitability Report ---\n{leg_result['report']}\n--- [TEST] End of Report ---")
+                self.config_manager.general_log.info(
+                    f"Leg {leg_to_test} Test: Profitable arbitrage found: {leg_result['opportunity_details']}")
                 # The re-evaluation step inside execute_arbitrage also needs a quote
                 mocks['get_quote'].return_value = leg_result['execution_data']['thorchain_quote']
                 await self.strategy.execute_arbitrage(leg_result, check_id)
             else:
-                self.config_manager.general_log.warning(f"Leg {leg_to_test} Test: No profitable arbitrage found with mock data.")
-                if leg_result: self.config_manager.general_log.info(f"--- [TEST] Non-Profitable Report ---\n{leg_result['report']}\n--- [TEST] End of Report ---")
+                self.config_manager.general_log.warning(
+                    f"Leg {leg_to_test} Test: No profitable arbitrage found with mock data.")
+                if leg_result: self.config_manager.general_log.info(
+                    f"--- [TEST] Non-Profitable Report ---\n{leg_result['report']}\n--- [TEST] End of Report ---")
 
-    async def run_all_tests(self):
+    async def run_all_tests(self) -> None:
         """Runs the full suite of state management and recovery tests."""
         if not self.strategy.test_mode:
             self.config_manager.general_log.error("run_all_tests can only be run if test_mode is enabled.")
@@ -212,12 +204,12 @@ class ArbitrageStrategyTester:
         self.config_manager.general_log.info("\n--- State Management Test Suite Finished ---")
         self._print_summary()
 
-    def _print_summary(self):
+    def _print_summary(self) -> None:
         """Prints a formatted summary of the test suite results."""
         summary_lines = [
-            "\n" + "="*60,
+            "\n" + "=" * 60,
             "--- Test Suite Summary ---".center(60),
-            "="*60
+            "=" * 60
         ]
         passed_count = 0
         failed_count = 0
@@ -237,8 +229,13 @@ class ArbitrageStrategyTester:
         # Use the general logger to print the summary clearly
         self.config_manager.general_log.info("\n".join(summary_lines))
 
-    async def _test_full_trade_success(self):
-        """Test a full, uninterrupted trade execution, ensuring state file is cleaned up."""
+    async def _test_full_trade_success(self) -> None:
+        """
+        Tests a full, uninterrupted trade execution from start to finish.
+        Arrange: Mocks a profitable opportunity.
+        Act: Calls execute_arbitrage.
+        Assert: Verifies that the trade completes and the state file is deleted.
+        """
         test_name = "Full Trade Success"
         self.config_manager.general_log.info(f"\n--- [TEST CASE] Running: {test_name} ---")
         TradeState.cleanup_all_states(self.strategy)
@@ -255,15 +252,22 @@ class ArbitrageStrategyTester:
         # Verification
         state_file = os.path.join(TradeState._get_state_dir(self.strategy), f"{check_id}.json")
         if os.path.exists(state_file):
-            self.config_manager.general_log.error(f"[TEST FAILED] State file {state_file} was not deleted after successful trade.")
+            self.config_manager.general_log.error(
+                f"[TEST FAILED] State file {state_file} was not deleted after successful trade.")
             passed = False
         else:
             self.config_manager.general_log.info("[TEST PASSED] State file was correctly deleted.")
             passed = True
         self.test_results.append({'name': test_name, 'passed': passed})
 
-    async def _test_resume_from_xb_initiated(self):
-        """Test resuming from a state where XBridge trade was initiated but not confirmed."""
+    async def _test_resume_from_xb_initiated(self) -> None:
+        """
+        Tests resuming from a state where the XBridge trade was initiated but not confirmed.
+        Arrange: Creates a state file with status 'XBRIDGE_INITIATED'.
+        Act: Calls resume_interrupted_trades.
+        Assert: Verifies that the XBridge order monitor is called, the full trade completes,
+                and the state file is deleted.
+        """
         test_name = "Resume from XBRIDGE_INITIATED"
         self.config_manager.general_log.info(f"\n--- [TEST CASE] Running: {test_name} ---")
         TradeState.cleanup_all_states(self.strategy)
@@ -289,15 +293,23 @@ class ArbitrageStrategyTester:
         mocks['monitor_thor'].assert_called_once()
         state_file = os.path.join(TradeState._get_state_dir(self.strategy), f"{check_id}.json")
         if os.path.exists(state_file):
-            self.config_manager.general_log.error(f"[TEST FAILED] State file {state_file} was not deleted after successful resumption.")
+            self.config_manager.general_log.error(
+                f"[TEST FAILED] State file {state_file} was not deleted after successful resumption.")
             passed = False
         else:
-            self.config_manager.general_log.info("[TEST PASSED] Resumption from XBRIDGE_INITIATED completed successfully.")
+            self.config_manager.general_log.info(
+                "[TEST PASSED] Resumption from XBRIDGE_INITIATED completed successfully.")
             passed = True
         self.test_results.append({'name': test_name, 'passed': passed})
 
-    async def _test_resume_from_xb_confirmed_profitable(self):
-        """Test resuming from XBRIDGE_CONFIRMED where the trade is still profitable."""
+    async def _test_resume_from_xb_confirmed_profitable(self) -> None:
+        """
+        Tests resuming from XBRIDGE_CONFIRMED where the re-evaluated trade is still profitable.
+        Arrange: Creates a state file with status 'XBRIDGE_CONFIRMED' and mocks a profitable
+                 re-quote from Thorchain.
+        Act: Calls resume_interrupted_trades.
+        Assert: Verifies the Thorchain leg is executed and the state file is deleted.
+        """
         test_name = "Resume from XBRIDGE_CONFIRMED (Profitable)"
         self.config_manager.general_log.info(f"\n--- [TEST CASE] Running: {test_name} ---")
         TradeState.cleanup_all_states(self.strategy)
@@ -323,15 +335,24 @@ class ArbitrageStrategyTester:
         mocks['monitor_thor'].assert_called_once()
         state_file = os.path.join(TradeState._get_state_dir(self.strategy), f"{check_id}.json")
         if os.path.exists(state_file):
-            self.config_manager.general_log.error(f"[TEST FAILED] State file {state_file} was not deleted after successful resumption.")
+            self.config_manager.general_log.error(
+                f"[TEST FAILED] State file {state_file} was not deleted after successful resumption.")
             passed = False
         else:
-            self.config_manager.general_log.info("[TEST PASSED] Resumption from XBRIDGE_CONFIRMED (Profitable) completed successfully.")
+            self.config_manager.general_log.info(
+                "[TEST PASSED] Resumption from XBRIDGE_CONFIRMED (Profitable) completed successfully.")
             passed = True
         self.test_results.append({'name': test_name, 'passed': passed})
 
-    async def _test_resume_from_xb_confirmed_unprofitable(self):
-        """Test resuming from XBRIDGE_CONFIRMED where the trade is now unprofitable, forcing an abort."""
+    async def _test_resume_from_xb_confirmed_unprofitable(self) -> None:
+        """
+        Tests resuming from XBRIDGE_CONFIRMED where the re-evaluated trade is now unprofitable.
+        Arrange: Creates a state file with status 'XBRIDGE_CONFIRMED' but mocks an unprofitable
+                 re-quote from Thorchain.
+        Act: Calls resume_interrupted_trades.
+        Assert: Verifies that the Thorchain leg is NOT executed and the state file is
+                archived for manual review.
+        """
         test_name = "Resume from XBRIDGE_CONFIRMED (Unprofitable)"
         self.config_manager.general_log.info(f"\n--- [TEST CASE] Running: {test_name} ---")
         TradeState.cleanup_all_states(self.strategy)
@@ -341,13 +362,14 @@ class ArbitrageStrategyTester:
 
         with self._patch_dependencies() as mocks:
             # 1. Create the state file
-            leg_result = await self._get_mock_leg_result(profitable=True) # Start with a profitable scenario
+            leg_result = await self._get_mock_leg_result(profitable=True)  # Start with a profitable scenario
             state.save('XBRIDGE_CONFIRMED', {
                 'execution_data': leg_result['execution_data'],
                 'xbridge_trade_id': 'mock_xb_trade_id'
             })
             # 2. Now, create an unprofitable quote for the re-evaluation
-            unprofitable_quote = (await self._get_mock_leg_result(profitable=False))['execution_data']['thorchain_quote']
+            unprofitable_quote = (await self._get_mock_leg_result(profitable=False))['execution_data'][
+                'thorchain_quote']
             mocks['get_quote'].return_value = unprofitable_quote
 
             # 3. Run resumption
@@ -355,18 +377,25 @@ class ArbitrageStrategyTester:
 
         # 4. Verification
         mocks['get_quote'].assert_called_once()
-        mocks['exec_thor'].assert_not_called() # Crucially, a new swap should NOT be executed
+        mocks['exec_thor'].assert_not_called()  # Crucially, a new swap should NOT be executed
         archive_file_found = any(f.startswith(check_id) for f in os.listdir(os.path.join(state.state_dir, "archive")))
         if archive_file_found:
-            self.config_manager.general_log.info("[TEST PASSED] Unprofitable trade was correctly aborted and state archived.")
+            self.config_manager.general_log.info(
+                "[TEST PASSED] Unprofitable trade was correctly aborted and state archived.")
             passed = True
         else:
             self.config_manager.general_log.error("[TEST FAILED] State file was not archived for unprofitable trade.")
             passed = False
         self.test_results.append({'name': test_name, 'passed': passed})
 
-    async def _test_resume_from_thor_initiated(self):
-        """Test resuming from a state where Thorchain swap was initiated but not confirmed."""
+    async def _test_resume_from_thor_initiated(self) -> None:
+        """
+        Tests resuming from a state where the Thorchain swap was initiated but not confirmed.
+        Arrange: Creates a state file with status 'THORCHAIN_INITIATED'.
+        Act: Calls resume_interrupted_trades.
+        Assert: Verifies that the Thorchain swap monitor is called and the state file is
+                deleted upon successful completion.
+        """
         test_name = "Resume from THORCHAIN_INITIATED"
         self.config_manager.general_log.info(f"\n--- [TEST CASE] Running: {test_name} ---")
         TradeState.cleanup_all_states(self.strategy)
@@ -389,15 +418,26 @@ class ArbitrageStrategyTester:
         mocks['monitor_thor'].assert_called_once()
         state_file = os.path.join(TradeState._get_state_dir(self.strategy), f"{check_id}.json")
         if os.path.exists(state_file):
-            self.config_manager.general_log.error(f"[TEST FAILED] State file {state_file} was not deleted after successful resumption.")
+            self.config_manager.general_log.error(
+                f"[TEST FAILED] State file {state_file} was not deleted after successful resumption.")
             passed = False
         else:
-            self.config_manager.general_log.info("[TEST PASSED] Resumption from THORCHAIN_INITIATED completed successfully.")
+            self.config_manager.general_log.info(
+                "[TEST PASSED] Resumption from THORCHAIN_INITIATED completed successfully.")
             passed = True
         self.test_results.append({'name': test_name, 'passed': passed})
 
-    async def _test_resume_with_thor_refund(self):
-        """Test resuming from THORCHAIN_INITIATED where the swap is refunded, pausing all trading."""
+    async def _test_resume_with_thor_refund(self) -> None:
+        """
+        Tests the full refund and trading pause lifecycle.
+        Arrange Part 1: Create a 'THORCHAIN_INITIATED' state and mock the monitor to fail (refund).
+        Act Part 1: Call resume_interrupted_trades.
+        Assert Part 1: Verify a pause file is created and state is 'AWAITING_REFUND'.
+        Act Part 2: Call the main loop and verify no new trades are checked.
+        Arrange Part 3: Mock the refund verification to succeed.
+        Act Part 3: Call resume_interrupted_trades again.
+        Assert Part 3: Verify the pause file is removed and the state is archived.
+        """
         test_name = "Resume from THORCHAIN_INITIATED (Refunded) and Pause"
         self.config_manager.general_log.info(f"\n--- [TEST CASE] Running: {test_name} ---")
         TradeState.cleanup_all_states(self.strategy)
@@ -429,10 +469,12 @@ class ArbitrageStrategyTester:
             state_is_awaiting_refund = current_state_status == 'AWAITING_REFUND'
 
         if pause_file_found and state_is_awaiting_refund:
-            self.config_manager.general_log.info("[TEST PASSED] Refunded trade correctly created pause file and set state to AWAITING_REFUND.")
+            self.config_manager.general_log.info(
+                "[TEST PASSED] Refunded trade correctly created pause file and set state to AWAITING_REFUND.")
             passed = True
         else:
-            self.config_manager.general_log.error(f"[TEST FAILED] Refunded trade state not handled correctly (pause: {pause_file_found}, state: {current_state_status}).")
+            self.config_manager.general_log.error(
+                f"[TEST FAILED] Refunded trade state not handled correctly (pause: {pause_file_found}, state: {current_state_status}).")
             passed = False
             self.test_results.append({'name': test_name, 'passed': passed})
             if os.path.exists(self.strategy.pause_file_path): os.remove(self.strategy.pause_file_path)
@@ -443,7 +485,8 @@ class ArbitrageStrategyTester:
             pair_instance = self.config_manager.pairs[next(iter(self.config_manager.pairs))]
             await self.strategy.thread_loop_async_action(pair_instance)
             if mock_check_leg.called:
-                self.config_manager.general_log.error("[TEST FAILED] Bot continued to check for trades despite pause file.")
+                self.config_manager.general_log.error(
+                    "[TEST FAILED] Bot continued to check for trades despite pause file.")
                 passed = False
             else:
                 self.config_manager.general_log.info("[TEST PASSED] Bot correctly paused trading operations.")
@@ -459,7 +502,8 @@ class ArbitrageStrategyTester:
             self.config_manager.general_log.info("[TEST PASSED] Bot correctly resumed trading after confirming refund.")
             passed = True
         else:
-            self.config_manager.general_log.error(f"[TEST FAILED] Bot did not resume correctly (pause_gone: {pause_file_gone}, archived: {archive_file_found}).")
+            self.config_manager.general_log.error(
+                f"[TEST FAILED] Bot did not resume correctly (pause_gone: {pause_file_gone}, archived: {archive_file_found}).")
             passed = False
 
         if os.path.exists(self.strategy.pause_file_path):
@@ -467,8 +511,13 @@ class ArbitrageStrategyTester:
 
         self.test_results.append({'name': test_name, 'passed': passed})
 
-    async def _test_execute_with_xb_monitor_failure(self):
-        """Test execution aborts correctly if the XBridge order monitoring fails."""
+    async def _test_execute_with_xb_monitor_failure(self) -> None:
+        """
+        Tests that execution aborts correctly if the XBridge order monitoring fails.
+        Arrange: Mock _monitor_xbridge_order to return False.
+        Act: Call execute_arbitrage.
+        Assert: Verify the Thorchain leg is never attempted and the state file is archived.
+        """
         test_name = "Execute with XBridge Monitor Failure"
         self.config_manager.general_log.info(f"\n--- [TEST CASE] Running: {test_name} ---")
         TradeState.cleanup_all_states(self.strategy)
@@ -480,7 +529,7 @@ class ArbitrageStrategyTester:
 
         # Mock _monitor_xbridge_order to return False, simulating a timeout or error
         with patch.object(self.strategy, '_monitor_xbridge_order', return_value=False) as mock_monitor_xb, \
-             patch.object(self.strategy, '_monitor_thorchain_swap') as mock_monitor_thor:
+                patch.object(self.strategy, '_monitor_thorchain_swap') as mock_monitor_thor:
             await self.strategy.execute_arbitrage(leg_result, check_id)
 
         # Verification
@@ -488,19 +537,26 @@ class ArbitrageStrategyTester:
         mock_monitor_thor.assert_not_called()  # Thorchain part should never be reached
         archive_file_found = any(f.startswith(check_id) for f in os.listdir(os.path.join(state.state_dir, "archive")))
         if archive_file_found:
-            self.config_manager.general_log.info("[TEST PASSED] Trade was correctly aborted and state archived on XBridge monitor failure.")
+            self.config_manager.general_log.info(
+                "[TEST PASSED] Trade was correctly aborted and state archived on XBridge monitor failure.")
             passed = True
         else:
-            self.config_manager.general_log.error("[TEST FAILED] State file was not archived after XBridge monitor failure.")
+            self.config_manager.general_log.error(
+                "[TEST FAILED] State file was not archived after XBridge monitor failure.")
             passed = False
         self.test_results.append({'name': test_name, 'passed': passed})
 
-    async def _test_check_leg_profit_margin_edge_case(self):
-        """Tests that a trade with profit > 0 but < min_profit_margin is not marked as profitable."""
+    async def _test_check_leg_profit_margin_edge_case(self) -> None:
+        """
+        Tests that a trade with profit > 0 but < min_profit_margin is not marked as profitable.
+        Arrange: Temporarily increase min_profit_margin and mock a quote that falls in between.
+        Act: Call _check_arbitrage_leg.
+        Assert: Verify that the returned result is not marked as 'profitable'.
+        """
         test_name = "Profit Margin Edge Case"
         self.config_manager.general_log.info(f"\n--- [TEST CASE] Running: {test_name} ---")
         passed = False
-        
+
         # Temporarily set a higher profit margin for this test
         original_margin = self.strategy.min_profit_margin
         self.strategy.min_profit_margin = 0.02  # 2%
@@ -525,7 +581,8 @@ class ArbitrageStrategyTester:
 
         # Verification
         if leg_result and not leg_result.get('profitable'):
-            self.config_manager.general_log.info("[TEST PASSED] Trade with profit below min_profit_margin was correctly identified as not profitable.")
+            self.config_manager.general_log.info(
+                "[TEST PASSED] Trade with profit below min_profit_margin was correctly identified as not profitable.")
             passed = True
         else:
             self.config_manager.general_log.error("[TEST FAILED] Profit margin edge case test failed.")
@@ -535,8 +592,14 @@ class ArbitrageStrategyTester:
         self.strategy.min_profit_margin = original_margin
         self.test_results.append({'name': test_name, 'passed': passed})
 
-    async def _test_check_leg_insufficient_balance(self):
-        """Tests that the bot correctly skips an unaffordable order and evaluates the next one."""
+    async def _test_check_leg_insufficient_balance(self) -> None:
+        """
+        Tests that the bot correctly skips an unaffordable order and evaluates the next one.
+        Arrange: Mock the wallet balance to be too low for the first order in the book, but
+                 sufficient for the second.
+        Act: Call _check_arbitrage_leg.
+        Assert: Verify that the returned result corresponds to the second, affordable order.
+        """
         test_name = "Insufficient Balance Skips Order"
         self.config_manager.general_log.info(f"\n--- [TEST CASE] Running: {test_name} ---")
         passed = False
@@ -559,7 +622,7 @@ class ArbitrageStrategyTester:
 
         with self._patch_dependencies() as mocks:
             mocks['get_quote'].return_value = {
-                'expected_amount_out': str(int(0.031 * 10 ** 8)), # Profitable for the 0.03 order
+                'expected_amount_out': str(int(0.031 * 10 ** 8)),  # Profitable for the 0.03 order
                 'fees': {'outbound': str(int(0.0001 * 10 ** 8))},
                 'memo': 'mock_memo', 'inbound_address': 'mock_inbound_address'
             }
@@ -568,7 +631,8 @@ class ArbitrageStrategyTester:
 
         # Verification
         if leg_result and leg_result['execution_data']['xbridge_order_id'] == 'mock_xb_order_affordable':
-            self.config_manager.general_log.info("[TEST PASSED] Bot correctly skipped unaffordable order and found the next profitable one.")
+            self.config_manager.general_log.info(
+                "[TEST PASSED] Bot correctly skipped unaffordable order and found the next profitable one.")
             passed = True
         else:
             self.config_manager.general_log.error("[TEST FAILED] Insufficient balance test failed.")
@@ -579,8 +643,14 @@ class ArbitrageStrategyTester:
         self.strategy.dry_mode = original_dry_mode
         self.test_results.append({'name': test_name, 'passed': passed})
 
-    async def _test_execute_with_xb_take_order_failure(self):
-        """Test execution aborts correctly if the initial XBridge take_order call fails."""
+    async def _test_execute_with_xb_take_order_failure(self) -> None:
+        """
+        Tests that execution aborts correctly if the initial XBridge take_order call fails.
+        Arrange: Mock xbridge_manager.take_order to return None.
+        Act: Call execute_arbitrage.
+        Assert: Verify that the trade is aborted immediately and the initial state file
+                is archived.
+        """
         test_name = "Execute with XBridge take_order Failure"
         self.config_manager.general_log.info(f"\n--- [TEST CASE] Running: {test_name} ---")
         TradeState.cleanup_all_states(self.strategy)
@@ -600,15 +670,24 @@ class ArbitrageStrategyTester:
         state_file_exists = os.path.exists(state.state_file_path)
         archive_file_found = any(f.startswith(check_id) for f in os.listdir(os.path.join(state.state_dir, "archive")))
         if not state_file_exists and archive_file_found:
-            self.config_manager.general_log.info("[TEST PASSED] Trade was correctly aborted and state archived on take_order failure.")
+            self.config_manager.general_log.info(
+                "[TEST PASSED] Trade was correctly aborted and state archived on take_order failure.")
             passed = True
         else:
-            self.config_manager.general_log.error("[TEST FAILED] State file was not handled correctly on take_order failure.")
+            self.config_manager.general_log.error(
+                "[TEST FAILED] State file was not handled correctly on take_order failure.")
             passed = False
         self.test_results.append({'name': test_name, 'passed': passed})
 
-    async def _test_execute_with_thor_swap_failure(self):
-        """Test that a failed Thorchain swap initiation leaves the state as XBRIDGE_CONFIRMED for resumption."""
+    async def _test_execute_with_thor_swap_failure(self) -> None:
+        """
+        Tests that a failed Thorchain swap initiation leaves the state as XBRIDGE_CONFIRMED.
+        Arrange: Mock execute_thorchain_swap to return None, simulating a failed RPC call.
+        Act: Call execute_arbitrage.
+        Assert: Verify that the trade is not fully aborted, but instead the state file is
+                left with the status 'XBRIDGE_CONFIRMED', ready for the next resumption
+                attempt.
+        """
         test_name = "Execute with Thorchain Swap Failure"
         self.config_manager.general_log.info(f"\n--- [TEST CASE] Running: {test_name} ---")
         TradeState.cleanup_all_states(self.strategy)
@@ -632,19 +711,28 @@ class ArbitrageStrategyTester:
             with open(state.state_file_path, 'r') as f:
                 final_state = json.load(f)
             if final_state.get('status') == 'XBRIDGE_CONFIRMED':
-                self.config_manager.general_log.info("[TEST PASSED] State correctly left as XBRIDGE_CONFIRMED after Thorchain init failure.")
+                self.config_manager.general_log.info(
+                    "[TEST PASSED] State correctly left as XBRIDGE_CONFIRMED after Thorchain init failure.")
                 passed = True
             else:
-                self.config_manager.general_log.error(f"[TEST FAILED] State had incorrect status '{final_state.get('status')}' after Thorchain init failure.")
+                self.config_manager.general_log.error(
+                    f"[TEST FAILED] State had incorrect status '{final_state.get('status')}' after Thorchain init failure.")
                 passed = False
         else:
-            self.config_manager.general_log.error("[TEST FAILED] State file was incorrectly deleted or archived after Thorchain init failure.")
+            self.config_manager.general_log.error(
+                "[TEST FAILED] State file was incorrectly deleted or archived after Thorchain init failure.")
             passed = False
 
         self.test_results.append({'name': test_name, 'passed': passed})
 
-    async def _test_insufficient_block_fee_balance(self):
-        """Tests that the main loop skips checks if BLOCK balance is too low for the taker fee."""
+    async def _test_insufficient_block_fee_balance(self) -> None:
+        """
+        Tests that the main loop skips checks if BLOCK balance is too low for the taker fee.
+        Arrange: Mock the BLOCK token balance to be lower than the required taker fee.
+        Act: Call the main thread_loop_async_action.
+        Assert: Verify that the core arbitrage checking logic (_check_arbitrage_leg) is
+                never called.
+        """
         test_name = "Insufficient BLOCK Fee Balance"
         self.config_manager.general_log.info(f"\n--- [TEST CASE] Running: {test_name} ---")
         passed = False
@@ -663,10 +751,12 @@ class ArbitrageStrategyTester:
             await spy_strategy.thread_loop_async_action(pair_instance)
             # Verification: The core logic to check for arbitrage should not have been called.
             if not any(call.name == '_check_arbitrage_leg' for call in spy_strategy.method_calls):
-                self.config_manager.general_log.info("[TEST PASSED] Arbitrage check was correctly skipped due to low BLOCK balance.")
+                self.config_manager.general_log.info(
+                    "[TEST PASSED] Arbitrage check was correctly skipped due to low BLOCK balance.")
                 passed = True
             else:
-                self.config_manager.general_log.error("[TEST FAILED] Arbitrage check was not skipped despite low BLOCK balance.")
+                self.config_manager.general_log.error(
+                    "[TEST FAILED] Arbitrage check was not skipped despite low BLOCK balance.")
                 passed = False
 
         # Restore original values
@@ -674,8 +764,14 @@ class ArbitrageStrategyTester:
         self.strategy.dry_mode = original_dry_mode
         self.test_results.append({'name': test_name, 'passed': passed})
 
-    async def _test_thorchain_path_halted(self):
-        """Tests that the bot correctly skips an opportunity if the Thorchain path is halted."""
+    async def _test_thorchain_path_halted(self) -> None:
+        """
+        Tests that the bot correctly skips an opportunity if the Thorchain path is halted.
+        Arrange: Mock check_thorchain_path_status to return False.
+        Act: Call _check_arbitrage_leg.
+        Assert: Verify that the function returns None and that get_thorchain_quote is never
+                called, saving an unnecessary API request.
+        """
         test_name = "Thorchain Path Halted"
         self.config_manager.general_log.info(f"\n--- [TEST CASE] Running: {test_name} ---")
         passed = False
@@ -696,10 +792,12 @@ class ArbitrageStrategyTester:
         mocks['get_quote'].assert_not_called()
 
         if leg_result is None:
-            self.config_manager.general_log.info("[TEST PASSED] Bot correctly skipped opportunity due to halted Thorchain path.")
+            self.config_manager.general_log.info(
+                "[TEST PASSED] Bot correctly skipped opportunity due to halted Thorchain path.")
             passed = True
         else:
-            self.config_manager.general_log.error("[TEST FAILED] Bot did not skip opportunity despite halted Thorchain path.")
+            self.config_manager.general_log.error(
+                "[TEST FAILED] Bot did not skip opportunity despite halted Thorchain path.")
             passed = False
 
         self.test_results.append({'name': test_name, 'passed': passed})

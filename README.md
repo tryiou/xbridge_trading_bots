@@ -126,6 +126,7 @@ ping-SELL/pong-BUY cycles.
 ### Usage
 
 **Config**:
+
 - define your `pairs` in `config_pingpong.yaml`
 - define static usd tickers if needed in `config_coins.yaml`
 - GUI offer a configuration panel to define `pairs`.
@@ -186,7 +187,8 @@ python main_basic_seller.py -tts BLOCK -ttb PIVX -atts 200 -mup 0.33 -spu 0.015 
 
 ### Parameter Details
 
-- **SellPriceUpscale**: Adds a percentage markup to the current pair price. For example, `0.015` adds 1.5% above the calculated pair price
+- **SellPriceUpscale**: Adds a percentage markup to the current pair price. For example, `0.015` adds 1.5% above the
+  calculated pair price
 - **Partial**: Enables selling a fraction of the total amount.
 
 ## 🛠️ Troubleshooting
