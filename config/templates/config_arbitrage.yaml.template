@@ -1,0 +1,23 @@
+# Configuration for the Arbitrage Strategy
+
+# --- General Settings ---
+# dry_mode: If true, the bot will identify and log opportunities without executing trades.
+#           Set to false to run in live mode. This can be overridden by the --mode CLI argument.
+dry_mode: true
+
+# min_profit_margin: The minimum profit ratio required to execute a trade.
+#                    e.g., 0.01 represents a 1% profit margin. This can be overridden by the --min-profit CLI argument.
+min_profit_margin: 0.05
+
+# --- Token Settings ---
+# List of tokens to be considered for arbitrage opportunities.
+# The bot will create pairs from all combinations of these tokens.
+# 'BLOCK' is recommended to be included for XBridge fee calculations,
+# but it will not be used in trading pairs itself.
+trading_tokens:
+  - LTC
+  - DOGE
+
+# The token used to pay XBridge taker fees.
+fee_token: BLOCK
+

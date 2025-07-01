@@ -8,7 +8,20 @@ class PingPongStrategy(MakerStrategy):
 
     def initialize_strategy_specifics(self, **kwargs):
         # PingPong doesn't need specific args passed from CLI, its config is loaded
-        pass
+        self.config_manager.general_log.info("--- PingPong Strategy Parameters ---")
+        enabled_pairs = [p for p in self.config_pingppong.pair_configs if p.get('enabled', True)]
+        if not enabled_pairs:
+            self.config_manager.general_log.info("  - No enabled pairs found in config_pingpong.yaml.")
+        else:
+            self.config_manager.general_log.info(f"  - Found {len(enabled_pairs)} enabled pair(s):")
+            for pair_cfg in enabled_pairs:
+                self.config_manager.general_log.info(
+                    f"    - {pair_cfg['name']} ({pair_cfg['pair']}): "
+                    f"USD Amount=${pair_cfg.get('usd_amount', 0.0):.2f}, "
+                    f"Spread={pair_cfg.get('spread', 0.0) * 100:.2f}%, "
+                    f"Sell Offset={pair_cfg.get('sell_price_offset', 0.0) * 100:.2f}%"
+                )
+        self.config_manager.general_log.info("------------------------------------")
 
     def get_tokens_for_initialization(self, **kwargs) -> list:
         tokens_list = [cfg['pair'].split("/")[0] for cfg in self.config_pingppong.pair_configs if
@@ -154,9 +167,8 @@ class PingPongStrategy(MakerStrategy):
     async def handle_error_swap_status(self, dex_pair_instance):
         self.config_manager.general_log.error(
             f"Order Error:\n{dex_pair_instance.current_order}\n{dex_pair_instance.order}")
-        self.config_manager.general_log.critical("Signaling bot termination due to order error.")
-        if self.controller:
-            self.controller.shutdown_event.set()
+        self.config_manager.general_log.warning(f"Disabling pair {dex_pair_instance.symbol} due to order error.")
+        dex_pair_instance.disabled = True  # Disable the pair instead of stopping the whole bot.
 
     async def thread_init_async_action(self, pair_instance):
         pair_instance.dex.init_virtual_order(self.controller.disabled_coins)

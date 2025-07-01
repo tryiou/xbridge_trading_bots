@@ -22,6 +22,7 @@ class ConfigManager:
         self.config_coins = None
         self.config_pingppong = None
         self.config_xbridge = None  # XBridge configuration
+        self.config_arbitrage = None  # Arbitrage configuration
         self.config_thorchain = None  # Thorchain configuration
         self.strategy_config = {}
         self.strategy_instance: BaseStrategy = None
@@ -44,6 +45,7 @@ class ConfigManager:
             "api_keys.local.json": os.path.join(self.ROOT_DIR, "config", "api_keys.local.json"),
             "config_pingpong.yaml": os.path.join(self.ROOT_DIR, "config", "config_pingpong.yaml"),
             "config_xbridge.yaml": os.path.join(self.ROOT_DIR, "config", "config_xbridge.yaml"),
+            "config_arbitrage.yaml": os.path.join(self.ROOT_DIR, "config", "config_arbitrage.yaml"),
             "config_thorchain.yaml": os.path.join(self.ROOT_DIR, "config", "config_thorchain.yaml")
         }
 
@@ -120,6 +122,7 @@ class ConfigManager:
         if self.strategy == "pingpong":
             self.config_pingppong = self._load_and_update_config("config_pingpong.yaml")
         if self.strategy == "arbitrage":
+            self.config_arbitrage = self._load_and_update_config("config_arbitrage.yaml")
             self.config_thorchain = self._load_and_update_config("config_thorchain.yaml")
 
     def _init_tokens(self, **kwargs):

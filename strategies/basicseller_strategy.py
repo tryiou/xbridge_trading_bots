@@ -21,6 +21,17 @@ class BasicSellerStrategy(MakerStrategy):
         self.sell_price_offset = sell_price_offset
         self.partial_percent = partial_percent
 
+        self.config_manager.general_log.info("--- Basic Seller Strategy Parameters ---")
+        self.config_manager.general_log.info(f"  - Token to Sell: {self.token_to_sell}")
+        self.config_manager.general_log.info(f"  - Token to Buy: {self.token_to_buy}")
+        self.config_manager.general_log.info(f"  - Amount to Sell: {self.amount_token_to_sell} {self.token_to_sell}")
+        self.config_manager.general_log.info(f"  - Minimum Sell Price: ${self.min_sell_price_usd:.4f} USD")
+        self.config_manager.general_log.info(f"  - Sell Price Upscale: {self.sell_price_offset * 100:.2f}%")
+        if self.partial_percent:
+            self.config_manager.general_log.info(
+                f"  - Partial Order Minimum Size: {self.partial_percent * 100:.1f}% of total")
+        self.config_manager.general_log.info("---------------------------------------")
+
     def get_tokens_for_initialization(self, **kwargs) -> list:
         # These come from CLI args
         token_to_sell = kwargs.get('token_to_sell')

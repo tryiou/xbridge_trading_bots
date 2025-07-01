@@ -43,9 +43,17 @@ class ArbitrageStrategy(BaseStrategy):
         # Safely access monitoring config using attribute access, falling back to defaults.
         self._load_strategy_configs()
         self.pause_file_path = os.path.join(self.config_manager.ROOT_DIR, "data", "TRADING_PAUSED.json")
-        self.config_manager.general_log.info(
-            f"ArbitrageStrategy initialized. Dry mode: {self.dry_mode}, Min profit: {self.min_profit_margin * 100:.2f}%, Test mode: {self.test_mode}")
 
+        trading_tokens = self.config_manager.config_arbitrage.trading_tokens
+        fee_token = self.config_manager.config_arbitrage.fee_token
+
+        self.config_manager.general_log.info("--- Arbitrage Strategy Parameters ---")
+        self.config_manager.general_log.info(f"  - Mode: {'DRY RUN' if self.dry_mode else 'LIVE'}")
+        self.config_manager.general_log.info(f"  - Minimum Profit Margin: {self.min_profit_margin * 100:.2f}%")
+        self.config_manager.general_log.info(f"  - Trading Tokens: {', '.join(trading_tokens)}")
+        self.config_manager.general_log.info(f"  - Fee Token: {fee_token}")
+        self.config_manager.general_log.info(f"  - Test Mode: {self.test_mode}")
+        self.config_manager.general_log.info("------------------------------------")
     def _load_strategy_configs(self):
         """Loads strategy-specific configurations from the config files, with fallbacks."""
 
@@ -73,8 +81,13 @@ class ArbitrageStrategy(BaseStrategy):
                                            self.thor_tx_url)
 
     def get_tokens_for_initialization(self, **kwargs) -> List[str]:
-        # Define the tokens needed for arbitrage as per the proposal
-        return ['LTC', 'DOGE', 'BLOCK']  # Add BLOCK for fee calculation
+        """Gets the list of tokens from the arbitrage config file."""
+        trading_tokens = self.config_manager.config_arbitrage.trading_tokens
+        fee_token = self.config_manager.config_arbitrage.fee_token
+        if fee_token and fee_token not in trading_tokens:
+            # Ensure the fee token is always included for balance checks.
+            return trading_tokens + [fee_token]
+        return trading_tokens
 
     def get_pairs_for_initialization(self, tokens_dict: Dict[str, Any], **kwargs) -> Dict[str, 'Pair']:
         from definitions.pair import Pair
@@ -85,9 +98,9 @@ class ArbitrageStrategy(BaseStrategy):
             tokens_dict['BLOCK'].dex.enabled = False
 
         pairs = {}
+        trading_tokens = self.config_manager.config_arbitrage.trading_tokens
         # Create all permutations of the available tokens
         # Use a filtered list to avoid creating pairs with BLOCK as a primary token
-        trading_tokens = [t for t in self.get_tokens_for_initialization() if t != 'BLOCK']
         for t1_sym, t2_sym in combinations(trading_tokens, 2):
             pair_key = f"{t1_sym}/{t2_sym}"
             pairs[pair_key] = Pair(

@@ -7,6 +7,7 @@ config/config_pingpong.yaml
 config/config_blocknet.yaml
 config/config_xbridge.yaml
 config/config_thorchain.yaml
+config/config_arbitrage.yaml
 data/
 logs/
 .history
@@ -16,3 +17,4 @@ logs/
 .venv
 .aider.chat.history.md
 __pycache__
+*.pyc
