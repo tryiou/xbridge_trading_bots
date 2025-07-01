@@ -408,31 +408,35 @@ class DexPair:
         elif status == self.STATUS_ERROR_SWAP:
             await self.handle_status_error_swap()
         else:
-            await self.handle_status_default()
+            await self.handle_status_default(disabled_coins)
 
     async def handle_status_open(self, disabled_coins, display):
         if self._is_pair_disabled(disabled_coins):
-            self._cancel_order_due_to_disabled_coins(disabled_coins)
+            await self._cancel_order_due_to_disabled_coins(disabled_coins)
         else:
             await self.check_price_variation(disabled_coins, display=display)
 
-    def _cancel_order_due_to_disabled_coins(self, disabled_coins):
+    async def _cancel_order_due_to_disabled_coins(self, disabled_coins):
         if self.order:
             self.pair.config_manager.general_log.info(
                 f"Disabled pairs due to cc_height_check {self.symbol}, {disabled_coins}")
             self.pair.config_manager.general_log.info(f"status_check, dex cancel {self.order['id']}")
-            asyncio.create_task(self.cancel_myorder_async())
+            await self.cancel_myorder_async()
 
     async def handle_status_error_swap(self):
         await self.pair.config_manager.strategy_instance.handle_error_swap_status(self)
 
-    async def handle_status_default(self):
+    async def handle_status_default(self, disabled_coins=None):
         # This handles statuses like 'canceled' and 'expired'
         if not self.disabled:
-            self.pair.config_manager.general_log.info(
-                f"Order {self.order.get('id')} is {self.order.get('status')}. Re-initializing order for {self.symbol}.")
+            if self.order:
+                self.pair.config_manager.general_log.info(
+                    f"Order {self.order.get('id')} is {self.order.get('status')}. Re-initializing order for {self.symbol}.")
+            else:
+                self.pair.config_manager.general_log.info(
+                    f"No active order found for {self.symbol}. Re-initializing order.")
             self.order = None  # Clear the completed/cancelled/expired order
-            self.init_virtual_order()  # Re-create the virtual order based on history
+            self.init_virtual_order(disabled_coins)  # Re-create the virtual order based on history
             await self.create_order()  # Attempt to place it again
 
     async def at_order_finished(self, disabled_coins):
