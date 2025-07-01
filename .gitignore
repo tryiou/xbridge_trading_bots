@@ -8,6 +8,7 @@ config/config_blocknet.yaml
 config/config_xbridge.yaml
 config/config_thorchain.yaml
 config/config_arbitrage.yaml
+config/config_basicseller.yaml
 data/
 logs/
 .history

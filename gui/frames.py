@@ -1,4 +1,6 @@
 # gui/frames.py
+import asyncio
+import threading
 import tkinter as tk
 from tkinter import ttk
 from enum import Enum
@@ -6,12 +8,188 @@ from typing import TYPE_CHECKING
 
 from ruamel.yaml import YAML
 
-from .components import AddPairDialog, PairConfigDialog
+from definitions.config_manager import ConfigManager
+from definitions.starter import run_async_main
+from .components import AddPairDialog, PairConfigDialog, AddSellerDialog, SellerConfigDialog
 
 if TYPE_CHECKING:
     from .gui import GUI_Main
 
 TOTAL_WIDTH = 500
+
+class BaseStrategyFrame(ttk.Frame):
+    """Base class for strategy-specific frames in the GUI."""
+    def __init__(self, parent, main_app: "GUI_Main", strategy_name: str):
+        super().__init__(parent)
+        self.main_app = main_app
+        self.strategy_name = strategy_name
+        self.config_manager: ConfigManager | None = None
+        self.send_process: threading.Thread | None = None
+        self.started = False
+        self.refresh_id = None
+
+        self.initialize_config()
+        self.create_widgets()
+
+    def initialize_config(self, loadxbridgeconf: bool = True):
+        """Initializes the configuration manager for the specific strategy."""
+        try:
+            self.config_manager = ConfigManager(strategy=self.strategy_name)
+            self.config_manager.initialize(loadxbridgeconf=loadxbridgeconf)
+        except Exception as e:
+            self.main_app.status_var.set(f"Error initializing {self.strategy_name}: {e}")
+            if self.config_manager:
+                self.config_manager.general_log.error(f"Error initializing {self.strategy_name}: {e}", exc_info=True)
+
+    def create_widgets(self):
+        """Placeholder for creating strategy-specific widgets. To be overridden."""
+        pass
+
+    def start(self):
+        """Starts the bot in a separate thread."""
+        if not self.config_manager:
+            return
+
+        self.main_app.status_var.set(f"{self.strategy_name.capitalize()} bot is running...")
+        startup_tasks = self.config_manager.strategy_instance.get_startup_tasks()
+        self.send_process = threading.Thread(target=run_async_main,
+                                             args=(self.config_manager, None, startup_tasks),
+                                             daemon=True)
+        try:
+            self.send_process.start()
+            self.started = True
+            self.update_button_states()
+            self.config_manager.general_log.info(f"{self.strategy_name.capitalize()} bot started successfully.")
+        except Exception as e:
+            self.main_app.status_var.set(f"Error starting {self.strategy_name} bot: {e}")
+            self.config_manager.general_log.error(f"Error starting bot thread: {e}")
+            self.stop(reload_config=False)
+
+    def stop(self, reload_config: bool = True):
+        """Stops the bot and performs cleanup."""
+        if not self.config_manager:
+            return
+
+        self.main_app.status_var.set(f"Stopping {self.strategy_name} bot...")
+        self.config_manager.general_log.info(f"Attempting to stop {self.strategy_name} bot...")
+
+        if self.config_manager.controller:
+            self.config_manager.controller.shutdown_event.set()
+
+        if self.send_process:
+            self.send_process.join(timeout=5)
+            if self.send_process.is_alive():
+                self.config_manager.general_log.warning("Bot thread did not terminate gracefully.")
+                self.main_app.status_var.set("Bot stopped (thread timeout).")
+            else:
+                self.main_app.status_var.set("Bot stopped.")
+                self.config_manager.general_log.info("Bot stopped successfully.")
+
+        self.started = False
+        self.update_button_states()
+
+        if reload_config:
+            self.reload_configuration(loadxbridgeconf=False)
+
+    def cancel_all(self):
+        """Cancels all open orders on the exchange."""
+        if not self.config_manager:
+            return
+        self.main_app.status_var.set("Cancelling all open orders...")
+        try:
+            asyncio.run(self.config_manager.xbridge_manager.cancelallorders())
+            self.main_app.status_var.set("Cancelled all open orders.")
+            self.config_manager.general_log.info("cancel_all: All orders cancelled successfully.")
+        except Exception as e:
+            self.main_app.status_var.set(f"Error cancelling orders: {e}")
+            self.config_manager.general_log.error(f"Error during cancel_all: {e}")
+
+    def start_refresh(self):
+        """Starts the periodic GUI refresh loop."""
+        self.refresh_gui()
+
+    def stop_refresh(self):
+        """Stops the periodic GUI refresh loop."""
+        if self.refresh_id:
+            self.after_cancel(self.refresh_id)
+            self.refresh_id = None
+
+    def refresh_gui(self):
+        """Refreshes the GUI display periodically. To be overridden."""
+        if self.started and self.send_process and not self.send_process.is_alive():
+            self.config_manager.general_log.error(f"{self.strategy_name} bot crashed!")
+            self.main_app.status_var.set(f"{self.strategy_name} bot crashed!")
+            self.stop(reload_config=False)
+            self.cancel_all()
+        
+        self.refresh_id = self.after(1500, self.refresh_gui)
+
+    def on_closing(self):
+        """Handles the application closing event."""
+        if self.config_manager:
+            self.config_manager.general_log.info(f"Closing {self.strategy_name} strategy...")
+        self.stop(reload_config=False)
+
+    def reload_configuration(self, loadxbridgeconf: bool = True):
+        """Reloads the bot's configuration and refreshes the GUI display."""
+        if not self.config_manager:
+            return
+        self.initialize_config(loadxbridgeconf=loadxbridgeconf)
+        self.purge_and_recreate_widgets()
+
+    def purge_and_recreate_widgets(self):
+        """Purges and recreates widgets. To be overridden."""
+        pass
+
+    def update_button_states(self):
+        """Updates button states based on bot status. To be overridden."""
+        pass
+
+class PingPongFrame(BaseStrategyFrame):
+    def __init__(self, parent, main_app: "GUI_Main"):
+        super().__init__(parent, main_app, "pingpong")
+
+    def create_widgets(self):
+        self.gui_orders = GUI_Orders(self)
+        self.gui_balances = GUI_Balances(self)
+        self.gui_config = GUI_Config(self)
+        self.create_buttons()
+        self.gui_orders.create_orders_treeview()
+        self.gui_balances.create_balances_treeview()
+
+    def create_buttons(self):
+        button_frame = ttk.Frame(self)
+        button_frame.grid(column=0, row=0, padx=5, pady=5, sticky='ew')
+        btn_width = 12
+        self.btn_start = ttk.Button(button_frame, text="START", command=self.start, width=btn_width)
+        self.btn_start.grid(column=0, row=0, padx=5, pady=5)
+        self.btn_stop = ttk.Button(button_frame, text="STOP", command=self.stop, width=btn_width)
+        self.btn_stop.grid(column=1, row=0, padx=5, pady=5)
+        self.btn_cancel_all = ttk.Button(button_frame, text="CANCEL ALL", command=self.cancel_all, width=btn_width)
+        self.btn_cancel_all.grid(column=2, row=0, padx=5, pady=5)
+        self.btn_configure = ttk.Button(button_frame, text="CONFIGURE", command=self.open_configure_window, width=btn_width)
+        self.btn_configure.grid(column=3, row=0, padx=5, pady=5)
+        self.update_button_states()
+
+    def update_button_states(self):
+        self.btn_start.config(state="disabled" if self.started else "active")
+        self.btn_stop.config(state="active" if self.started else "disabled")
+        self.btn_configure.config(state="disabled" if self.started else "active")
+
+    def refresh_gui(self):
+        if self.winfo_exists(): # Check if widget exists before proceeding
+            self.gui_orders.update_order_display()
+            self.gui_balances.update_balance_display()
+            super().refresh_gui()
+
+    def open_configure_window(self):
+        self.gui_config.open()
+
+    def purge_and_recreate_widgets(self):
+        self.gui_orders.purge_treeview()
+        self.gui_balances.purge_treeview()
+        self.gui_orders.create_orders_treeview()
+        self.gui_balances.create_balances_treeview()
 
 
 class GUI_Orders:
@@ -26,8 +204,7 @@ class GUI_Orders:
         FLAG = "Flag"
         VARIATION = "Variation"
 
-
-    def __init__(self, parent: "GUI_Main") -> None:
+    def __init__(self, parent: "BaseStrategyFrame") -> None:
         self.parent = parent
         self.sortedpairs: list[str] = []
         self.orders_frame: ttk.LabelFrame | None = None
@@ -35,12 +212,9 @@ class GUI_Orders:
 
     def create_orders_treeview(self) -> None:
         # Get enabled pairs from config
-        self.sortedpairs = sorted(
-            [cfg['name'] for cfg in self.parent.config_manager.config_pingppong.pair_configs if
-             cfg.get('enabled', True)]
-        )
+        self.sortedpairs = sorted(self.parent.config_manager.pairs.keys())
         columns = [col.value for col in self.OrdersColumns]
-        self.orders_frame = ttk.LabelFrame(self.parent.root, text="Orders")
+        self.orders_frame = ttk.LabelFrame(self.parent, text="Orders")
         self.orders_frame.grid(row=1, padx=5, pady=5, sticky='ew', columnspan=4)
 
         height = len(self.sortedpairs) + 1
@@ -75,11 +249,6 @@ class GUI_Orders:
             if self.orders_treeview:
                 self.orders_treeview.heading(column.value, text=column.value, anchor=anchor)
                 self.orders_treeview.column(column.value, width=width, anchor=anchor)
-
-
-
-
-
 
     def update_order_display(self) -> None:
         """
@@ -138,14 +307,14 @@ class GUI_Balances:
         FREE = "Free"
         TOTAL_USD = "Total USD"
 
-    def __init__(self, parent: "GUI_Main"):
+    def __init__(self, parent: "BaseStrategyFrame"):
         self.parent = parent
         self.balances_frame: ttk.LabelFrame | None = None
         self.balances_treeview: ttk.Treeview | None = None
 
     def create_balances_treeview(self) -> None:
         columns = [col.value for col in self.BalancesColumns]
-        self.balances_frame = ttk.LabelFrame(self.parent.root, text="Balances")
+        self.balances_frame = ttk.LabelFrame(self.parent, text="Balances")
         self.balances_frame.grid(row=2, padx=5, pady=5, sticky='ew', columnspan=4)
 
         height = len(self.parent.config_manager.tokens.keys())
@@ -210,7 +379,7 @@ class GUI_Config:
     Manages the configuration window for the bot settings.
     """
 
-    def __init__(self, parent: "GUI_Main") -> None:
+    def __init__(self, parent: "BaseStrategyFrame") -> None:
         self.parent = parent
         self.config_window: tk.Toplevel | None = None
         self.debug_level_entry: ttk.Entry | None = None
@@ -226,9 +395,9 @@ class GUI_Config:
             return
 
         self.parent.btn_start.config(state="disabled")
-        self.parent.btn_configure.config(state="disabled")
+        if hasattr(self.parent, 'btn_configure'): self.parent.btn_configure.config(state="disabled")
 
-        self.config_window = tk.Toplevel(self.parent.root)
+        self.config_window = tk.Toplevel(self.parent)
         self.config_window.title("Configure Bot")
         self.config_window.protocol("WM_DELETE_WINDOW", self.on_close)
 
@@ -343,8 +512,8 @@ class GUI_Config:
             self.config_window.update_idletasks()
 
     def on_close(self) -> None:
-        self.parent.btn_start.config(state="active")
-        self.parent.btn_configure.config(state="active")
+        if hasattr(self.parent, 'btn_start'): self.parent.btn_start.config(state="active")
+        if hasattr(self.parent, 'btn_configure'): self.parent.btn_configure.config(state="active")
         if self.config_window:
             self.config_window.destroy()
         self.config_window = None
@@ -441,3 +610,220 @@ class GUI_Config:
         if self.status_label:
             self.status_var.set(message)
             self.status_label.config(foreground=color)
+
+class GUI_Config_BasicSeller:
+    def __init__(self, parent: "BasicSellerFrame"):
+        self.parent = parent
+        self.config_window: tk.Toplevel | None = None
+        self.sellers_treeview: ttk.Treeview | None = None
+        self.status_var = tk.StringVar()
+        self.status_label: ttk.Label | None = None
+        self.active_dialog: tk.Toplevel | None = None
+
+    def open(self):
+        if self.config_window and self.config_window.winfo_exists():
+            self.config_window.tkraise()
+            return
+
+        self.parent.btn_start.config(state="disabled")
+        if hasattr(self.parent, 'btn_configure'): self.parent.btn_configure.config(state="disabled")
+
+        self.config_window = tk.Toplevel(self.parent)
+        self.config_window.title("Configure Basic Seller")
+        self.config_window.protocol("WM_DELETE_WINDOW", self.on_close)
+
+        main_frame = ttk.Frame(self.config_window)
+        main_frame.pack(fill='both', expand=True)
+
+        self._create_sellers_treeview(main_frame)
+        self._create_control_buttons(main_frame)
+        self._create_save_button(main_frame)
+        self._create_status_bar(main_frame)
+        self._set_window_geometry()
+
+    def _create_sellers_treeview(self, parent_frame: ttk.Frame):
+        tree_frame = ttk.Frame(parent_frame)
+        tree_frame.pack(padx=10, pady=10, fill='both', expand=True)
+
+        columns = ('name', 'enabled', 'pair', 'amount_to_sell', 'min_sell_price_usd', 'sell_price_offset')
+        self.sellers_treeview = ttk.Treeview(tree_frame, columns=columns, show='headings', height=10)
+
+        headings = {'name': 'Name', 'enabled': 'Enabled', 'pair': 'Pair', 'amount_to_sell': 'Amount',
+                    'min_sell_price_usd': 'Min Price (USD)', 'sell_price_offset': 'Offset'}
+        for col, text in headings.items():
+            self.sellers_treeview.heading(col, text=text)
+
+        col_configs = {'name': (150, 'w'), 'enabled': (75, 'center'), 'pair': (150, 'w'),
+                       'amount_to_sell': (120, 'e'), 'min_sell_price_usd': (150, 'e'),
+                       'sell_price_offset': (120, 'e')}
+        for col, (width, anchor) in col_configs.items():
+            self.sellers_treeview.column(col, width=width, anchor=anchor)
+
+        scrollbar = ttk.Scrollbar(tree_frame, orient="vertical", command=self.sellers_treeview.yview)
+        scrollbar.pack(side="right", fill="y")
+        self.sellers_treeview.configure(yscrollcommand=scrollbar.set)
+        self.sellers_treeview.pack(fill="both", expand=True)
+        self.sellers_treeview.bind("<Double-1>", lambda event: self.edit_seller_config())
+        self._populate_sellers_treeview()
+
+    def _populate_sellers_treeview(self):
+        if self.sellers_treeview:
+            for cfg in self.parent.config_manager.config_basicseller.seller_configs:
+                self.sellers_treeview.insert('', 'end', values=(
+                    cfg.get('name', ''),
+                    'Yes' if cfg.get('enabled', True) else 'No',
+                    cfg.get('pair', 'N/A'),
+                    cfg.get('amount_to_sell', 0.0),
+                    cfg.get('min_sell_price_usd', 0.0),
+                    cfg.get('sell_price_offset', 0.0)
+                ))
+
+    def _create_control_buttons(self, parent_frame: ttk.Frame):
+        btn_frame = ttk.Frame(parent_frame)
+        btn_frame.pack(padx=10, pady=5, fill='x')
+        ttk.Button(btn_frame, text="Add Seller", command=self.add_seller_config).pack(side='left', padx=2)
+        ttk.Button(btn_frame, text="Remove Seller", command=self.remove_seller_config).pack(side='left', padx=2)
+        ttk.Button(btn_frame, text="Edit Seller", command=self.edit_seller_config).pack(side='left', padx=2)
+
+    def _create_save_button(self, parent_frame: ttk.Frame):
+        save_button = ttk.Button(parent_frame, text="Save", command=self.save_config)
+        save_button.pack(padx=10, pady=10, fill='x')
+
+    def _create_status_bar(self, parent_frame: ttk.Frame):
+        status_frame = ttk.Frame(parent_frame)
+        status_frame.pack(padx=10, pady=5, fill='x')
+        self.status_var = tk.StringVar(value="Ready")
+        self.status_label = ttk.Label(status_frame, textvariable=self.status_var, anchor='w')
+        self.status_label.pack(fill='x')
+
+    def _set_window_geometry(self):
+        if self.config_window:
+            x, y = 800, 400
+            self.config_window.minsize(x, y)
+            self.config_window.geometry(f"{x}x{y}")
+
+    def on_close(self):
+        if hasattr(self.parent, 'btn_start'): self.parent.btn_start.config(state="active")
+        if hasattr(self.parent, 'btn_configure'): self.parent.btn_configure.config(state="active")
+        if self.config_window:
+            self.config_window.destroy()
+        self.config_window = None
+
+    def _open_single_dialog(self, dialog_class, *dialog_args):
+        if self.active_dialog and self.active_dialog.winfo_exists():
+            self.active_dialog.destroy()
+        dialog = dialog_class(self.config_window, *dialog_args)
+        self.active_dialog = dialog
+        self.config_window.wait_window(dialog)
+        if self.active_dialog is dialog:
+            self.active_dialog = None
+        return dialog
+
+    def add_seller_config(self):
+        dialog = self._open_single_dialog(AddSellerDialog, self)
+        if dialog.result and self.sellers_treeview:
+            self.sellers_treeview.insert('', 'end', values=dialog.result)
+
+    def remove_seller_config(self):
+        if self.sellers_treeview:
+            selected = self.sellers_treeview.selection()
+            if selected:
+                self.sellers_treeview.delete(selected)
+
+    def edit_seller_config(self):
+        if self.sellers_treeview:
+            selected = self.sellers_treeview.selection()
+            if selected:
+                values = self.sellers_treeview.item(selected, 'values')
+                dialog = self._open_single_dialog(SellerConfigDialog, values, self)
+                if dialog.result:
+                    self.sellers_treeview.item(selected, values=dialog.result)
+
+    def save_config(self):
+        config_file_path = './config/config_basicseller.yaml'
+        yaml_writer = YAML()
+        yaml_writer.default_flow_style = False
+        yaml_writer.indent(mapping=2, sequence=4, offset=2)
+
+        seller_configs = []
+        if self.sellers_treeview:
+            for item_id in self.sellers_treeview.get_children():
+                values = self.sellers_treeview.item(item_id, 'values')
+                seller_configs.append({
+                    'name': values[0],
+                    'enabled': values[1] == 'Yes',
+                    'pair': values[2],
+                    'amount_to_sell': float(values[3]),
+                    'min_sell_price_usd': float(values[4]),
+                    'sell_price_offset': float(values[5])
+                })
+
+        new_config = {'seller_configs': seller_configs}
+        try:
+            with open(config_file_path, 'w') as file:
+                yaml_writer.dump(new_config, file)
+            self.update_status("Configuration saved successfully. Restart required to apply changes.", 'lightgreen')
+            self.parent.reload_configuration(loadxbridgeconf=True)
+        except Exception as e:
+            self.update_status(f"Failed to save configuration: {e}", 'lightcoral')
+
+    def update_status(self, message: str, color: str = 'black'):
+        if self.status_label:
+            self.status_var.set(message)
+            self.status_label.config(foreground=color)
+
+class BasicSellerFrame(BaseStrategyFrame):
+    def __init__(self, parent, main_app: "GUI_Main"):
+        super().__init__(parent, main_app, "basic_seller")
+
+    def create_widgets(self):
+        self.gui_orders = GUI_Orders(self)
+        self.gui_balances = GUI_Balances(self)
+        self.gui_config = GUI_Config_BasicSeller(self)
+        self.create_buttons()
+        self.gui_orders.create_orders_treeview()
+        self.gui_balances.create_balances_treeview()
+
+    def create_buttons(self):
+        button_frame = ttk.Frame(self)
+        button_frame.grid(column=0, row=0, padx=5, pady=5, sticky='ew')
+        btn_width = 12
+        self.btn_start = ttk.Button(button_frame, text="START", command=self.start, width=btn_width)
+        self.btn_start.grid(column=0, row=0, padx=5, pady=5)
+        self.btn_stop = ttk.Button(button_frame, text="STOP", command=self.stop, width=btn_width)
+        self.btn_stop.grid(column=1, row=0, padx=5, pady=5)
+        self.btn_cancel_all = ttk.Button(button_frame, text="CANCEL ALL", command=self.cancel_all, width=btn_width)
+        self.btn_cancel_all.grid(column=2, row=0, padx=5, pady=5)
+        self.btn_configure = ttk.Button(button_frame, text="CONFIGURE", command=self.open_configure_window, width=btn_width)
+        self.btn_configure.grid(column=3, row=0, padx=5, pady=5)
+        self.update_button_states()
+
+    def update_button_states(self):
+        self.btn_start.config(state="disabled" if self.started else "active")
+        self.btn_stop.config(state="active" if self.started else "disabled")
+        self.btn_configure.config(state="disabled" if self.started else "active")
+
+    def open_configure_window(self):
+        self.gui_config.open()
+
+    def refresh_gui(self):
+        if self.winfo_exists():  # Check if widget exists before proceeding
+            self.gui_orders.update_order_display()
+            self.gui_balances.update_balance_display()
+            super().refresh_gui()
+
+    def purge_and_recreate_widgets(self):
+        self.gui_orders.purge_treeview()
+        self.gui_balances.purge_treeview()
+        self.gui_orders.create_orders_treeview()
+        self.gui_balances.create_balances_treeview()
+
+class ArbitrageFrame(BaseStrategyFrame):
+    def __init__(self, parent, main_app: "GUI_Main"):
+        super().__init__(parent, main_app, "arbitrage")
+
+    def create_widgets(self):
+        ttk.Label(self, text="Arbitrage Controls Go Here").pack(padx=20, pady=20)
+        # TODO: Add entry field for min_profit_margin.
+        # TODO: Add a Text widget to display arbitrage opportunities.
+        # TODO: Add START/STOP buttons.

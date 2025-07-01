@@ -41,20 +41,14 @@ def start():
 
     config_manager = ConfigManager(strategy="arbitrage")
 
-    # Load defaults from config file
-    config = config_manager.config_arbitrage
-    config_dry_mode = getattr(config, 'dry_mode', True)
-    config_min_profit = getattr(config, 'min_profit_margin', 0.01)
-
-    # Determine final values. CLI arguments take precedence over the config file.
-    final_dry_mode = (args.mode == 'dry') if args.mode else config_dry_mode
-    final_min_profit = args.min_profit if args.min_profit is not None else config_min_profit
+    # Determine final values. CLI arguments take precedence.
+    # The strategy itself will handle loading from config if args are None.
+    final_dry_mode = (args.mode == 'dry') if args.mode == 'dry' else (False if args.mode == 'live' else None)
 
     # Pass CLI args to be stored in strategy_config
     config_manager.initialize(
-        # dry_mode is True if mode is 'dry', False if 'live'.
         dry_mode=final_dry_mode,
-        min_profit_margin=final_min_profit,
+        min_profit_margin=args.min_profit,  # Pass None if not provided, strategy will use its default
         test_mode=(args.test_leg is not None or args.run_tests)
     )
 

@@ -35,10 +35,17 @@ class ArbitrageStrategy(BaseStrategy):
         self.thor_tx_url = "https://thornode.ninerealms.com/thorchain/tx"
         self.thorchain_asset_decimals: Dict[str, int] = {}
 
-    def initialize_strategy_specifics(self, dry_mode: bool = True, min_profit_margin: float = 0.01,
+    def initialize_strategy_specifics(self, dry_mode: bool = None, min_profit_margin: float = None,
                                       test_mode: bool = False, **kwargs):
-        self.dry_mode = dry_mode
-        self.min_profit_margin = min_profit_margin
+        # Load defaults from config file first
+        config = self.config_manager.config_arbitrage
+        config_dry_mode = getattr(config, 'dry_mode', True)
+        config_min_profit = getattr(config, 'min_profit_margin', 0.01)
+
+        # CLI/direct-call arguments take precedence over the config file.
+        # This makes the strategy robust whether launched from CLI or GUI.
+        self.dry_mode = dry_mode if dry_mode is not None else config_dry_mode
+        self.min_profit_margin = min_profit_margin if min_profit_margin is not None else config_min_profit
         self.test_mode = test_mode
         # Safely access monitoring config using attribute access, falling back to defaults.
         self._load_strategy_configs()

@@ -21,6 +21,7 @@ class ConfigManager:
         self.config_ccxt = None
         self.config_coins = None
         self.config_pingppong = None
+        self.config_basicseller = None
         self.config_xbridge = None  # XBridge configuration
         self.config_arbitrage = None  # Arbitrage configuration
         self.config_thorchain = None  # Thorchain configuration
@@ -44,6 +45,7 @@ class ConfigManager:
             "config_coins.yaml": os.path.join(self.ROOT_DIR, "config", "config_coins.yaml"),
             "api_keys.local.json": os.path.join(self.ROOT_DIR, "config", "api_keys.local.json"),
             "config_pingpong.yaml": os.path.join(self.ROOT_DIR, "config", "config_pingpong.yaml"),
+            "config_basicseller.yaml": os.path.join(self.ROOT_DIR, "config", "config_basicseller.yaml"),
             "config_xbridge.yaml": os.path.join(self.ROOT_DIR, "config", "config_xbridge.yaml"),
             "config_arbitrage.yaml": os.path.join(self.ROOT_DIR, "config", "config_arbitrage.yaml"),
             "config_thorchain.yaml": os.path.join(self.ROOT_DIR, "config", "config_thorchain.yaml")
@@ -121,6 +123,8 @@ class ConfigManager:
         self.config_xbridge = self._load_and_update_config("config_xbridge.yaml")
         if self.strategy == "pingpong":
             self.config_pingppong = self._load_and_update_config("config_pingpong.yaml")
+        if self.strategy == "basic_seller":
+            self.config_basicseller = self._load_and_update_config("config_basicseller.yaml")
         if self.strategy == "arbitrage":
             self.config_arbitrage = self._load_and_update_config("config_arbitrage.yaml")
             self.config_thorchain = self._load_and_update_config("config_thorchain.yaml")
@@ -129,8 +133,10 @@ class ConfigManager:
         """Initialize token objects based on strategy configuration, delegated to strategy instance."""
         tokens_list = self.strategy_instance.get_tokens_for_initialization(**kwargs)
 
-        if not tokens_list or len(tokens_list) < 2:
-            raise ValueError(f"tokens_list must contain at least two tokens: {tokens_list}")
+        # For CLI mode, a strategy might require tokens at init. For GUI, it's okay to be empty.
+        # The validation for required tokens should happen within the strategy or at execution time.
+        if not tokens_list:
+            return  # It's valid to have no tokens on initial GUI load.
 
         # ENSURE BTC IS PRESENT.
         if 'BTC' not in tokens_list:
