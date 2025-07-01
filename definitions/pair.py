@@ -31,14 +31,6 @@ class Pair:
         self.config_manager = config_manager
         self.dex = DexPair(self, partial_percent)
         self.cex = CexPair(self)
-        self.config_manager.general_log.info(
-            f"Pair initialized: {self.name} | "
-            f"Symbol: {self.symbol} | "
-            f"Strategy: {self.strategy} | "
-            f"Amount to sell: {self.amount_token_to_sell} | "
-            f"Min sell price (USD): {self.min_sell_price_usd} | "
-            f"Sell price offset: {self.sell_price_offset}"
-        )
 
 
 class DexPair:

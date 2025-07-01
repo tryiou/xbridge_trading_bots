@@ -16,20 +16,30 @@ class TradingProcessor:
     def __init__(self, controller):
         self.controller = controller
         self.pairs_dict = controller.pairs_dict
+        # Get concurrency limit from config, with a safe default of 5.
+        # This prevents overwhelming the XBridge daemon with too many simultaneous requests.
+        concurrency_limit = getattr(self.controller.config_manager.config_xbridge, 'max_concurrent_tasks', 5)
+        self.semaphore = asyncio.Semaphore(concurrency_limit)
+        self.controller.config_manager.general_log.info(
+            f"XBridge concurrency limit set to {concurrency_limit} tasks."
+        )
 
     async def process_pairs(self, target_function):
-        futures = []
-        loop = asyncio.get_running_loop()
-        for pair in self.pairs_dict.values():
-            if self.controller.shutdown_event.is_set(): break
-            # If target_function is async, await it directly. If blocking, run in executor.
-            future = target_function(pair) if asyncio.iscoroutinefunction(target_function) else loop.run_in_executor(
-                None, target_function, pair)
-            futures.append(future)
-        # Wait for all tasks to complete
-        if futures:
-            await asyncio.gather(*futures)
+        """Processes all pairs using the target function, but limits concurrency with a semaphore."""
+        async def sem_task(pair):
+            async with self.semaphore:
+                if self.controller.shutdown_event.is_set():
+                    return
+                # If target_function is async, await it directly.
+                if asyncio.iscoroutinefunction(target_function):
+                    await target_function(pair)
+                else:  # If blocking, run in executor.
+                    loop = asyncio.get_running_loop()
+                    await loop.run_in_executor(None, target_function, pair)
 
+        tasks = [sem_task(pair) for pair in self.pairs_dict.values() if not pair.disabled]
+        if tasks:
+            await asyncio.gather(*tasks)
 
 class BalanceManager:
     def __init__(self, tokens_dict, config_manager, loop):

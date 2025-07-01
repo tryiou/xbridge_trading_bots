@@ -75,3 +75,10 @@ class BaseStrategy(ABC):
         Returns the desired operation interval in seconds for the strategy.
         """
         pass
+
+    @abstractmethod
+    def get_startup_tasks(self) -> list:
+        """
+        Returns a list of async tasks to be run at startup.
+        """
+        pass

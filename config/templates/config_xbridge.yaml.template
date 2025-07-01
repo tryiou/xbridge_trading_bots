@@ -9,3 +9,7 @@ monitoring:
   poll_interval: 15
 
 debug_level: 3
+
+# Maximum number of concurrent tasks (e.g., creating orders, checking status)
+# to avoid overwhelming the XBridge daemon. A value between 3 and 5 is recommended.
+max_concurrent_tasks: 5

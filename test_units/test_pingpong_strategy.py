@@ -1,5 +1,6 @@
 import asyncio
 import os
+import time
 from typing import Any, Dict, List, TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -8,6 +9,7 @@ if TYPE_CHECKING:
 
 from contextlib import contextmanager
 
+from definitions.starter import TradingProcessor, MainController
 
 class PingPongStrategyTester:
     """
@@ -78,6 +80,7 @@ class PingPongStrategyTester:
         await self._test_buy_price_logic_on_market_moves()
         await self._test_order_expiration_recreates_order()
         await self._test_insufficient_balance()
+        await self._test_concurrency_throttling()
         self.config_manager.general_log.info("\n--- PingPong Strategy Test Suite Finished ---")
         self._print_summary()
 
@@ -410,4 +413,76 @@ class PingPongStrategyTester:
 
             # Cleanup
             self.pair.t1.dex.free_balance = original_balance
+        self.test_results.append({'name': test_name, 'passed': passed})
+
+    async def _test_concurrency_throttling(self):
+        """
+        Tests that the semaphore correctly limits concurrent task execution.
+        """
+        test_name = "Concurrency Throttling with Semaphore"
+        self.config_manager.general_log.info(f"\n--- [TEST CASE] Running: {test_name} ---")
+        passed = False
+
+        # Mock a controller and processor with a semaphore limit of 1
+        mock_loop = asyncio.get_event_loop()
+        mock_controller = MainController(self.config_manager, mock_loop)
+        self.config_manager.controller = mock_controller
+
+        # Temporarily override the config for the test to set a low concurrency limit
+        original_concurrency = getattr(self.config_manager.config_xbridge, 'max_concurrent_tasks', 5)
+        self.config_manager.config_xbridge.max_concurrent_tasks = 1
+
+        # We need to re-initialize the processor to pick up the new semaphore limit
+        processor = TradingProcessor(mock_controller)
+
+        # Arrange
+        # Use events to control the flow of tasks instead of relying on time.sleep
+        task1_started_running = asyncio.Event()
+        task1_can_finish = asyncio.Event()
+        execution_log = []
+
+        async def controlled_task_1(pair_mock):
+            # This task will acquire the semaphore and then pause
+            execution_log.append('task1_started')
+            task1_started_running.set()  # Signal that we are inside the task and holding the semaphore
+            await task1_can_finish.wait()  # Block until the test lets us continue
+            execution_log.append('task1_finished')
+
+        async def controlled_task_2(pair_mock):
+            # This task will start and finish quickly
+            execution_log.append('task2_started')
+            execution_log.append('task2_finished')
+
+        task_map = {'pair1': controlled_task_1, 'pair2': controlled_task_2}
+
+        async def task_runner(pair):
+            await task_map[pair.name](pair)
+
+        mock_pair1 = MagicMock(disabled=False)
+        mock_pair1.name = 'pair1'
+        mock_pair2 = MagicMock(disabled=False)
+        mock_pair2.name = 'pair2'
+        processor.pairs_dict = {'pair1': mock_pair1, 'pair2': mock_pair2}
+
+        # Act
+        processing_task = asyncio.create_task(processor.process_pairs(task_runner))
+        await asyncio.wait_for(task1_started_running.wait(), timeout=1)
+
+        # Assert
+        if 'task2_started' not in execution_log:
+            self.config_manager.general_log.info("[SUB-TEST PASSED] Task 2 correctly blocked by semaphore.")
+            passed = True
+        else:
+            self.config_manager.general_log.error("[SUB-TEST FAILED] Task 2 started while Task 1 held the semaphore.")
+            passed = False
+
+        # Let the first task finish and wait for the whole process to complete
+        task1_can_finish.set()
+        await processing_task
+
+        if passed:
+            self.config_manager.general_log.info(f"[TEST PASSED] Semaphore correctly throttled concurrent tasks.")
+
+        # Cleanup
+        self.config_manager.config_xbridge.max_concurrent_tasks = original_concurrency
         self.test_results.append({'name': test_name, 'passed': passed})

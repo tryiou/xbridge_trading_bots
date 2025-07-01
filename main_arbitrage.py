@@ -71,8 +71,9 @@ def start():
             tester = ArbitrageStrategyTester(config_manager.strategy_instance)
             asyncio.run(tester.run_all_tests())
         else:
+            startup_tasks = config_manager.strategy_instance.get_startup_tasks()
             # run_async_main will handle the event loop creation and management.
-            run_async_main(config_manager)
+            run_async_main(config_manager, startup_tasks=startup_tasks)
     else:
         config_manager.general_log.error("Failed to initialize strategy instance.")
 

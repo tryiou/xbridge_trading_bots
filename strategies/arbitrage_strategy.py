@@ -859,3 +859,10 @@ class ArbitrageStrategy(BaseStrategy):
 
     async def thread_init_async_action(self, pair_instance: 'Pair'):
         pass
+
+    def get_startup_tasks(self) -> list:
+        """
+        Arbitrage strategy has its own state recovery mechanism and should not
+        blindly cancel all orders on startup.
+        """
+        return []

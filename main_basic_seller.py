@@ -42,11 +42,8 @@ def start():
         partial_percent=args.partial
     )
 
-    # Define startup tasks to be run inside the main event loop
-    startup_tasks = [
-        config_manager.xbridge_manager.cancelallorders(),
-        config_manager.xbridge_manager.dxflushcancelledorders()
-    ]
+    # Get strategy-specific startup tasks
+    startup_tasks = config_manager.strategy_instance.get_startup_tasks()
 
     # Run the main bot logic, which will create and manage its own event loop.
     run_async_main(config_manager, startup_tasks=startup_tasks)

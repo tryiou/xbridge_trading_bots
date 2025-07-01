@@ -91,3 +91,13 @@ class MakerStrategy(BaseStrategy):
     @abstractmethod
     async def handle_error_swap_status(self, dex_pair_instance: 'DexPair'):
         pass
+
+    def get_startup_tasks(self) -> list:
+        """
+        For maker strategies, it's often useful to clear out any old,
+        stale orders before starting fresh.
+        """
+        return [
+            self.config_manager.xbridge_manager.cancelallorders(),
+            self.config_manager.xbridge_manager.dxflushcancelledorders()
+        ]
