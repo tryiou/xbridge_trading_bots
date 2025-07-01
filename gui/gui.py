@@ -105,7 +105,7 @@ class GUI_Main:
         self.config_manager.general_log.info("Attempting to stop bot...")
 
         if self.config_manager.controller:
-            self.config_manager.controller.stop_order = True
+            self.config_manager.controller.shutdown_event.set()
 
         if self.send_process:
             self.send_process.join(timeout=5)

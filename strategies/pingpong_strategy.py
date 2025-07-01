@@ -156,7 +156,7 @@ class PingPongStrategy(MakerStrategy):
             f"Order Error:\n{dex_pair_instance.current_order}\n{dex_pair_instance.order}")
         self.config_manager.general_log.critical("Signaling bot termination due to order error.")
         if self.controller:
-            self.controller.stop_order = True
+            self.controller.shutdown_event.set()
 
     async def thread_init_async_action(self, pair_instance):
         pair_instance.dex.init_virtual_order(self.controller.disabled_coins)

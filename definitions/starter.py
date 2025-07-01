@@ -21,7 +21,7 @@ class TradingProcessor:
         futures = []
         loop = asyncio.get_running_loop()
         for pair in self.pairs_dict.values():
-            if self.controller.stop_order: break
+            if self.controller.shutdown_event.is_set(): break
             # If target_function is async, await it directly. If blocking, run in executor.
             future = target_function(pair) if asyncio.iscoroutinefunction(target_function) else loop.run_in_executor(
                 None, target_function, pair)
@@ -109,15 +109,15 @@ class PriceHandler:
     async def _update_token_prices(self, tickers):
         lastprice_string = self._get_last_price_string()
         for token, token_data in sorted(self.tokens_dict.items(), key=lambda item: (item[0] != 'BTC', item[0])):
-            if self.main_controller.stop_order:
+            if self.main_controller.shutdown_event.is_set():
                 return
-            if not hasattr(self.config_manager.config_coins.usd_ticker_custom, token):
-                symbol = f"{token_data.symbol}/USDT" if token_data.symbol == 'BTC' else f"{token_data.symbol}/BTC"
+            symbol = f"{token_data.symbol}/USDT" if token_data.symbol == 'BTC' else f"{token_data.symbol}/BTC"
+            if not hasattr(self.config_manager.config_coins.usd_ticker_custom, token) and symbol in self.ccxt_i.symbols:
                 # This is a blocking call
                 await self._update_token_price(tickers, symbol, lastprice_string, token_data)
 
         for token in vars(self.config_manager.config_coins.usd_ticker_custom):
-            if self.main_controller.stop_order:
+            if self.main_controller.shutdown_event.is_set():
                 return
             if token in self.tokens_dict:
                 await self.tokens_dict[token].cex.update_price()
@@ -152,7 +152,7 @@ class MainController:
         self.config_coins = config_manager.config_coins
         self.disabled_coins = []
         self.http_session = None  # Initialize http_session
-        self.stop_order = False
+        self.shutdown_event = asyncio.Event()
         self.loop = loop
 
         self.price_handler = PriceHandler(self, self.loop)
@@ -178,7 +178,7 @@ class MainController:
 
         futures = []
         for pair in self.pairs_dict.values():
-            if self.stop_order:
+            if self.shutdown_event.is_set():
                 return
             if self.config_manager.strategy_instance.should_update_cex_prices():
                 futures.append(pair.cex.update_pricing())
@@ -196,7 +196,7 @@ class MainController:
         futures = []
 
         for pair in self.pairs_dict.values():
-            if self.stop_order:
+            if self.shutdown_event.is_set():
                 return
             if self.config_manager.strategy_instance.should_update_cex_prices():
                 futures.append(pair.cex.update_pricing())
@@ -238,7 +238,12 @@ def run_async_main(config_manager, loop=None, startup_tasks=None):
         # Run the event loop until the main task is complete.
         loop.run_until_complete(main_task)
     except (SystemExit, KeyboardInterrupt):
-        config_manager.general_log.info("Received Stop order. Cleaning up...")
+        config_manager.general_log.info("Received Stop signal. Initiating graceful shutdown...")
+        if controller and not controller.shutdown_event.is_set():
+            # Signal the main loop to stop
+            controller.shutdown_event.set()
+            # Wait for the main task to acknowledge the shutdown and finish
+            loop.run_until_complete(main_task)
     except Exception as e:
         config_manager.general_log.error(f"Exception in run_async_main: {e}")
         traceback.print_exc()
@@ -295,12 +300,8 @@ async def main(config_manager, loop, startup_tasks=None):
             flush_timer = time.time()
             operation_timer = time.time()
 
-            while True:
+            while not config_manager.controller.shutdown_event.is_set():
                 current_time = time.time()
-
-                if config_manager.controller and config_manager.controller.stop_order:
-                    config_manager.general_log.info("Received stop_order")
-                    break
 
                 if current_time - flush_timer > FLUSH_DELAY:
                     await config_manager.xbridge_manager.dxflushcancelledorders()
@@ -310,6 +311,11 @@ async def main(config_manager, loop, startup_tasks=None):
                     await config_manager.controller.main_loop()
                     operation_timer = current_time
 
-                await asyncio.sleep(SLEEP_INTERVAL)
+                try:
+                    # Wait for the shutdown event or until the sleep interval times out
+                    await asyncio.wait_for(config_manager.controller.shutdown_event.wait(), timeout=SLEEP_INTERVAL)
+                except asyncio.TimeoutError:
+                    # This is the normal path, the timeout occurred, so we continue the loop.
+                    pass
     except asyncio.CancelledError:
         config_manager.general_log.info("Main loop was cancelled.")

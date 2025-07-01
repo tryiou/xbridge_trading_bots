@@ -114,8 +114,8 @@ class BasicSellerStrategy(MakerStrategy):
 
     async def handle_finished_order(self, dex_pair_instance, disabled_coins: list):
         self.config_manager.general_log.info('Order sold, signaling bot termination.')
-        if self.config_manager.controller:
-            self.config_manager.controller.stop_order = True
+        if self.controller:
+            self.controller.shutdown_event.set()
 
     async def handle_error_swap_status(self, dex_pair_instance):
         self.config_manager.general_log.error(
