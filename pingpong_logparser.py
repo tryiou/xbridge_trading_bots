@@ -80,6 +80,13 @@ def generate_completed_table(completed_cycles):
     profit_info = defaultdict(lambda: {'total_profit': 0.0, 'asset': None})
 
     for sell_order, buy_order in completed_cycles:
+        # Add a check to ensure both orders have the necessary data before processing
+        required_keys = ['maker', 'taker', 'maker_size', 'taker_size']
+        if not all(key in sell_order for key in required_keys) or \
+           not all(key in buy_order for key in required_keys):
+            logger.warning(f"Skipping incomplete completed cycle. SELL: {sell_order}, BUY: {buy_order}")
+            continue
+
         instance_name = sell_order.get('instance_name', '')
 
         # Row for SELL part
@@ -138,6 +145,11 @@ def generate_inprogress_table(in_progress_cycle):
     inprogress_table_data = []
 
     for sell in in_progress_cycle:
+        # Check for required keys to prevent crashes on incomplete log entries
+        if not all(key in sell for key in ['maker', 'taker', 'maker_size', 'taker_size']):
+            logger.warning(f"Skipping incomplete in-progress order due to missing keys: {sell}")
+            continue
+
         instance_name = sell.get('instance_name', '')
         symbol = f"{sell['maker']}/{sell['taker']}"
 

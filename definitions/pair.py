@@ -1,5 +1,6 @@
 import asyncio
 import time
+import math
 
 import yaml
 
@@ -108,9 +109,16 @@ class DexPair:
             f"Price: {self.current_order['dex_price']:.8f}"
         )
 
-    def truncate(self, value, digits=8):
-        return float(f"{{:.{digits}f}}".format(value))
-
+    @staticmethod
+    def truncate(value: float, digits: int = 8) -> float:
+        """
+        Truncates a float to a specified number of decimal places without rounding.
+        """
+        if not isinstance(value, (int, float)):
+            return value
+        stepper = 10.0 ** digits
+        return math.trunc(stepper * value) / stepper
+        
     def _construct_order_dict(self, side, maker_token, taker_token, maker_size, taker_size, original_price,
                               final_price):
         """A helper to construct the common order dictionary structure."""
@@ -122,12 +130,12 @@ class DexPair:
             'taker': taker_token.symbol,
             'taker_address': taker_token.dex.address,
             'type': 'partial' if self.partial_percent and side == 'SELL' else 'exact',
-            'maker_size': self.truncate(maker_size),
-            'taker_size': self.truncate(taker_size),
-            'dex_price': self.truncate(final_price),  # The effective price of the order
-            'org_pprice': self.truncate(original_price),
-            'org_t1price': self.truncate(self.t1.cex.cex_price),
-            'org_t2price': self.truncate(self.t2.cex.cex_price),
+            'maker_size': DexPair.truncate(maker_size),
+            'taker_size': DexPair.truncate(taker_size),
+            'dex_price': DexPair.truncate(final_price),  # The effective price of the order
+            'org_pprice': DexPair.truncate(original_price),
+            'org_t1price': DexPair.truncate(self.t1.cex.cex_price),
+            'org_t2price': DexPair.truncate(self.t2.cex.cex_price),
         }
         if self.partial_percent and side == 'SELL':
             order['minimum_size'] = maker_size * self.partial_percent
@@ -172,26 +180,33 @@ class DexPair:
         )
 
     def check_price_in_range(self, display=False):
-        self.variation = None
         price_variation_tolerance = self.pair.config_manager.strategy_instance.get_price_variation_tolerance(self)
 
         # The strategy itself now determines how to calculate variation based on the order side.
+        # It can return a float (for normal checks) or a list [float] for locked BUY orders.
         var = self.pair.config_manager.strategy_instance.calculate_variation_based_on_side(
             self,
             self.current_order.get('side'),
             self.pair.cex.price,
             self.current_order['org_pprice']
         )
-
         self._set_variation(var)
-        if display:
-            self._log_price_check(var)
 
-        return self._is_price_in_range(var, price_variation_tolerance)
+        # For logging and comparison, we need the raw float value
+        compare_var = var[0] if isinstance(var, list) else var
+
+        if display:
+            self._log_price_check(compare_var)
+
+        # If var is a list, it's a signal that the order is locked and should not be cancelled.
+        if isinstance(var, list):
+            return True  # Price is considered "in range" because it's locked.
+
+        return self._is_price_in_range(compare_var, price_variation_tolerance)
 
     def _set_variation(self, var):
-        self.variation = self.truncate(var, 3) if isinstance(var, float) else [
-            self.truncate(self.pair.cex.price / self.current_order['org_pprice'], 3)]
+        # Store the value, preserving the list format for locked orders.
+        self.variation = [DexPair.truncate(var[0], 3)] if isinstance(var, list) else DexPair.truncate(var, 3)
 
     def _log_price_check(self, var):
         self.pair.config_manager.general_log.info(
@@ -220,9 +235,9 @@ class DexPair:
 
     def _log_virtual_order(self):
         self.pair.config_manager.general_log.info(
-            f"live pair prices : {self.truncate(self.pair.cex.price)} {self.symbol} | "
-            f"{self.t1.symbol}/USD: {self.truncate(self.t1.cex.usd_price, 3)} | "
-            f"{self.t2.symbol}/USD: {self.truncate(self.t2.cex.usd_price, 3)}"
+            f"live pair prices : {DexPair.truncate(self.pair.cex.price)} {self.symbol} | "
+            f"{self.t1.symbol}/USD: {DexPair.truncate(self.t1.cex.usd_price, 3)} | "
+            f"{self.t2.symbol}/USD: {DexPair.truncate(self.t2.cex.usd_price, 3)}"
         )
         self.pair.config_manager.general_log.info(f"Current virtual order details: {self.current_order}")
 

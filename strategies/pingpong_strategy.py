@@ -112,23 +112,22 @@ class PingPongStrategy(MakerStrategy):
             # we cancel and recreate to follow the market down.
             return float(cex_price / original_price)
 
+        variation = float(cex_price / original_price)
         if current_order_side == 'BUY':
             last_sell_price = dex_pair_instance.order_history.get('dex_price')
             # If the live price goes *above* our last sell price, we lock the order
-            # by reporting no variation, preventing a cancel/recreate.
+            # by returning the variation in a list. This prevents a cancel/recreate
+            # while still allowing the GUI to display the real-time deviation.
             if last_sell_price and cex_price > float(last_sell_price):
                 self.config_manager.general_log.debug(
-                    f"BUY order for {dex_pair_instance.pair.name} is locked. "
-                    f"Live price ({cex_price:.8f}) is above last sell price ({float(last_sell_price):.8f}). Not cancelling."
+                    f"BUY order for {dex_pair_instance.pair.name} is price locked. "
+                    f"Live price ({cex_price:.8f}) is above last sell price ({float(last_sell_price):.8f})."
                 )
-                return 1.0  # No variation, do not cancel.
+                return [variation]  # Return as a list to signal a lock.
 
-            # If the live price is at or below our last sell price, we track it.
-            # If it drops significantly, we cancel and recreate to get a better deal.
-            return float(cex_price / original_price)
+        # For BUY orders below the last sell price, or for any other case, return the plain float.
+        return variation
 
-        # Fallback for any other case
-        return 1.0
 
     def init_virtual_order_logic(self, dex_pair_instance, order_history: dict):
         if not order_history or ('side' in order_history and order_history['side'] == 'BUY'):
