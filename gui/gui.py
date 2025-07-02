@@ -21,20 +21,20 @@ class GUI_Main:
         self.notebook = ttk.Notebook(self.root)
         self.notebook.pack(pady=10, padx=10, fill="both", expand=True)
 
-        # Create frames for each strategy
-        self.pingpong_frame = PingPongFrame(self.notebook, self)
-        self.basicseller_frame = BasicSellerFrame(self.notebook, self)
-        self.arbitrage_frame = ArbitrageFrame(self.notebook, self)
-
-        self.notebook.add(self.pingpong_frame, text='PingPong')
-        self.notebook.add(self.basicseller_frame, text='Basic Seller')
-        self.notebook.add(self.arbitrage_frame, text='Arbitrage')
+        # Create and add frames for each strategy
+        self.strategy_frames = {
+            'PingPong': PingPongFrame(self.notebook, self),
+            'Basic Seller': BasicSellerFrame(self.notebook, self),
+            'Arbitrage': ArbitrageFrame(self.notebook, self),
+        }
+        for text, frame in self.strategy_frames.items():
+            self.notebook.add(frame, text=text)
 
         self.create_status_bar()
 
         # Start the refresh loop for the initially selected tab
         self.notebook.bind("<<NotebookTabChanged>>", self.on_tab_changed)
-        self.on_tab_changed() # Manually trigger for the first tab
+        self.on_tab_changed()  # Manually trigger for the first tab
 
     def create_status_bar(self) -> None:
         """Creates the status bar at the bottom of the main window."""
@@ -45,24 +45,17 @@ class GUI_Main:
 
     def on_tab_changed(self, event=None):
         """Handle tab changes to start/stop the appropriate refresh loops."""
-        selected_tab_index = self.notebook.index(self.notebook.select())
-        
         # Stop all refresh loops first
-        self.pingpong_frame.stop_refresh()
-        self.basicseller_frame.stop_refresh()
-        self.arbitrage_frame.stop_refresh()
+        for frame in self.strategy_frames.values():
+            frame.stop_refresh()
 
         # Start the refresh loop for the selected tab
-        if selected_tab_index == 0:
-            self.pingpong_frame.start_refresh()
-        elif selected_tab_index == 1:
-            self.basicseller_frame.start_refresh()
-        elif selected_tab_index == 2:
-            self.arbitrage_frame.start_refresh()
+        selected_widget = self.root.nametowidget(self.notebook.select())
+        if hasattr(selected_widget, 'start_refresh'):
+            selected_widget.start_refresh()
 
     def on_closing(self) -> None:
         """Handles the application closing event."""
-        self.pingpong_frame.on_closing()
-        self.basicseller_frame.on_closing()
-        self.arbitrage_frame.on_closing()
+        for frame in self.strategy_frames.values():
+            frame.on_closing()
         self.root.destroy()

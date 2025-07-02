@@ -374,17 +374,14 @@ class GUI_Balances:
         self.balances_treeview = None
 
 
-class GUI_Config:
-    """
-    Manages the configuration window for the bot settings.
-    """
+class BaseConfigWindow:
+    """Base class for strategy configuration Toplevel windows."""
 
-    def __init__(self, parent: "BaseStrategyFrame") -> None:
+    def __init__(self, parent: "BaseStrategyFrame", title: str, config_file_path: str):
         self.parent = parent
+        self.title_text = title
+        self.config_file_path = config_file_path
         self.config_window: tk.Toplevel | None = None
-        self.debug_level_entry: ttk.Entry | None = None
-        self.ttk_theme_entry: ttk.Entry | None = None
-        self.pairs_treeview: ttk.Treeview | None = None
         self.status_var = tk.StringVar()
         self.status_label: ttk.Label | None = None
         self.active_dialog: tk.Toplevel | None = None
@@ -395,33 +392,108 @@ class GUI_Config:
             return
 
         self.parent.btn_start.config(state="disabled")
-        if hasattr(self.parent, 'btn_configure'): self.parent.btn_configure.config(state="disabled")
+        if hasattr(self.parent, 'btn_configure'):
+            self.parent.btn_configure.config(state="disabled")
 
         self.config_window = tk.Toplevel(self.parent)
-        self.config_window.title("Configure Bot")
+        self.config_window.title(self.title_text)
         self.config_window.protocol("WM_DELETE_WINDOW", self.on_close)
 
         main_frame = ttk.Frame(self.config_window)
-        main_frame.pack(fill='both', expand=True)
+        main_frame.pack(fill='both', expand=True, padx=10, pady=10)
+        main_frame.grid_rowconfigure(0, weight=1)
+        main_frame.grid_columnconfigure(0, weight=1)
 
-        canvas = tk.Canvas(main_frame)
-        canvas.pack(side='left', fill='both', expand=True)
-
-        content_frame = ttk.Frame(canvas)
-        canvas.create_window((0, 0), window=content_frame, anchor='nw')
-
-        self._setup_scroll_bindings(canvas)
-        content_frame.bind("<Configure>", lambda event: canvas.configure(scrollregion=canvas.bbox("all")))
-        content_frame.grid_columnconfigure(1, weight=1)
-        content_frame.grid_rowconfigure(20, weight=1)
-
-        self._create_general_settings_widgets(content_frame)
-        self._create_pairs_treeview_widgets(content_frame)
-        self._create_control_buttons(content_frame)
-        self._create_save_button(content_frame)
-        self._create_status_bar(content_frame)
+        self._create_widgets(main_frame)
+        self._create_control_buttons_area(main_frame)
+        self._create_save_button(main_frame)
+        self._create_status_bar(main_frame)
         self._set_window_geometry()
 
+    def _create_widgets(self, parent_frame: ttk.Frame):
+        """Placeholder for subclass to create specific widgets."""
+        raise NotImplementedError
+
+    def _create_control_buttons_area(self, parent_frame: ttk.Frame):
+        """Placeholder for subclass to create control buttons outside the main widget area."""
+        pass
+
+    def _create_save_button(self, parent_frame: ttk.Frame) -> None:
+        save_button = ttk.Button(parent_frame, text="Save", command=self.save_config)
+        save_button.grid(row=2, column=0, pady=10, sticky='ew')
+
+    def _create_status_bar(self, parent_frame: ttk.Frame) -> None:
+        status_frame = ttk.Frame(parent_frame)
+        status_frame.grid(row=3, column=0, pady=5, sticky='ew')
+        self.status_var.set("Ready")
+        self.status_label = ttk.Label(status_frame, textvariable=self.status_var, anchor='w')
+        self.status_label.pack(fill='x')
+
+    def _set_window_geometry(self):
+        """Placeholder for subclass to set window size."""
+        pass
+
+    def on_close(self) -> None:
+        if hasattr(self.parent, 'btn_start'):
+            self.parent.btn_start.config(state="active")
+        if hasattr(self.parent, 'btn_configure'):
+            self.parent.btn_configure.config(state="active")
+        if self.config_window:
+            self.config_window.destroy()
+        self.config_window = None
+
+    def _open_single_dialog(self, dialog_class, *dialog_args) -> tk.Toplevel:
+        if self.active_dialog and self.active_dialog.winfo_exists():
+            self.active_dialog.destroy()
+
+        dialog = dialog_class(self.config_window, *dialog_args)
+        self.active_dialog = dialog
+        self.config_window.wait_window(dialog)
+
+        if self.active_dialog is dialog:
+            self.active_dialog = None
+        return dialog
+
+    def save_config(self) -> None:
+        new_config = self._get_config_data_to_save()
+        if new_config is None:
+            return  # Save operation was cancelled or failed validation
+
+        yaml_writer = YAML()
+        yaml_writer.default_flow_style = False
+        yaml_writer.indent(mapping=2, sequence=4, offset=2)
+
+        try:
+            with open(self.config_file_path, 'w') as file:
+                yaml_writer.dump(new_config, file)
+            self.update_status("Configuration saved successfully. Restart required to apply changes.", 'lightgreen')
+            self.parent.reload_configuration(loadxbridgeconf=True)
+        except Exception as e:
+            self.update_status(f"Failed to save configuration: {e}", 'lightcoral')
+            if self.parent.config_manager:
+                self.parent.config_manager.general_log.error(f"Failed to save config: {e}")
+
+    def _get_config_data_to_save(self) -> dict | None:
+        """Placeholder for subclass to return the config dictionary to be saved."""
+        raise NotImplementedError
+
+    def update_status(self, message: str, color: str = 'black') -> None:
+        if self.status_label:
+            self.status_var.set(message)
+            self.status_label.config(foreground=color)
+
+
+class GUI_Config(BaseConfigWindow):
+    """
+    Manages the configuration window for the bot settings.
+    """
+
+    def __init__(self, parent: "BaseStrategyFrame") -> None:
+        super().__init__(parent, "Configure PingPong Bot", './config/config_pingpong.yaml')
+        self.debug_level_entry: ttk.Entry | None = None
+        self.ttk_theme_entry: ttk.Entry | None = None
+        self.pairs_treeview: ttk.Treeview | None = None
+    
     def _on_key_press_scroll(self, event: tk.Event, canvas: tk.Canvas, direction: int) -> None:
         if self.config_window and self.pairs_treeview and self.config_window.focus_get() == self.pairs_treeview:
             return
@@ -435,22 +507,46 @@ class GUI_Config:
             self.config_window.bind("<Next>", lambda event: canvas.yview_scroll(10, "units"))
             self.config_window.bind("<MouseWheel>", lambda e: canvas.yview_scroll(-1 if e.delta > 0 else 1, "units"))
 
-    def _create_general_settings_widgets(self, parent_frame: ttk.Frame) -> None:
-        ttk.Label(parent_frame, text="Debug Level:").grid(row=0, column=0, padx=5, pady=5, sticky='w')
-        self.debug_level_entry = ttk.Entry(parent_frame)
-        self.debug_level_entry.grid(row=0, column=1, padx=5, pady=5, sticky='ew')
-        self.debug_level_entry.insert(0, str(self.parent.config_manager.config_pingppong.debug_level))
+    def _create_widgets(self, parent_frame: ttk.Frame):
+        canvas = tk.Canvas(parent_frame)
+        canvas.grid(row=0, column=0, sticky='nsew')
+        parent_frame.grid_rowconfigure(0, weight=1)
+        parent_frame.grid_columnconfigure(0, weight=1)
 
-        ttk.Label(parent_frame, text="TTK Theme:").grid(row=1, column=0, padx=5, pady=5, sticky='w')
-        self.ttk_theme_entry = ttk.Entry(parent_frame)
+        content_frame = ttk.Frame(canvas)
+        canvas.create_window((0, 0), window=content_frame, anchor='nw')
+
+        self._setup_scroll_bindings(canvas)
+        content_frame.bind("<Configure>", lambda event: canvas.configure(scrollregion=canvas.bbox("all")))
+        content_frame.grid_columnconfigure(0, weight=1)
+        content_frame.grid_rowconfigure(1, weight=1)
+
+        self._create_general_settings_widgets(content_frame)
+        self._create_pairs_treeview_widgets(content_frame)
+
+    def _create_general_settings_widgets(self, parent_frame: ttk.Frame) -> None:
+        general_frame = ttk.LabelFrame(parent_frame, text="General Settings")
+        general_frame.grid(row=0, column=0, padx=5, pady=5, sticky='ew')
+        general_frame.grid_columnconfigure(1, weight=1)
+
+        ttk.Label(general_frame, text="Debug Level:").grid(row=0, column=0, padx=5, pady=5, sticky='w')
+        self.debug_level_entry = ttk.Entry(general_frame)
+        self.debug_level_entry.grid(row=0, column=1, padx=5, pady=5, sticky='ew')
+        if self.parent.config_manager and self.parent.config_manager.config_pingppong:
+            self.debug_level_entry.insert(0, str(self.parent.config_manager.config_pingppong.debug_level))
+
+        ttk.Label(general_frame, text="TTK Theme:").grid(row=1, column=0, padx=5, pady=5, sticky='w')
+        self.ttk_theme_entry = ttk.Entry(general_frame)
         self.ttk_theme_entry.grid(row=1, column=1, padx=5, pady=5, sticky='ew')
-        self.ttk_theme_entry.insert(0, self.parent.config_manager.config_pingppong.ttk_theme)
+        if self.parent.config_manager and self.parent.config_manager.config_pingppong:
+            self.ttk_theme_entry.insert(0, self.parent.config_manager.config_pingppong.ttk_theme)
 
     def _create_pairs_treeview_widgets(self, parent_frame: ttk.Frame) -> None:
-        ttk.Label(parent_frame, text="Pair Configurations:").grid(row=2, column=0, columnspan=2, padx=5, pady=5,
-                                                                  sticky='w')
-        tree_frame = ttk.Frame(parent_frame)
-        tree_frame.grid(row=3, column=0, columnspan=2, padx=5, pady=5, sticky='nsew')
+        tree_frame = ttk.LabelFrame(parent_frame, text="Pair Configurations")
+        tree_frame.grid(row=1, column=0, padx=5, pady=5, sticky='nsew')
+        parent_frame.grid_rowconfigure(1, weight=1)
+        tree_frame.grid_columnconfigure(0, weight=1)
+        tree_frame.grid_rowconfigure(0, weight=1)
 
         columns = ('name', 'enabled', 'pair', 'price_variation_tolerance', 'sell_price_offset', 'usd_amount', 'spread')
         self.pairs_treeview = ttk.Treeview(tree_frame, columns=columns, show='headings', height=8)
@@ -467,14 +563,14 @@ class GUI_Config:
             self.pairs_treeview.column(col, width=width, anchor=anchor)
 
         scrollbar = ttk.Scrollbar(tree_frame, orient="vertical", command=self.pairs_treeview.yview)
-        scrollbar.pack(side="right", fill="y")
         self.pairs_treeview.configure(yscrollcommand=scrollbar.set)
-        self.pairs_treeview.pack(fill="both", expand=True)
+        self.pairs_treeview.grid(row=0, column=0, sticky='nsew')
+        scrollbar.grid(row=0, column=1, sticky='ns')
         self.pairs_treeview.bind("<Double-1>", lambda event: self.edit_pair_config())
         self._populate_pairs_treeview()
 
     def _populate_pairs_treeview(self) -> None:
-        if self.pairs_treeview:
+        if self.pairs_treeview and self.parent.config_manager and self.parent.config_manager.config_pingppong:
             for cfg in self.parent.config_manager.config_pingppong.pair_configs:
                 self.pairs_treeview.insert('', 'end', values=(
                     cfg.get('name', ''),
@@ -486,49 +582,12 @@ class GUI_Config:
                     cfg.get('spread', 0.1)
                 ))
 
-    def _create_control_buttons(self, parent_frame: ttk.Frame) -> None:
+    def _create_control_buttons_area(self, parent_frame: ttk.Frame) -> None:
         btn_frame = ttk.Frame(parent_frame)
-        btn_frame.grid(row=4, column=0, columnspan=2, padx=5, pady=5, sticky='ew')
+        btn_frame.grid(row=1, column=0, padx=5, pady=5, sticky='w')
         ttk.Button(btn_frame, text="Add Pair", command=self.add_pair_config).pack(side='left', padx=2)
         ttk.Button(btn_frame, text="Remove Pair", command=self.remove_pair_config).pack(side='left', padx=2)
         ttk.Button(btn_frame, text="Edit Config", command=self.edit_pair_config).pack(side='left', padx=2)
-
-    def _create_save_button(self, parent_frame: ttk.Frame) -> None:
-        save_button = ttk.Button(parent_frame, text="Save", command=self.save_config)
-        save_button.grid(row=20, column=0, columnspan=2, pady=10, sticky='ew')
-
-    def _create_status_bar(self, parent_frame: ttk.Frame) -> None:
-        status_frame = ttk.Frame(parent_frame)
-        status_frame.grid(row=21, column=0, columnspan=2, pady=5, sticky='ew')
-        self.status_var = tk.StringVar(value="Ready")
-        self.status_label = ttk.Label(status_frame, textvariable=self.status_var, anchor='w')
-        self.status_label.pack(fill='x')
-
-    def _set_window_geometry(self) -> None:
-        if self.config_window:
-            x, y = 900, 450
-            self.config_window.minsize(x, y)
-            self.config_window.geometry(f"{x}x{y}")
-            self.config_window.update_idletasks()
-
-    def on_close(self) -> None:
-        if hasattr(self.parent, 'btn_start'): self.parent.btn_start.config(state="active")
-        if hasattr(self.parent, 'btn_configure'): self.parent.btn_configure.config(state="active")
-        if self.config_window:
-            self.config_window.destroy()
-        self.config_window = None
-
-    def _open_single_dialog(self, dialog_class, *dialog_args) -> tk.Toplevel:
-        if self.active_dialog and self.active_dialog.winfo_exists():
-            self.active_dialog.destroy()
-
-        dialog = dialog_class(self.config_window, *dialog_args)
-        self.active_dialog = dialog
-        self.config_window.wait_window(dialog)
-
-        if self.active_dialog is dialog:
-            self.active_dialog = None
-        return dialog
 
     def add_pair_config(self) -> None:
         if not self.config_window:
@@ -566,12 +625,13 @@ class GUI_Config:
             else:
                 self.update_status("Edit cancelled.", 'lightgray')
 
-    def save_config(self) -> None:
-        config_file_path = './config/config_pingpong.yaml'
-        yaml: YAML = YAML()
-        yaml.default_flow_style = False
-        yaml.indent(mapping=2, sequence=4, offset=2)
+    def _set_window_geometry(self) -> None:
+        if self.config_window:
+            x, y = 900, 450
+            self.config_window.minsize(x, y)
+            self.config_window.geometry(f"{x}x{y}")
 
+    def _get_config_data_to_save(self) -> dict | None:
         pair_configs = []
         if self.pairs_treeview:
             for item_id in self.pairs_treeview.get_children():
@@ -588,62 +648,35 @@ class GUI_Config:
                     })
                 except (ValueError, IndexError) as e:
                     self.update_status(f"Invalid numeric value in pair config: {e}", 'red')
-                    self.parent.config_manager.general_log.error(f"Failed to parse pair config: {e}")
-                    return
+                    if self.parent.config_manager:
+                        self.parent.config_manager.general_log.error(f"Failed to parse pair config: {e}")
+                    return None
 
         new_config = {
             'debug_level': int(self.debug_level_entry.get()) if self.debug_level_entry else 0,
             'ttk_theme': self.ttk_theme_entry.get() if self.ttk_theme_entry else 'flatly',
             'pair_configs': pair_configs
         }
+        return new_config
 
-        try:
-            with open(config_file_path, 'w') as file:
-                yaml.dump(new_config, file)
-            self.update_status("Configuration saved successfully. Restart required to apply changes.", 'lightgreen')
-            self.parent.reload_configuration(loadxbridgeconf=True)
-        except Exception as e:
-            self.update_status(f"Failed to save configuration: {e}", 'lightcoral')
-            self.parent.config_manager.general_log.error(f"Failed to save config: {e}")
-
-    def update_status(self, message: str, color: str = 'black') -> None:
-        if self.status_label:
-            self.status_var.set(message)
-            self.status_label.config(foreground=color)
-
-class GUI_Config_BasicSeller:
+class GUI_Config_BasicSeller(BaseConfigWindow):
     def __init__(self, parent: "BasicSellerFrame"):
-        self.parent = parent
-        self.config_window: tk.Toplevel | None = None
+        super().__init__(parent, "Configure Basic Seller", './config/config_basicseller.yaml')
         self.sellers_treeview: ttk.Treeview | None = None
-        self.status_var = tk.StringVar()
-        self.status_label: ttk.Label | None = None
-        self.active_dialog: tk.Toplevel | None = None
 
-    def open(self):
-        if self.config_window and self.config_window.winfo_exists():
-            self.config_window.tkraise()
-            return
+    def _create_widgets(self, parent_frame: ttk.Frame):
+        content_frame = ttk.Frame(parent_frame)
+        content_frame.grid(row=0, column=0, sticky='nsew')
+        content_frame.grid_rowconfigure(0, weight=1)
+        content_frame.grid_columnconfigure(0, weight=1)
 
-        self.parent.btn_start.config(state="disabled")
-        if hasattr(self.parent, 'btn_configure'): self.parent.btn_configure.config(state="disabled")
+        self._create_sellers_treeview(content_frame)
 
-        self.config_window = tk.Toplevel(self.parent)
-        self.config_window.title("Configure Basic Seller")
-        self.config_window.protocol("WM_DELETE_WINDOW", self.on_close)
-
-        main_frame = ttk.Frame(self.config_window)
-        main_frame.pack(fill='both', expand=True)
-
-        self._create_sellers_treeview(main_frame)
-        self._create_control_buttons(main_frame)
-        self._create_save_button(main_frame)
-        self._create_status_bar(main_frame)
-        self._set_window_geometry()
-
-    def _create_sellers_treeview(self, parent_frame: ttk.Frame):
-        tree_frame = ttk.Frame(parent_frame)
-        tree_frame.pack(padx=10, pady=10, fill='both', expand=True)
+    def _create_sellers_treeview(self, parent_frame: ttk.Frame) -> None:
+        tree_frame = ttk.LabelFrame(parent_frame, text="Seller Configurations")
+        tree_frame.grid(row=0, column=0, sticky='nsew', padx=5, pady=5)
+        tree_frame.grid_rowconfigure(0, weight=1)
+        tree_frame.grid_columnconfigure(0, weight=1)
 
         columns = ('name', 'enabled', 'pair', 'amount_to_sell', 'min_sell_price_usd', 'sell_price_offset')
         self.sellers_treeview = ttk.Treeview(tree_frame, columns=columns, show='headings', height=10)
@@ -660,14 +693,14 @@ class GUI_Config_BasicSeller:
             self.sellers_treeview.column(col, width=width, anchor=anchor)
 
         scrollbar = ttk.Scrollbar(tree_frame, orient="vertical", command=self.sellers_treeview.yview)
-        scrollbar.pack(side="right", fill="y")
         self.sellers_treeview.configure(yscrollcommand=scrollbar.set)
-        self.sellers_treeview.pack(fill="both", expand=True)
+        self.sellers_treeview.grid(row=0, column=0, sticky='nsew')
+        scrollbar.grid(row=0, column=1, sticky='ns')
         self.sellers_treeview.bind("<Double-1>", lambda event: self.edit_seller_config())
         self._populate_sellers_treeview()
 
     def _populate_sellers_treeview(self):
-        if self.sellers_treeview:
+        if self.sellers_treeview and self.parent.config_manager and self.parent.config_manager.config_basicseller:
             for cfg in self.parent.config_manager.config_basicseller.seller_configs:
                 self.sellers_treeview.insert('', 'end', values=(
                     cfg.get('name', ''),
@@ -678,46 +711,18 @@ class GUI_Config_BasicSeller:
                     cfg.get('sell_price_offset', 0.0)
                 ))
 
-    def _create_control_buttons(self, parent_frame: ttk.Frame):
+    def _create_control_buttons_area(self, parent_frame: ttk.Frame):
         btn_frame = ttk.Frame(parent_frame)
-        btn_frame.pack(padx=10, pady=5, fill='x')
+        btn_frame.grid(row=1, column=0, sticky='w', padx=5, pady=5)
         ttk.Button(btn_frame, text="Add Seller", command=self.add_seller_config).pack(side='left', padx=2)
         ttk.Button(btn_frame, text="Remove Seller", command=self.remove_seller_config).pack(side='left', padx=2)
         ttk.Button(btn_frame, text="Edit Seller", command=self.edit_seller_config).pack(side='left', padx=2)
 
-    def _create_save_button(self, parent_frame: ttk.Frame):
-        save_button = ttk.Button(parent_frame, text="Save", command=self.save_config)
-        save_button.pack(padx=10, pady=10, fill='x')
-
-    def _create_status_bar(self, parent_frame: ttk.Frame):
-        status_frame = ttk.Frame(parent_frame)
-        status_frame.pack(padx=10, pady=5, fill='x')
-        self.status_var = tk.StringVar(value="Ready")
-        self.status_label = ttk.Label(status_frame, textvariable=self.status_var, anchor='w')
-        self.status_label.pack(fill='x')
-
-    def _set_window_geometry(self):
+    def _set_window_geometry(self) -> None:
         if self.config_window:
             x, y = 800, 400
             self.config_window.minsize(x, y)
             self.config_window.geometry(f"{x}x{y}")
-
-    def on_close(self):
-        if hasattr(self.parent, 'btn_start'): self.parent.btn_start.config(state="active")
-        if hasattr(self.parent, 'btn_configure'): self.parent.btn_configure.config(state="active")
-        if self.config_window:
-            self.config_window.destroy()
-        self.config_window = None
-
-    def _open_single_dialog(self, dialog_class, *dialog_args):
-        if self.active_dialog and self.active_dialog.winfo_exists():
-            self.active_dialog.destroy()
-        dialog = dialog_class(self.config_window, *dialog_args)
-        self.active_dialog = dialog
-        self.config_window.wait_window(dialog)
-        if self.active_dialog is dialog:
-            self.active_dialog = None
-        return dialog
 
     def add_seller_config(self):
         dialog = self._open_single_dialog(AddSellerDialog, self)
@@ -739,38 +744,26 @@ class GUI_Config_BasicSeller:
                 if dialog.result:
                     self.sellers_treeview.item(selected, values=dialog.result)
 
-    def save_config(self):
-        config_file_path = './config/config_basicseller.yaml'
-        yaml_writer = YAML()
-        yaml_writer.default_flow_style = False
-        yaml_writer.indent(mapping=2, sequence=4, offset=2)
-
+    def _get_config_data_to_save(self) -> dict | None:
         seller_configs = []
         if self.sellers_treeview:
             for item_id in self.sellers_treeview.get_children():
                 values = self.sellers_treeview.item(item_id, 'values')
-                seller_configs.append({
-                    'name': values[0],
-                    'enabled': values[1] == 'Yes',
-                    'pair': values[2],
-                    'amount_to_sell': float(values[3]),
-                    'min_sell_price_usd': float(values[4]),
-                    'sell_price_offset': float(values[5])
-                })
-
-        new_config = {'seller_configs': seller_configs}
-        try:
-            with open(config_file_path, 'w') as file:
-                yaml_writer.dump(new_config, file)
-            self.update_status("Configuration saved successfully. Restart required to apply changes.", 'lightgreen')
-            self.parent.reload_configuration(loadxbridgeconf=True)
-        except Exception as e:
-            self.update_status(f"Failed to save configuration: {e}", 'lightcoral')
-
-    def update_status(self, message: str, color: str = 'black'):
-        if self.status_label:
-            self.status_var.set(message)
-            self.status_label.config(foreground=color)
+                try:
+                    seller_configs.append({
+                        'name': values[0],
+                        'enabled': values[1] == 'Yes',
+                        'pair': values[2],
+                        'amount_to_sell': float(values[3]),
+                        'min_sell_price_usd': float(values[4]),
+                        'sell_price_offset': float(values[5])
+                    })
+                except (ValueError, IndexError) as e:
+                    self.update_status(f"Invalid numeric value in seller config: {e}", 'red')
+                    if self.parent.config_manager:
+                        self.parent.config_manager.general_log.error(f"Failed to parse seller config: {e}")
+                    return None
+        return {'seller_configs': seller_configs}
 
 class BasicSellerFrame(BaseStrategyFrame):
     def __init__(self, parent, main_app: "GUI_Main"):
