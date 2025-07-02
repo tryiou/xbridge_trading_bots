@@ -9,6 +9,7 @@ from tkinter import ttk
 from ttkbootstrap import Style
 
 from definitions.config_manager import ConfigManager
+from definitions.logger import ColoredFormatter
 from .frames import (ArbitrageFrame, BasicSellerFrame, LogFrame, PingPongFrame,
                    StdoutRedirector, TextLogHandler)
 
@@ -28,12 +29,13 @@ class GUI_Main:
         # Create the log frame and set up logging *before* creating other frames
         # that might use logging during their initialization.
         self.log_frame = LogFrame(self.notebook)
-        self.setup_logging()  # Sets up logging handlers
+        self.setup_logging()  # Take control of logging BEFORE anything else.
 
         # Create a master ConfigManager to hold shared resources
+        # This must be done *before* setup_logging to ensure all backend loggers exist.
         self.master_config_manager = ConfigManager(strategy="gui")
 
-        # Now, create and add frames for each strategy
+        # Create and add frames for each strategy
         self.strategy_frames = {
             'PingPong': PingPongFrame(self.notebook, self, self.master_config_manager),
             'Basic Seller': BasicSellerFrame(self.notebook, self, self.master_config_manager),
@@ -60,19 +62,20 @@ class GUI_Main:
         root_logger = logging.getLogger()
         root_logger.setLevel(logging.INFO)
 
-        # Clear all handlers from all existing loggers to centralize control
-        for name in logging.root.manager.loggerDict:
-            logging.getLogger(name).handlers.clear()
-        root_logger.handlers.clear()
+        # Since the backend loggers no longer add handlers in GUI mode,
+        # we only need to clear the root logger to ensure a clean setup.
+        root_logger.handlers.clear() # Also clear root logger's handlers
 
         # Add the custom handler for the GUI log panel
         gui_handler = TextLogHandler(self.log_frame)
+        # Use a standard, uncolored formatter for the GUI panel
+        gui_formatter = logging.Formatter('%(asctime)s [%(name)-18s] - %(levelname)-7s - %(message)s', datefmt='%H:%M:%S')
+        gui_handler.setFormatter(gui_formatter)
         root_logger.addHandler(gui_handler)
 
         # Add a handler to also print logs to the console (stdout)
-        # Use a format that matches the application's original console output
-        console_formatter = logging.Formatter('[%(asctime)s] [%(name)-18s] %(levelname)-7s - %(message)s',
-                                              datefmt='%Y-%m-%d %H:%M:%S')
+        # Use the same ColoredFormatter as the standalone scripts
+        console_formatter = ColoredFormatter('[%(asctime)s] [%(name)-18s] %(levelname)s - %(message)s')
         console_handler = logging.StreamHandler(original_stdout)
         console_handler.setFormatter(console_formatter)
         root_logger.addHandler(console_handler)

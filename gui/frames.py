@@ -16,8 +16,6 @@ from .components import AddPairDialog, PairConfigDialog, AddSellerDialog, Seller
 if TYPE_CHECKING:
     from .gui import GUI_Main
 
-TOTAL_WIDTH = 500
-
 class BaseStrategyFrame(ttk.Frame):
     """Base class for strategy-specific frames in the GUI."""
     def __init__(self, parent, main_app: "GUI_Main", strategy_name: str, master_config_manager: ConfigManager):
@@ -75,9 +73,11 @@ class BaseStrategyFrame(ttk.Frame):
         self.main_app.status_var.set(f"Stopping {self.strategy_name} bot...")
         self.config_manager.general_log.info(f"Attempting to stop {self.strategy_name} bot...")
 
-        if self.config_manager.controller:
-            self.config_manager.controller.shutdown_event.set()
-
+        if self.config_manager.controller and self.config_manager.controller.loop:
+            # Safely set the asyncio event from a different thread
+            self.config_manager.controller.loop.call_soon_threadsafe(
+                self.config_manager.controller.shutdown_event.set
+            )
         if self.send_process:
             self.send_process.join(timeout=join_timeout)
             if self.send_process.is_alive():
@@ -150,6 +150,11 @@ class BaseStrategyFrame(ttk.Frame):
 class PingPongFrame(BaseStrategyFrame):
     def __init__(self, parent, main_app: "GUI_Main", master_config_manager: ConfigManager):
         super().__init__(parent, main_app, "pingpong", master_config_manager)
+        # Configure the grid for expansion. This allows the child frames
+        # (orders, balances) to grow with the window.
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(1, weight=1)  # Orders frame
+        self.grid_rowconfigure(2, weight=1)  # Balances frame
 
     def create_widgets(self):
         self.gui_orders = GUI_Orders(self)
@@ -217,7 +222,9 @@ class GUI_Orders:
         self.sortedpairs = sorted(self.parent.config_manager.pairs.keys())
         columns = [col.value for col in self.OrdersColumns]
         self.orders_frame = ttk.LabelFrame(self.parent, text="Orders")
-        self.orders_frame.grid(row=1, padx=5, pady=5, sticky='ew', columnspan=4)
+        self.orders_frame.grid(row=1, column=0, padx=5, pady=5, sticky='nsew')
+        self.orders_frame.grid_rowconfigure(0, weight=1)
+        self.orders_frame.grid_columnconfigure(0, weight=1)
 
         height = len(self.sortedpairs) + 1
         self.orders_treeview = ttk.Treeview(
@@ -226,31 +233,65 @@ class GUI_Orders:
             height=height,
             show="headings"
         )
-        self.orders_treeview.grid(padx=5, pady=5)
+        self.orders_treeview.grid(row=0, column=0, padx=5, pady=5, sticky='nsew')
 
-        self._configure_columns()
+        # Bind the resize event to the parent frame to dynamically adjust column widths
+        self.parent.bind("<Configure>", self._on_resize, add='+')
+
+        # Bind to the <Map> event for the *initial* configuration.
+        # This ensures the widget is drawn and has a size before we configure columns.
+        self.orders_treeview.bind("<Map>", self._initial_configure)
 
         for pair in self.sortedpairs:
             if self.orders_treeview:
                 self.orders_treeview.insert("", tk.END, values=[pair, "None", "None", "X", "None"])
 
+    def _initial_configure(self, event=None):
+        """A one-time configuration that runs after the widget is mapped to the screen."""
+        # The _on_resize method contains the logic to configure both treeviews.
+        self._on_resize()
+        # Unbind after the first run to avoid this logic running again if the widget is hidden and re-shown.
+        self.orders_treeview.unbind("<Map>")
+
+    def _on_resize(self, event=None):
+        """Dynamically resize columns when the window size changes."""
+        # We only need to re-configure, as the logic is now dynamic.
+        if self.orders_treeview and self.orders_treeview.winfo_exists():
+            self._configure_columns()
+        # The balances treeview is part of the same parent frame, so we can resize it from here.
+        if hasattr(self.parent, 'gui_balances') and self.parent.gui_balances.balances_treeview and self.parent.gui_balances.balances_treeview.winfo_exists():
+            self.parent.gui_balances._configure_balance_columns()
+
     def _configure_columns(self):
+        if not self.orders_treeview or self.orders_treeview.winfo_width() <= 1:
+            return  # Don't configure if widget isn't drawn yet
+
+        # Ratios for proportional scaling
+        col_ratios = {
+            self.OrdersColumns.PAIR: 25,
+            self.OrdersColumns.STATUS: 25,
+            self.OrdersColumns.SIDE: 20,
+            self.OrdersColumns.FLAG: 10,
+            self.OrdersColumns.VARIATION: 20,
+        }
+        col_anchors = {
+            self.OrdersColumns.PAIR: "w",
+            self.OrdersColumns.STATUS: "center",
+            self.OrdersColumns.SIDE: "center",
+            self.OrdersColumns.FLAG: "center",
+            self.OrdersColumns.VARIATION: "e",
+        }
+
+        total_ratio = sum(col_ratios.values())
+        available_width = self.orders_treeview.winfo_width()
+
         for column in self.OrdersColumns:
-            width: int
-            anchor: str
-            # Distribution: Pair (25%), Status (25%), Side (20%), Flag (10%), Variation (20%) = 100%
-            col_configs = {
-                self.OrdersColumns.PAIR: (0.25, "w"),
-                self.OrdersColumns.STATUS: (0.25, "center"),
-                self.OrdersColumns.SIDE: (0.20, "center"),
-                self.OrdersColumns.FLAG: (0.10, "center"),
-                self.OrdersColumns.VARIATION: (0.20, "e"),
-            }
-            percentage, anchor = col_configs[column]
-            width = int(TOTAL_WIDTH * percentage)
-            if self.orders_treeview:
+            if self.orders_treeview and total_ratio > 0:
+                ratio = col_ratios.get(column, 0)
+                anchor = col_anchors.get(column, "center")
+                width = int((ratio / total_ratio) * available_width)
                 self.orders_treeview.heading(column.value, text=column.value, anchor=anchor)
-                self.orders_treeview.column(column.value, width=width, anchor=anchor)
+                self.orders_treeview.column(column.value, width=width, anchor=anchor, stretch=False)
 
     def update_order_display(self) -> None:
         """
@@ -317,34 +358,50 @@ class GUI_Balances:
     def create_balances_treeview(self) -> None:
         columns = [col.value for col in self.BalancesColumns]
         self.balances_frame = ttk.LabelFrame(self.parent, text="Balances")
-        self.balances_frame.grid(row=2, padx=5, pady=5, sticky='ew', columnspan=4)
+        self.balances_frame.grid(row=2, column=0, padx=5, pady=5, sticky='nsew')
+        self.balances_frame.grid_rowconfigure(0, weight=1)
+        self.balances_frame.grid_columnconfigure(0, weight=1)
 
         height = len(self.parent.config_manager.tokens.keys())
         self.balances_treeview = ttk.Treeview(self.balances_frame, columns=list(columns), show="headings",
                                               height=height, selectmode="none")
-        self.balances_treeview.grid(padx=5, pady=5)
-        self._configure_balance_columns()
-
+        self.balances_treeview.grid(row=0, column=0, padx=5, pady=5, sticky='nsew')
+        # The initial configuration is now triggered by the <Map> event on the Orders treeview.
         for token in self.parent.config_manager.tokens:
             if self.balances_treeview:
                 data = (token, str(None), str(None), str(None), str(None))
                 self.balances_treeview.insert("", tk.END, values=data)
 
     def _configure_balance_columns(self):
+        if not self.balances_treeview or self.balances_treeview.winfo_width() <= 1:
+            return  # Don't configure if widget isn't drawn yet
+
         # Distribution: Coin (25%), USD Ticker (20%), Total (20%), Free (20%), Total USD (15%) = 100%
-        col_configs = {
-            self.BalancesColumns.COIN: (0.25, "w"),
-            self.BalancesColumns.USD_TICKER: (0.20, "e"),
-            self.BalancesColumns.TOTAL: (0.20, "e"),
-            self.BalancesColumns.FREE: (0.20, "e"),
-            self.BalancesColumns.TOTAL_USD: (0.15, "e"),
+        col_ratios = {
+            self.BalancesColumns.COIN: 25,
+            self.BalancesColumns.USD_TICKER: 20,
+            self.BalancesColumns.TOTAL: 20,
+            self.BalancesColumns.FREE: 20,
+            self.BalancesColumns.TOTAL_USD: 15,
+        }
+        col_anchors = {
+            self.BalancesColumns.COIN: "w",
+            self.BalancesColumns.USD_TICKER: "e",
+            self.BalancesColumns.TOTAL: "e",
+            self.BalancesColumns.FREE: "e",
+            self.BalancesColumns.TOTAL_USD: "e",
         }
 
-        for column, (percentage, anchor) in col_configs.items():
-            if self.balances_treeview:
-                width = int(TOTAL_WIDTH * percentage)
+        total_ratio = sum(col_ratios.values())
+        available_width = self.balances_treeview.winfo_width()
+
+        for column in self.BalancesColumns:
+            if self.balances_treeview and total_ratio > 0:
+                ratio = col_ratios.get(column, 0)
+                anchor = col_anchors.get(column, "center")
+                width = int((ratio / total_ratio) * available_width)
                 self.balances_treeview.heading(column.value, text=column.value, anchor=anchor)
-                self.balances_treeview.column(column.value, width=width, anchor=anchor)
+                self.balances_treeview.column(column.value, width=width, anchor=anchor, stretch=False)
 
     def update_balance_display(self) -> None:
         if self.balances_treeview:
@@ -468,7 +525,13 @@ class BaseConfigWindow:
         try:
             with open(self.config_file_path, 'w') as file:
                 yaml_writer.dump(new_config, file)
-            self.update_status("Configuration saved successfully. Restart required to apply changes.", 'lightgreen')
+
+            # Reload the master configuration manager to pick up changes from the file.
+            if self.parent.master_config_manager:
+                self.parent.master_config_manager.load_configs()
+
+            self.update_status("Configuration saved and reloaded successfully.", 'lightgreen')
+            # Now, reload the strategy frame's specific configuration from the master.
             self.parent.reload_configuration(loadxbridgeconf=True)
         except Exception as e:
             self.update_status(f"Failed to save configuration: {e}", 'lightcoral')
@@ -770,6 +833,11 @@ class GUI_Config_BasicSeller(BaseConfigWindow):
 class BasicSellerFrame(BaseStrategyFrame):
     def __init__(self, parent, main_app: "GUI_Main", master_config_manager: ConfigManager):
         super().__init__(parent, main_app, "basic_seller", master_config_manager)
+        # Configure the grid for expansion. This allows the child frames
+        # (orders, balances) to grow with the window.
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(1, weight=1)  # Orders frame
+        self.grid_rowconfigure(2, weight=1)  # Balances frame
 
     def create_widgets(self):
         self.gui_orders = GUI_Orders(self)
@@ -816,6 +884,11 @@ class BasicSellerFrame(BaseStrategyFrame):
 class ArbitrageFrame(BaseStrategyFrame):
     def __init__(self, parent, main_app: "GUI_Main", master_config_manager: ConfigManager):
         super().__init__(parent, main_app, "arbitrage", master_config_manager)
+        # Configure the grid for expansion. This allows the child frames
+        # (orders, balances) to grow with the window.
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(1, weight=1)  # Orders frame
+        self.grid_rowconfigure(2, weight=1)  # Balances frame
 
     def create_widgets(self):
         ttk.Label(self, text="Arbitrage Controls Go Here").pack(padx=20, pady=20)
@@ -848,9 +921,14 @@ class LogFrame(ttk.Frame):
         self.log_text.tag_config("CRITICAL", foreground="red", underline=1)
 
     def add_log(self, message: str, level: str):
-        """Adds a log message to the text widget. Thread-safe."""
+        """
+        Adds a pre-formatted log message to the text widget. Thread-safe.
+        """
         self.log_text.config(state='normal')
+        # The level name is used as the tag for coloring
         self.log_text.insert(tk.END, message, (level,))
+        if not message.endswith('\n'):
+            self.log_text.insert(tk.END, '\n')
         self.log_text.see(tk.END)
         self.log_text.config(state='disabled')
 
@@ -860,11 +938,11 @@ class TextLogHandler(logging.Handler):
     def __init__(self, log_frame: LogFrame):
         super().__init__()
         self.log_frame = log_frame
-        self.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s', datefmt='%H:%M:%S'))
 
     def emit(self, record):
-        msg = self.format(record) + '\n'
-        self.log_frame.after(0, self.log_frame.add_log, msg, record.levelname)
+        # The handler's formatter (set in gui.py) creates the string.
+        # We pass the formatted string and the original levelname to the LogFrame.
+        self.log_frame.after(0, self.log_frame.add_log, self.format(record), record.levelname)
 
 
 class StdoutRedirector:

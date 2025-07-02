@@ -10,6 +10,9 @@ class ColoredFormatter(logging.Formatter):
     """A custom formatter to add colors to log levels for console output."""
 
     def format(self, record):
+        # Store the original levelname to restore it later, preventing side effects
+        original_levelname = record.levelname
+
         level_colors = {
             logging.DEBUG: bcolors.OKCYAN,
             logging.INFO: bcolors.OKGREEN,
@@ -18,8 +21,10 @@ class ColoredFormatter(logging.Formatter):
             logging.CRITICAL: bcolors.FAIL + bcolors.BOLD,
         }
         color = level_colors.get(record.levelno, bcolors.ENDC)
-        record.levelname = f"{color}{record.levelname: <6}{bcolors.ENDC}"  # Pad to 8 chars for alignment
-        return super().format(record)
+        record.levelname = f"{color}{original_levelname:<7s}{bcolors.ENDC}"  # Pad to 7 chars for alignment
+        formatted_message = super().format(record)
+        record.levelname = original_levelname  # Restore original levelname
+        return formatted_message
 
 
 class FlushStreamHandler(logging.StreamHandler):
@@ -33,6 +38,11 @@ def setup_logging(name, log_file=None, level=logging.INFO, console=False):
     log_handle = logging.getLogger(name)
     log_handle.setLevel(level)
 
+    # If the GUI is active, it will handle all handler configuration.
+    # We just return the logger instance to prevent duplicate handlers.
+    if os.getenv('XBRIDGE_GUI_ACTIVE'):
+        return log_handle
+
     if log_handle.handlers:
         log_handle.handlers.clear()
 
@@ -45,7 +55,7 @@ def setup_logging(name, log_file=None, level=logging.INFO, console=False):
     if console:
         ch = FlushStreamHandler()
         # Use the colored formatter for console output, and pad the name for alignment
-        ch.setFormatter(ColoredFormatter('[%(asctime)s] [%(name)-18s] %(levelname)s - %(message)s'))
+        ch.setFormatter(ColoredFormatter('[%(asctime)s] [%(name)-20s] %(levelname)s - %(message)s'))
         ch.setLevel(level)
         log_handle.addHandler(ch)
 
@@ -58,7 +68,7 @@ def setup_logger(strategy=None, ROOT_DIR=None):
                                     log_file=ROOT_DIR + '/logs/' + strategy + '_general.log',
                                     level=logging.DEBUG,  # Changed to DEBUG for comprehensive logging
                                     console=True)
-        general_log.propagate = False
+        general_log.propagate = True
         trade_log = setup_logging(name=f"{strategy}.trade",
                                   log_file=ROOT_DIR + '/logs/' + strategy + '_trade.log',
                                   level=logging.INFO,

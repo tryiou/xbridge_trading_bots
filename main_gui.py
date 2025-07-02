@@ -1,3 +1,4 @@
+import os
 import signal
 import sys
 
@@ -15,6 +16,9 @@ def signal_handler(sig, frame):
 
 
 if __name__ == '__main__':
+    # Set an environment variable to signal that the GUI is running.
+    # This allows other modules to adjust their behavior (e.g., logging).
+    os.environ['XBRIDGE_GUI_ACTIVE'] = 'true'
     app = GUI_Main()
     app.root.protocol("WM_DELETE_WINDOW", app.on_closing)
 

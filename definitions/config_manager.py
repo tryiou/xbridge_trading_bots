@@ -1,5 +1,6 @@
 import os
 import shutil
+import logging
 from ruamel.yaml import YAML
 
 from definitions.ccxt_manager import CCXTManager
@@ -17,7 +18,16 @@ class ConfigManager:
     def __init__(self, strategy, master_manager=None):
         self.strategy = strategy
         self.ROOT_DIR = os.path.abspath(os.curdir)
-        self.general_log, self.trade_log, self.ccxt_log = setup_logger(strategy, self.ROOT_DIR)
+
+        if master_manager:
+            # In GUI slave mode, just get a reference to the existing loggers.
+            # The GUI's setup_logging will handle their configuration.
+            self.general_log = logging.getLogger(f"{strategy}.general")
+            self.trade_log = logging.getLogger(f"{strategy}.trade")
+            self.ccxt_log = logging.getLogger(f"{strategy}.ccxt")
+        else:
+            # In standalone or master GUI mode, set up the loggers from scratch.
+            self.general_log, self.trade_log, self.ccxt_log = setup_logger(strategy, self.ROOT_DIR)
 
         # Initialize config attributes to None
         self.config_ccxt = None
@@ -231,7 +241,7 @@ class ConfigManager:
 
         # Initialize pairs based on strategy
         self._init_pairs(**kwargs)
-        if self.ccxt_manager and self.ccxt_manager.my_ccxt is None:
+        if self.ccxt_manager and getattr(self.ccxt_manager, 'my_ccxt', None) is None:
             self._init_ccxt()
         # dxloadxbridgeconf is now called asynchronously in MainController.main_init_loop
         # self._init_xbridge() # This method is now effectively a no-op if dxloadxbridgeconf is removed

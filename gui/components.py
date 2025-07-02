@@ -17,8 +17,11 @@ class BaseDialog(tk.Toplevel):
         self.result = None
         self.config = config
         self.transient(parent)
-        # Defer grab_set until the window is drawn to prevent `window not viewable` error.
-        self.after_idle(self.grab_set)
+        # Force the window to be drawn and handle pending events before grabbing.
+        # This is a more reliable way to prevent the "window not viewable" error
+        # than self.after_idle(), which can sometimes fire too early.
+        self.update_idletasks()
+        self.grab_set()
 
     def _validate_pair(self, pair_var):
         pair = pair_var.get().strip().upper()
