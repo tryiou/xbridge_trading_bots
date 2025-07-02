@@ -130,7 +130,7 @@ class GUI_Main:
         for frame in running_frames:
             logging.info(f"Stopping {frame.strategy_name} bot...")
             # Wait indefinitely for each bot to stop
-            frame.stop(reload_config=False, join_timeout=None)
+            frame.stop(blocking=True, reload_config=False)
 
         logging.info("All bots stopped. Closing application.")
         self.root.after(0, self.root.destroy)

@@ -26,6 +26,7 @@ class BaseStrategyFrame(ttk.Frame):
         self.config_manager: ConfigManager | None = None
         self.send_process: threading.Thread | None = None
         self.started = False
+        self.stopping = False
         self.refresh_id = None
 
         self.initialize_config()
@@ -50,6 +51,7 @@ class BaseStrategyFrame(ttk.Frame):
         if not self.config_manager:
             return
 
+        self.stopping = False  # Reset stopping flag on start
         self.main_app.status_var.set(f"{self.strategy_name.capitalize()} bot is running...")
         startup_tasks = self.config_manager.strategy_instance.get_startup_tasks()
         self.send_process = threading.Thread(target=run_async_main,
@@ -63,14 +65,18 @@ class BaseStrategyFrame(ttk.Frame):
         except Exception as e:
             self.main_app.status_var.set(f"Error starting {self.strategy_name} bot: {e}")
             self.config_manager.general_log.error(f"Error starting bot thread: {e}")
-            self.stop(reload_config=False)
+            self.stop(blocking=True, reload_config=False)
 
-    def stop(self, reload_config: bool = True, join_timeout: int | None = 5):
-        """Stops the bot and performs cleanup."""
-        if not self.config_manager:
+    def stop(self, blocking: bool = False, reload_config: bool = True):
+        """
+        Signals the bot to stop. If blocking is True, waits for the thread to finish.
+        """
+        if not self.config_manager or not self.send_process or self.stopping:
             return
 
-        self.main_app.status_var.set(f"Stopping {self.strategy_name} bot...")
+        self.stopping = True
+        self.update_button_states()  # Disable buttons immediately
+        self.main_app.status_var.set(f"Stopping {self.strategy_name} bot, please wait...")
         self.config_manager.general_log.info(f"Attempting to stop {self.strategy_name} bot...")
 
         if self.config_manager.controller and self.config_manager.controller.loop:
@@ -78,18 +84,28 @@ class BaseStrategyFrame(ttk.Frame):
             self.config_manager.controller.loop.call_soon_threadsafe(
                 self.config_manager.controller.shutdown_event.set
             )
+
+        if blocking:
+            # Used for application shutdown where we need to wait
+            if self.send_process:
+                self.send_process.join()  # Wait indefinitely
+            self._finalize_stop(reload_config)
+
+    def _finalize_stop(self, reload_config: bool = True):
+        """Cleans up the state after the bot thread has stopped."""
         if self.send_process:
-            self.send_process.join(timeout=join_timeout)
             if self.send_process.is_alive():
                 self.config_manager.general_log.warning("Bot thread did not terminate gracefully.")
-                self.main_app.status_var.set("Bot stopped (thread timeout).")
+                self.main_app.status_var.set("Bot stopped (forcefully).")
             else:
                 self.main_app.status_var.set("Bot stopped.")
                 self.config_manager.general_log.info("Bot stopped successfully.")
 
+        self.send_process = None
         self.started = False
+        self.stopping = False
         self.update_button_states()
-
+        
         if reload_config:
             self.reload_configuration(loadxbridgeconf=False)
 
@@ -118,11 +134,19 @@ class BaseStrategyFrame(ttk.Frame):
 
     def refresh_gui(self):
         """Refreshes the GUI display periodically. To be overridden."""
-        if self.started and self.send_process and not self.send_process.is_alive():
+        # Check if a non-blocking stop has completed
+        if self.stopping and self.send_process and not self.send_process.is_alive():
+            self.config_manager.general_log.info(f"Detected stopped thread for {self.strategy_name}. Finalizing...")
+            self._finalize_stop()
+            return  # Stop the refresh loop for this frame
+
+        # Check for a crash (thread died while it was supposed to be running)
+        if self.started and not self.stopping and self.send_process and not self.send_process.is_alive():
             self.config_manager.general_log.error(f"{self.strategy_name} bot crashed!")
             self.main_app.status_var.set(f"{self.strategy_name} bot crashed!")
-            self.stop(reload_config=False)
+            self._finalize_stop(reload_config=False)
             self.cancel_all()
+            return  # Stop the refresh loop for this frame
         
         self.refresh_id = self.after(1500, self.refresh_gui)
 
@@ -130,7 +154,7 @@ class BaseStrategyFrame(ttk.Frame):
         """Handles the application closing event."""
         if self.config_manager:
             self.config_manager.general_log.info(f"Closing {self.strategy_name} strategy...")
-        self.stop(reload_config=False)
+        self.stop(blocking=True, reload_config=False)
 
     def reload_configuration(self, loadxbridgeconf: bool = True):
         """Reloads the bot's configuration and refreshes the GUI display."""
@@ -145,7 +169,14 @@ class BaseStrategyFrame(ttk.Frame):
 
     def update_button_states(self):
         """Updates button states based on bot status. To be overridden."""
-        pass
+        if self.stopping:
+            self.btn_start.config(state="disabled")
+            self.btn_stop.config(state="disabled")
+            self.btn_configure.config(state="disabled")
+        else:
+            self.btn_start.config(state="normal" if not self.started else "disabled")
+            self.btn_stop.config(state="disabled" if not self.started else "normal")
+            self.btn_configure.config(state="normal" if not self.started else "disabled")
 
 class PingPongFrame(BaseStrategyFrame):
     def __init__(self, parent, main_app: "GUI_Main", master_config_manager: ConfigManager):
@@ -170,18 +201,13 @@ class PingPongFrame(BaseStrategyFrame):
         btn_width = 12
         self.btn_start = ttk.Button(button_frame, text="START", command=self.start, width=btn_width)
         self.btn_start.grid(column=0, row=0, padx=5, pady=5)
-        self.btn_stop = ttk.Button(button_frame, text="STOP", command=self.stop, width=btn_width)
+        self.btn_stop = ttk.Button(button_frame, text="STOP", command=lambda: self.stop(blocking=False), width=btn_width)
         self.btn_stop.grid(column=1, row=0, padx=5, pady=5)
         self.btn_cancel_all = ttk.Button(button_frame, text="CANCEL ALL", command=self.cancel_all, width=btn_width)
         self.btn_cancel_all.grid(column=2, row=0, padx=5, pady=5)
         self.btn_configure = ttk.Button(button_frame, text="CONFIGURE", command=self.open_configure_window, width=btn_width)
         self.btn_configure.grid(column=3, row=0, padx=5, pady=5)
         self.update_button_states()
-
-    def update_button_states(self):
-        self.btn_start.config(state="disabled" if self.started else "active")
-        self.btn_stop.config(state="active" if self.started else "disabled")
-        self.btn_configure.config(state="disabled" if self.started else "active")
 
     def refresh_gui(self):
         if self.winfo_exists(): # Check if widget exists before proceeding
@@ -494,9 +520,9 @@ class BaseConfigWindow:
 
     def on_close(self) -> None:
         if hasattr(self.parent, 'btn_start'):
-            self.parent.btn_start.config(state="active")
+            self.parent.btn_start.config(state="normal")
         if hasattr(self.parent, 'btn_configure'):
-            self.parent.btn_configure.config(state="active")
+            self.parent.btn_configure.config(state="normal")
         if self.config_window:
             self.config_window.destroy()
         self.config_window = None
@@ -853,18 +879,13 @@ class BasicSellerFrame(BaseStrategyFrame):
         btn_width = 12
         self.btn_start = ttk.Button(button_frame, text="START", command=self.start, width=btn_width)
         self.btn_start.grid(column=0, row=0, padx=5, pady=5)
-        self.btn_stop = ttk.Button(button_frame, text="STOP", command=self.stop, width=btn_width)
+        self.btn_stop = ttk.Button(button_frame, text="STOP", command=lambda: self.stop(blocking=False), width=btn_width)
         self.btn_stop.grid(column=1, row=0, padx=5, pady=5)
         self.btn_cancel_all = ttk.Button(button_frame, text="CANCEL ALL", command=self.cancel_all, width=btn_width)
         self.btn_cancel_all.grid(column=2, row=0, padx=5, pady=5)
         self.btn_configure = ttk.Button(button_frame, text="CONFIGURE", command=self.open_configure_window, width=btn_width)
         self.btn_configure.grid(column=3, row=0, padx=5, pady=5)
         self.update_button_states()
-
-    def update_button_states(self):
-        self.btn_start.config(state="disabled" if self.started else "active")
-        self.btn_stop.config(state="active" if self.started else "disabled")
-        self.btn_configure.config(state="disabled" if self.started else "active")
 
     def open_configure_window(self):
         self.gui_config.open()
