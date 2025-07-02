@@ -1,12 +1,16 @@
 # gui/gui.py
 import asyncio
+import logging
+import sys
 import threading
 import tkinter as tk
 from tkinter import ttk
 
 from ttkbootstrap import Style
 
-from .frames import PingPongFrame, BasicSellerFrame, ArbitrageFrame
+from definitions.config_manager import ConfigManager
+from .frames import (ArbitrageFrame, BasicSellerFrame, LogFrame, PingPongFrame,
+                   StdoutRedirector, TextLogHandler)
 
 
 class GUI_Main:
@@ -19,22 +23,65 @@ class GUI_Main:
         self.status_var = tk.StringVar(value="Idle")
 
         self.notebook = ttk.Notebook(self.root)
-        self.notebook.pack(pady=10, padx=10, fill="both", expand=True)
+        self.notebook.pack(pady=10, padx=10)
 
-        # Create and add frames for each strategy
+        # Create the log frame and set up logging *before* creating other frames
+        # that might use logging during their initialization.
+        self.log_frame = LogFrame(self.notebook)
+        self.setup_logging()  # Sets up logging handlers
+
+        # Create a master ConfigManager to hold shared resources
+        self.master_config_manager = ConfigManager(strategy="gui")
+
+        # Now, create and add frames for each strategy
         self.strategy_frames = {
-            'PingPong': PingPongFrame(self.notebook, self),
-            'Basic Seller': BasicSellerFrame(self.notebook, self),
-            'Arbitrage': ArbitrageFrame(self.notebook, self),
+            'PingPong': PingPongFrame(self.notebook, self, self.master_config_manager),
+            'Basic Seller': BasicSellerFrame(self.notebook, self, self.master_config_manager),
+            'Arbitrage': ArbitrageFrame(self.notebook, self, self.master_config_manager),
         }
         for text, frame in self.strategy_frames.items():
             self.notebook.add(frame, text=text)
+
+        # Add the log frame to the notebook at the end
+        self.notebook.add(self.log_frame, text='Logs')
 
         self.create_status_bar()
 
         # Start the refresh loop for the initially selected tab
         self.notebook.bind("<<NotebookTabChanged>>", self.on_tab_changed)
         self.on_tab_changed()  # Manually trigger for the first tab
+
+    def setup_logging(self):
+        """Configures logging to display in the GUI and redirects stdout/stderr."""
+        original_stdout = sys.stdout
+        original_stderr = sys.stderr
+
+        # Configure the root logger
+        root_logger = logging.getLogger()
+        root_logger.setLevel(logging.INFO)
+
+        # Clear all handlers from all existing loggers to centralize control
+        for name in logging.root.manager.loggerDict:
+            logging.getLogger(name).handlers.clear()
+        root_logger.handlers.clear()
+
+        # Add the custom handler for the GUI log panel
+        gui_handler = TextLogHandler(self.log_frame)
+        root_logger.addHandler(gui_handler)
+
+        # Add a handler to also print logs to the console (stdout)
+        # Use a format that matches the application's original console output
+        console_formatter = logging.Formatter('[%(asctime)s] [%(name)-18s] %(levelname)-7s - %(message)s',
+                                              datefmt='%Y-%m-%d %H:%M:%S')
+        console_handler = logging.StreamHandler(original_stdout)
+        console_handler.setFormatter(console_formatter)
+        root_logger.addHandler(console_handler)
+
+        # Redirect raw stdout and stderr for non-logging output (e.g., print() statements)
+        sys.stdout = StdoutRedirector(self.log_frame, "INFO", original_stdout)
+        sys.stderr = StdoutRedirector(self.log_frame, "ERROR", original_stderr)
+
+        logging.info("Logging initialized. GUI is ready.")
 
     def create_status_bar(self) -> None:
         """Creates the status bar at the bottom of the main window."""
@@ -55,7 +102,32 @@ class GUI_Main:
             selected_widget.start_refresh()
 
     def on_closing(self) -> None:
-        """Handles the application closing event."""
-        for frame in self.strategy_frames.values():
-            frame.on_closing()
-        self.root.destroy()
+        """Handles the application closing event by stopping bots in a background thread."""
+        # Prevent multiple shutdown attempts
+        if getattr(self, "_is_closing", False):
+            return
+        self._is_closing = True
+
+        logging.info("Shutdown initiated. Stopping all running bots...")
+        self.status_var.set("Shutting down... Please wait.")
+        # Disable the close button to prevent multiple clicks
+        self.root.protocol("WM_DELETE_WINDOW", lambda: None)
+
+        # Start the shutdown process in a separate thread to avoid freezing the GUI
+        shutdown_thread = threading.Thread(target=self._shutdown_worker, daemon=True)
+        shutdown_thread.start()
+
+    def _shutdown_worker(self):
+        """Worker thread to gracefully stop all bot threads."""
+        running_frames = [
+            frame for frame in self.strategy_frames.values() if frame.started
+        ]
+
+        # Stop each bot. The `stop` method will block this worker thread, which is what we want.
+        for frame in running_frames:
+            logging.info(f"Stopping {frame.strategy_name} bot...")
+            # Wait indefinitely for each bot to stop
+            frame.stop(reload_config=False, join_timeout=None)
+
+        logging.info("All bots stopped. Closing application.")
+        self.root.after(0, self.root.destroy)

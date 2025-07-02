@@ -1,5 +1,6 @@
 # gui/frames.py
 import asyncio
+import logging
 import threading
 import tkinter as tk
 from tkinter import ttk
@@ -19,9 +20,10 @@ TOTAL_WIDTH = 500
 
 class BaseStrategyFrame(ttk.Frame):
     """Base class for strategy-specific frames in the GUI."""
-    def __init__(self, parent, main_app: "GUI_Main", strategy_name: str):
+    def __init__(self, parent, main_app: "GUI_Main", strategy_name: str, master_config_manager: ConfigManager):
         super().__init__(parent)
         self.main_app = main_app
+        self.master_config_manager = master_config_manager
         self.strategy_name = strategy_name
         self.config_manager: ConfigManager | None = None
         self.send_process: threading.Thread | None = None
@@ -34,7 +36,7 @@ class BaseStrategyFrame(ttk.Frame):
     def initialize_config(self, loadxbridgeconf: bool = True):
         """Initializes the configuration manager for the specific strategy."""
         try:
-            self.config_manager = ConfigManager(strategy=self.strategy_name)
+            self.config_manager = ConfigManager(strategy=self.strategy_name, master_manager=self.master_config_manager)
             self.config_manager.initialize(loadxbridgeconf=loadxbridgeconf)
         except Exception as e:
             self.main_app.status_var.set(f"Error initializing {self.strategy_name}: {e}")
@@ -65,7 +67,7 @@ class BaseStrategyFrame(ttk.Frame):
             self.config_manager.general_log.error(f"Error starting bot thread: {e}")
             self.stop(reload_config=False)
 
-    def stop(self, reload_config: bool = True):
+    def stop(self, reload_config: bool = True, join_timeout: int | None = 5):
         """Stops the bot and performs cleanup."""
         if not self.config_manager:
             return
@@ -77,7 +79,7 @@ class BaseStrategyFrame(ttk.Frame):
             self.config_manager.controller.shutdown_event.set()
 
         if self.send_process:
-            self.send_process.join(timeout=5)
+            self.send_process.join(timeout=join_timeout)
             if self.send_process.is_alive():
                 self.config_manager.general_log.warning("Bot thread did not terminate gracefully.")
                 self.main_app.status_var.set("Bot stopped (thread timeout).")
@@ -146,8 +148,8 @@ class BaseStrategyFrame(ttk.Frame):
         pass
 
 class PingPongFrame(BaseStrategyFrame):
-    def __init__(self, parent, main_app: "GUI_Main"):
-        super().__init__(parent, main_app, "pingpong")
+    def __init__(self, parent, main_app: "GUI_Main", master_config_manager: ConfigManager):
+        super().__init__(parent, main_app, "pingpong", master_config_manager)
 
     def create_widgets(self):
         self.gui_orders = GUI_Orders(self)
@@ -766,8 +768,8 @@ class GUI_Config_BasicSeller(BaseConfigWindow):
         return {'seller_configs': seller_configs}
 
 class BasicSellerFrame(BaseStrategyFrame):
-    def __init__(self, parent, main_app: "GUI_Main"):
-        super().__init__(parent, main_app, "basic_seller")
+    def __init__(self, parent, main_app: "GUI_Main", master_config_manager: ConfigManager):
+        super().__init__(parent, main_app, "basic_seller", master_config_manager)
 
     def create_widgets(self):
         self.gui_orders = GUI_Orders(self)
@@ -812,11 +814,76 @@ class BasicSellerFrame(BaseStrategyFrame):
         self.gui_balances.create_balances_treeview()
 
 class ArbitrageFrame(BaseStrategyFrame):
-    def __init__(self, parent, main_app: "GUI_Main"):
-        super().__init__(parent, main_app, "arbitrage")
+    def __init__(self, parent, main_app: "GUI_Main", master_config_manager: ConfigManager):
+        super().__init__(parent, main_app, "arbitrage", master_config_manager)
 
     def create_widgets(self):
         ttk.Label(self, text="Arbitrage Controls Go Here").pack(padx=20, pady=20)
         # TODO: Add entry field for min_profit_margin.
         # TODO: Add a Text widget to display arbitrage opportunities.
         # TODO: Add START/STOP buttons.
+
+
+# --- New Logging Components ---
+
+class LogFrame(ttk.Frame):
+    """A frame for displaying application logs."""
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.grid_rowconfigure(0, weight=1)
+        self.grid_columnconfigure(0, weight=1)
+
+        self.log_text = tk.Text(self, wrap='word', state='disabled', height=10, background="#222", foreground="white")
+        scrollbar = ttk.Scrollbar(self, orient="vertical", command=self.log_text.yview)
+        self.log_text.configure(yscrollcommand=scrollbar.set)
+
+        self.log_text.grid(row=0, column=0, sticky='nsew')
+        scrollbar.grid(row=0, column=1, sticky='ns')
+
+        # Configure tags for different log levels
+        self.log_text.tag_config("INFO", foreground="white")
+        self.log_text.tag_config("DEBUG", foreground="gray")
+        self.log_text.tag_config("WARNING", foreground="orange")
+        self.log_text.tag_config("ERROR", foreground="red")
+        self.log_text.tag_config("CRITICAL", foreground="red", underline=1)
+
+    def add_log(self, message: str, level: str):
+        """Adds a log message to the text widget. Thread-safe."""
+        self.log_text.config(state='normal')
+        self.log_text.insert(tk.END, message, (level,))
+        self.log_text.see(tk.END)
+        self.log_text.config(state='disabled')
+
+
+class TextLogHandler(logging.Handler):
+    """A logging handler that directs output to a Tkinter Text widget."""
+    def __init__(self, log_frame: LogFrame):
+        super().__init__()
+        self.log_frame = log_frame
+        self.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s', datefmt='%H:%M:%S'))
+
+    def emit(self, record):
+        msg = self.format(record) + '\n'
+        self.log_frame.after(0, self.log_frame.add_log, msg, record.levelname)
+
+
+class StdoutRedirector:
+    """A class to redirect stdout/stderr to the GUI log frame."""
+    def __init__(self, log_frame: LogFrame, level: str, original_stream):
+        self.log_frame = log_frame
+        self.level = level
+        self.original_stream = original_stream
+
+    def write(self, message: str):
+        # Write to the original stream (console) first
+        if self.original_stream:
+            self.original_stream.write(message)
+            self.original_stream.flush()
+
+        # Then write to the GUI log frame
+        if message.strip():
+            self.log_frame.after(0, self.log_frame.add_log, message, self.level)
+
+    def flush(self):
+        if self.original_stream:
+            self.original_stream.flush()

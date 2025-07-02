@@ -14,28 +14,55 @@ from strategies.pingpong_strategy import PingPongStrategy
 
 
 class ConfigManager:
-    def __init__(self, strategy):
+    def __init__(self, strategy, master_manager=None):
         self.strategy = strategy
         self.ROOT_DIR = os.path.abspath(os.curdir)
         self.general_log, self.trade_log, self.ccxt_log = setup_logger(strategy, self.ROOT_DIR)
+
+        # Initialize config attributes to None
         self.config_ccxt = None
         self.config_coins = None
         self.config_pingppong = None
         self.config_basicseller = None
-        self.config_xbridge = None  # XBridge configuration
-        self.config_arbitrage = None  # Arbitrage configuration
-        self.config_thorchain = None  # Thorchain configuration
+        self.config_xbridge = None
+        self.config_arbitrage = None
+        self.config_thorchain = None
+
+        if master_manager:
+            # GUI Mode: Copy shared resources from the master instance
+            self.general_log.info(f"Attaching to shared resources for strategy: {self.strategy}")
+            self.config_ccxt = master_manager.config_ccxt
+            self.config_coins = master_manager.config_coins
+            self.config_pingppong = master_manager.config_pingppong
+            self.config_basicseller = master_manager.config_basicseller
+            self.config_xbridge = master_manager.config_xbridge
+            self.config_arbitrage = master_manager.config_arbitrage
+            self.config_thorchain = master_manager.config_thorchain
+            self.xbridge_manager = master_manager.xbridge_manager
+            self.ccxt_manager = master_manager.ccxt_manager
+        else:
+            # Standalone or Master GUI Mode: Create all resources from scratch
+            self.load_configs()
+            self.xbridge_manager = XBridgeManager(self)
+            self.ccxt_manager = CCXTManager(self)
+            # If this is the master GUI manager, initialize shared components now.
+            if self.strategy == "gui":
+                self._init_ccxt()
+
         self.strategy_config = {}
         self.strategy_instance: BaseStrategy = None
-        self.load_configs()
         self.tokens = {}  # Token data
         self.pairs = {}  # Pair data
-        self.my_ccxt = None  # CCXT instance
-        self.xbridge_manager = None
-        self.ccxt_manager = CCXTManager(self)
         self.load_xbridge_conf_on_startup = True  # Default value, will be updated by initialize
         self.disabled_coins = []  # Centralized disabled coins tracking
         self.controller = None
+
+    @property
+    def my_ccxt(self):
+        """Provides backward compatibility for accessing the ccxt instance."""
+        if self.ccxt_manager:
+            return getattr(self.ccxt_manager, 'my_ccxt', None)
+        return None
 
     def create_configs_from_templates(self):
         # Check and create config files if they don't exist
@@ -121,11 +148,13 @@ class ConfigManager:
         self.config_ccxt = self._load_and_update_config("config_ccxt.yaml")
         self.config_coins = self._load_and_update_config("config_coins.yaml")
         self.config_xbridge = self._load_and_update_config("config_xbridge.yaml")
-        if self.strategy == "pingpong":
+        # In standalone mode, only load the relevant strategy config.
+        # In GUI mode (strategy='gui'), load all of them.
+        if self.strategy in ["pingpong", "gui"]:
             self.config_pingppong = self._load_and_update_config("config_pingpong.yaml")
-        if self.strategy == "basic_seller":
+        if self.strategy in ["basic_seller", "gui"]:
             self.config_basicseller = self._load_and_update_config("config_basicseller.yaml")
-        if self.strategy == "arbitrage":
+        if self.strategy in ["arbitrage", "gui"]:
             self.config_arbitrage = self._load_and_update_config("config_arbitrage.yaml")
             self.config_thorchain = self._load_and_update_config("config_thorchain.yaml")
 
@@ -166,7 +195,7 @@ class ConfigManager:
 
     def _init_ccxt(self):
         """Initialize CCXT instance"""
-        self.my_ccxt = self.ccxt_manager.init_ccxt_instance(
+        self.ccxt_manager.my_ccxt = self.ccxt_manager.init_ccxt_instance(
             exchange=self.config_ccxt.ccxt_exchange,
             hostname=self.config_ccxt.ccxt_hostname,
             private_api=False,
@@ -183,13 +212,13 @@ class ConfigManager:
 
         self.tokens = {}  # Token data
         self.pairs = {}  # Pair data
-        self.xbridge_manager = XBridgeManager(self)
         self.load_xbridge_conf_on_startup = loadxbridgeconf  # Store the flag
 
         strategy_map = {
             "pingpong": PingPongStrategy,
             "basic_seller": BasicSellerStrategy,
             "arbitrage": ArbitrageStrategy,
+            "gui": None,  # 'gui' strategy doesn't have a strategy instance
         }
         strategy_class = strategy_map.get(self.strategy)
         if not strategy_class:
@@ -202,7 +231,7 @@ class ConfigManager:
 
         # Initialize pairs based on strategy
         self._init_pairs(**kwargs)
-        if self.my_ccxt is None:
+        if self.ccxt_manager and self.ccxt_manager.my_ccxt is None:
             self._init_ccxt()
         # dxloadxbridgeconf is now called asynchronously in MainController.main_init_loop
         # self._init_xbridge() # This method is now effectively a no-op if dxloadxbridgeconf is removed
