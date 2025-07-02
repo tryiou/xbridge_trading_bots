@@ -5,6 +5,14 @@ from .bcolors import bcolors
 
 formatter = logging.Formatter('[%(asctime)s] [%(module)s] %(levelname)s - %(message)s')
 
+_GUI_MODE_ACTIVE = False
+
+
+def set_gui_mode(active=True):
+    """Sets a global flag to indicate if the application is running in GUI mode."""
+    global _GUI_MODE_ACTIVE
+    _GUI_MODE_ACTIVE = active
+
 
 class ColoredFormatter(logging.Formatter):
     """A custom formatter to add colors to log levels for console output."""
@@ -33,14 +41,14 @@ class FlushStreamHandler(logging.StreamHandler):
         self.flush()
 
 
-def setup_logging(name, log_file=None, level=logging.INFO, console=False):
+def setup_logging(name, log_file=None, level=logging.INFO, console=False, force=False):
     """To set up as many loggers as you want, with console flushing"""
     log_handle = logging.getLogger(name)
     log_handle.setLevel(level)
 
     # If the GUI is active, it will handle all handler configuration.
     # We just return the logger instance to prevent duplicate handlers.
-    if os.getenv('XBRIDGE_GUI_ACTIVE'):
+    if _GUI_MODE_ACTIVE and not force:
         return log_handle
 
     if log_handle.handlers:

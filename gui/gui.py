@@ -1,6 +1,7 @@
 # gui/gui.py
 import asyncio
 import logging
+import os
 import sys
 import threading
 import tkinter as tk
@@ -9,7 +10,7 @@ from tkinter import ttk
 from ttkbootstrap import Style
 
 from definitions.config_manager import ConfigManager
-from definitions.logger import ColoredFormatter
+from definitions.logger import ColoredFormatter, setup_logging as setup_file_logging
 from .frames import (ArbitrageFrame, BasicSellerFrame, LogFrame, PingPongFrame,
                    StdoutRedirector, TextLogHandler)
 
@@ -65,6 +66,13 @@ class GUI_Main:
         # Since the backend loggers no longer add handlers in GUI mode,
         # we only need to clear the root logger to ensure a clean setup.
         root_logger.handlers.clear() # Also clear root logger's handlers
+
+        # Use the existing setup_logging function to add the file handler to the root logger.
+        # This is forced to run even in GUI mode to restore file logging.
+        log_dir = os.path.join(os.path.abspath(os.curdir), "logs")
+        os.makedirs(log_dir, exist_ok=True)
+        log_file = os.path.join(log_dir, "gui_general.log")
+        setup_file_logging(name=None, log_file=log_file, level=logging.INFO, force=True)
 
         # Add the custom handler for the GUI log panel
         gui_handler = TextLogHandler(self.log_frame)
