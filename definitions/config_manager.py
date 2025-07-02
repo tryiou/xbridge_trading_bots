@@ -39,7 +39,8 @@ class ConfigManager:
         self.config_thorchain = None
 
         if master_manager:
-            # GUI Mode: Copy shared resources from the master instance
+            # GUI Slave Mode: Inherit configs, but create own managers to ensure
+            # correct logger context.
             self.general_log.info(f"Attaching to shared resources for strategy: {self.strategy}")
             self.config_ccxt = master_manager.config_ccxt
             self.config_coins = master_manager.config_coins
@@ -48,8 +49,16 @@ class ConfigManager:
             self.config_xbridge = master_manager.config_xbridge
             self.config_arbitrage = master_manager.config_arbitrage
             self.config_thorchain = master_manager.config_thorchain
-            self.xbridge_manager = master_manager.xbridge_manager
-            self.ccxt_manager = master_manager.ccxt_manager
+
+            # Create new manager instances. They will be initialized with this
+            # slave ConfigManager instance, giving them the correct logger.
+            self.xbridge_manager = XBridgeManager(self)
+            self.ccxt_manager = CCXTManager(self)
+
+            # Share the underlying CCXT connection object from the master to avoid
+            # re-initializing it (e.g., re-loading markets).
+            if master_manager.ccxt_manager:
+                self.ccxt_manager.my_ccxt = getattr(master_manager.ccxt_manager, 'my_ccxt', None)
         else:
             # Standalone or Master GUI Mode: Create all resources from scratch
             self.load_configs()
@@ -217,6 +226,11 @@ class ConfigManager:
         self.xbridge_manager.dxloadxbridgeconf()
 
     def initialize(self, **kwargs):
+        """
+        Initializes the ConfigManager, preparing strategy-specific configurations,
+        tokens, and pairs.  This should only be used for strategies that require
+        their own isolated environment.  For the GUI, see `initialize_ccxt`.
+        """
         loadxbridgeconf = kwargs.get('loadxbridgeconf', True)
         self.strategy_config.update(kwargs)
 
@@ -245,3 +259,12 @@ class ConfigManager:
             self._init_ccxt()
         # dxloadxbridgeconf is now called asynchronously in MainController.main_init_loop
         # self._init_xbridge() # This method is now effectively a no-op if dxloadxbridgeconf is removed
+
+    def initialize_ccxt(self):
+        """
+        Initializes only the CCXT component. This is used by the master config
+        manager in the GUI to ensure that the CCXT instance is available to all
+        strategies from the start.
+        """
+        if self.ccxt_manager and getattr(self.ccxt_manager, 'my_ccxt', None) is None:
+            self._init_ccxt()

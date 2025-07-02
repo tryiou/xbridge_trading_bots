@@ -61,7 +61,7 @@ class GUI_Main:
 
         # Configure the root logger
         root_logger = logging.getLogger()
-        root_logger.setLevel(logging.INFO)
+        root_logger.setLevel(logging.DEBUG) # Set to DEBUG to see all logs
 
         # Since the backend loggers no longer add handlers in GUI mode,
         # we only need to clear the root logger to ensure a clean setup.
@@ -71,8 +71,8 @@ class GUI_Main:
         # This is forced to run even in GUI mode to restore file logging.
         log_dir = os.path.join(os.path.abspath(os.curdir), "logs")
         os.makedirs(log_dir, exist_ok=True)
-        log_file = os.path.join(log_dir, "gui_general.log")
-        setup_file_logging(name=None, log_file=log_file, level=logging.INFO, force=True)
+        log_file = os.path.join(log_dir, "gui_debug.log") # Changed name for clarity
+        setup_file_logging(name=None, log_file=log_file, level=logging.DEBUG, force=True)
 
         # Add the custom handler for the GUI log panel
         gui_handler = TextLogHandler(self.log_frame)

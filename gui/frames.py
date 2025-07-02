@@ -49,34 +49,44 @@ class BaseStrategyFrame(ttk.Frame):
     def start(self):
         """Starts the bot in a separate thread."""
         if not self.config_manager:
+            logging.error("Cannot start: config_manager is not initialized.")
             return
+
+        log = self.config_manager.general_log
+        log.debug("GUI: START button clicked.")
 
         self.stopping = False  # Reset stopping flag on start
         self.main_app.status_var.set(f"{self.strategy_name.capitalize()} bot is running...")
+        log.debug("GUI: Fetching startup tasks.")
         startup_tasks = self.config_manager.strategy_instance.get_startup_tasks()
+        log.debug("GUI: Creating bot thread.")
         self.send_process = threading.Thread(target=run_async_main,
                                              args=(self.config_manager, None, startup_tasks),
                                              daemon=True)
         try:
+            self.config_manager.general_log.info(f"{self.strategy_name.capitalize()} bot starting.")
             self.send_process.start()
             self.started = True
             self.update_button_states()
-            self.config_manager.general_log.info(f"{self.strategy_name.capitalize()} bot started successfully.")
+            self.after(0, self.start_refresh)
+            
         except Exception as e:
             self.main_app.status_var.set(f"Error starting {self.strategy_name} bot: {e}")
-            self.config_manager.general_log.error(f"Error starting bot thread: {e}")
+            log.error(f"Error starting bot thread: {e}", exc_info=True)
             self.stop(blocking=True, reload_config=False)
 
     def stop(self, blocking: bool = False, reload_config: bool = True):
         """
         Signals the bot to stop. If blocking is True, waits for the thread to finish.
         """
-        if not self.config_manager or not self.send_process or self.stopping:
+        if not self.config_manager or not self.started or self.stopping:
+            if self.config_manager:
+                self.config_manager.general_log.debug(f"GUI: Ignoring STOP click for {self.strategy_name} (started={self.started}, stopping={self.stopping}).")
             return
 
         self.stopping = True
         self.update_button_states()  # Disable buttons immediately
-        self.main_app.status_var.set(f"Stopping {self.strategy_name} bot, please wait...")
+        self.main_app.status_var.set(f"Stopping {self.strategy_name} bot...")
         self.config_manager.general_log.info(f"Attempting to stop {self.strategy_name} bot...")
 
         if self.config_manager.controller and self.config_manager.controller.loop:
@@ -93,6 +103,8 @@ class BaseStrategyFrame(ttk.Frame):
 
     def _finalize_stop(self, reload_config: bool = True):
         """Cleans up the state after the bot thread has stopped."""
+        if self.config_manager:
+            self.config_manager.general_log.debug(f"GUI: Finalizing stop for {self.strategy_name}. Reload config: {reload_config}")
         if self.send_process:
             if self.send_process.is_alive():
                 self.config_manager.general_log.warning("Bot thread did not terminate gracefully.")
@@ -113,14 +125,27 @@ class BaseStrategyFrame(ttk.Frame):
         """Cancels all open orders on the exchange."""
         if not self.config_manager:
             return
+
+        log = self.config_manager.general_log
+        log.debug("GUI: cancel_all called. Creating worker thread.")
         self.main_app.status_var.set("Cancelling all open orders...")
-        try:
-            asyncio.run(self.config_manager.xbridge_manager.cancelallorders())
-            self.main_app.status_var.set("Cancelled all open orders.")
-            self.config_manager.general_log.info("cancel_all: All orders cancelled successfully.")
-        except Exception as e:
-            self.main_app.status_var.set(f"Error cancelling orders: {e}")
-            self.config_manager.general_log.error(f"Error during cancel_all: {e}")
+
+        def worker():
+            log.debug("GUI: cancel_all worker thread started.")
+            try:
+                # This now runs in a dedicated thread, so asyncio.run is safe.
+                asyncio.run(self.config_manager.xbridge_manager.cancelallorders())
+                # We need to schedule the GUI update back on the main thread.
+                self.main_app.root.after(0, lambda: self.main_app.status_var.set("Cancelled all open orders."))
+                log.info("cancel_all: All orders cancelled successfully.")
+            except Exception as e:
+                # Schedule GUI update on main thread
+                self.main_app.root.after(0, lambda: self.main_app.status_var.set(f"Error cancelling orders: {e}"))
+                log.error(f"Error during cancel_all worker: {e}", exc_info=True)
+            log.debug("GUI: cancel_all worker thread finished.")
+
+        thread = threading.Thread(target=worker, daemon=True)
+        thread.start()
 
     def start_refresh(self):
         """Starts the periodic GUI refresh loop."""
@@ -134,32 +159,38 @@ class BaseStrategyFrame(ttk.Frame):
 
     def refresh_gui(self):
         """Refreshes the GUI display periodically. To be overridden."""
+        log = self.config_manager.general_log
+
         # Check if a non-blocking stop has completed
         if self.stopping and self.send_process and not self.send_process.is_alive():
-            self.config_manager.general_log.info(f"Detected stopped thread for {self.strategy_name}. Finalizing...")
+            log.info(f"Detected stopped thread for {self.strategy_name}. Finalizing...")
             self._finalize_stop()
             return  # Stop the refresh loop for this frame
 
         # Check for a crash (thread died while it was supposed to be running)
         if self.started and not self.stopping and self.send_process and not self.send_process.is_alive():
-            self.config_manager.general_log.error(f"{self.strategy_name} bot crashed!")
-            self.main_app.status_var.set(f"{self.strategy_name} bot crashed!")
+            log.error(f"{self.strategy_name} bot thread died unexpectedly (crashed)!")
+            self.main_app.status_var.set(f"{self.strategy_name} bot CRASHED!")
+            # The thread is already dead, so just finalize the stop state.
             self._finalize_stop(reload_config=False)
+            log.info("GUI: Issuing cancel_all after crash detection.")
             self.cancel_all()
             return  # Stop the refresh loop for this frame
-        
+
+        # If we get here, the bot is running normally, so schedule the next check.
         self.refresh_id = self.after(1500, self.refresh_gui)
 
     def on_closing(self):
         """Handles the application closing event."""
         if self.config_manager:
             self.config_manager.general_log.info(f"Closing {self.strategy_name} strategy...")
-        self.stop(blocking=True, reload_config=False)
+        self.stop(reload_config=False)
 
     def reload_configuration(self, loadxbridgeconf: bool = True):
         """Reloads the bot's configuration and refreshes the GUI display."""
         if not self.config_manager:
             return
+        self.config_manager.general_log.debug(f"GUI: Reloading configuration for {self.strategy_name}.")
         self.initialize_config(loadxbridgeconf=loadxbridgeconf)
         self.purge_and_recreate_widgets()
 
@@ -169,14 +200,11 @@ class BaseStrategyFrame(ttk.Frame):
 
     def update_button_states(self):
         """Updates button states based on bot status. To be overridden."""
-        if self.stopping:
-            self.btn_start.config(state="disabled")
-            self.btn_stop.config(state="disabled")
-            self.btn_configure.config(state="disabled")
-        else:
-            self.btn_start.config(state="normal" if not self.started else "disabled")
-            self.btn_stop.config(state="disabled" if not self.started else "normal")
-            self.btn_configure.config(state="normal" if not self.started else "disabled")
+        pass
+
+    def cleanup(self):
+        """Perform any final cleanup, like unbinding events."""
+        pass
 
 class PingPongFrame(BaseStrategyFrame):
     def __init__(self, parent, main_app: "GUI_Main", master_config_manager: ConfigManager):
@@ -209,6 +237,16 @@ class PingPongFrame(BaseStrategyFrame):
         self.btn_configure.grid(column=3, row=0, padx=5, pady=5)
         self.update_button_states()
 
+    def update_button_states(self):
+        if self.stopping:
+            self.btn_start.config(state="disabled")
+            self.btn_stop.config(state="disabled")
+            self.btn_configure.config(state="disabled")
+        else:
+            self.btn_start.config(state="normal" if not self.started else "disabled")
+            self.btn_stop.config(state="normal" if self.started else "disabled")
+            self.btn_configure.config(state="normal" if not self.started else "disabled")
+
     def refresh_gui(self):
         if self.winfo_exists(): # Check if widget exists before proceeding
             self.gui_orders.update_order_display()
@@ -223,6 +261,13 @@ class PingPongFrame(BaseStrategyFrame):
         self.gui_balances.purge_treeview()
         self.gui_orders.create_orders_treeview()
         self.gui_balances.create_balances_treeview()
+
+    def cleanup(self):
+        """Unbind events to prevent errors during teardown."""
+        super().cleanup()
+        # The <Configure> event is bound to this frame by its GUI_Orders component.
+        # Unbinding it here prevents TclErrors during test teardown.
+        self.unbind("<Configure>")
 
 
 class GUI_Orders:
@@ -242,6 +287,13 @@ class GUI_Orders:
         self.sortedpairs: list[str] = []
         self.orders_frame: ttk.LabelFrame | None = None
         self.orders_treeview: ttk.Treeview | None = None
+        self._is_resizing = False  # Add a re-entry guard flag
+        # Create a logger specific to this GUI component instance
+        self.logger = logging.getLogger(f"gui.{self.parent.strategy_name}.orders")
+        # Bind the resize event to the parent frame once during initialization.
+        # This prevents adding duplicate bindings on each configuration reload.
+        self.logger.debug(f"Binding <Configure> event.")
+        self.parent.bind("<Configure>", self._on_resize)
 
     def create_orders_treeview(self) -> None:
         # Get enabled pairs from config
@@ -261,9 +313,6 @@ class GUI_Orders:
         )
         self.orders_treeview.grid(row=0, column=0, padx=5, pady=5, sticky='nsew')
 
-        # Bind the resize event to the parent frame to dynamically adjust column widths
-        self.parent.bind("<Configure>", self._on_resize, add='+')
-
         # Bind to the <Map> event for the *initial* configuration.
         # This ensures the widget is drawn and has a size before we configure columns.
         self.orders_treeview.bind("<Map>", self._initial_configure)
@@ -280,13 +329,35 @@ class GUI_Orders:
         self.orders_treeview.unbind("<Map>")
 
     def _on_resize(self, event=None):
-        """Dynamically resize columns when the window size changes."""
-        # We only need to re-configure, as the logic is now dynamic.
-        if self.orders_treeview and self.orders_treeview.winfo_exists():
-            self._configure_columns()
-        # The balances treeview is part of the same parent frame, so we can resize it from here.
-        if hasattr(self.parent, 'gui_balances') and self.parent.gui_balances.balances_treeview and self.parent.gui_balances.balances_treeview.winfo_exists():
-            self.parent.gui_balances._configure_balance_columns()
+        """
+        Schedules the column resizing to avoid recursive event loops.
+        This is the entry point for the <Configure> event.
+        """
+        if self._is_resizing:
+            # self.logger.debug("Resize event ignored due to re-entry guard.")
+            return
+        # self.logger.debug("Resize event triggered, scheduling resize action.")
+        self._is_resizing = True
+        # Schedule the actual resize work to run after a short delay.
+        # This breaks the synchronous event cascade that causes the freeze.
+        self.parent.after(50, self._execute_resize)
+
+    def _execute_resize(self):
+        """Performs the actual column resizing and resets the guard flag."""
+        # self.logger.debug("Executing scheduled resize.")
+        try:
+            # We only need to re-configure, as the logic is now dynamic.
+            if self.orders_treeview and self.orders_treeview.winfo_exists():
+                # self.logger.debug("Configuring orders columns.")
+                self._configure_columns()
+            # The balances treeview is part of the same parent frame, so we can resize it from here.
+            if hasattr(self.parent, 'gui_balances') and self.parent.gui_balances.balances_treeview and self.parent.gui_balances.balances_treeview.winfo_exists():
+                # self.logger.debug("Configuring balances columns.")
+                self.parent.gui_balances._configure_balance_columns()
+        finally:
+            # Reset the flag *after* the work is done.
+            # self.logger.debug("Resize execution finished, resetting flag.")
+            self._is_resizing = False
 
     def _configure_columns(self):
         if not self.orders_treeview or self.orders_treeview.winfo_width() <= 1:
@@ -378,6 +449,8 @@ class GUI_Balances:
 
     def __init__(self, parent: "BaseStrategyFrame"):
         self.parent = parent
+        # Create a logger specific to this GUI component instance
+        self.logger = logging.getLogger(f"gui.{self.parent.strategy_name}.balances")
         self.balances_frame: ttk.LabelFrame | None = None
         self.balances_treeview: ttk.Treeview | None = None
 
@@ -520,9 +593,9 @@ class BaseConfigWindow:
 
     def on_close(self) -> None:
         if hasattr(self.parent, 'btn_start'):
-            self.parent.btn_start.config(state="normal")
+            self.parent.btn_start.config(state="active")
         if hasattr(self.parent, 'btn_configure'):
-            self.parent.btn_configure.config(state="normal")
+            self.parent.btn_configure.config(state="active")
         if self.config_window:
             self.config_window.destroy()
         self.config_window = None
@@ -887,6 +960,16 @@ class BasicSellerFrame(BaseStrategyFrame):
         self.btn_configure.grid(column=3, row=0, padx=5, pady=5)
         self.update_button_states()
 
+    def update_button_states(self):
+        if self.stopping:
+            self.btn_start.config(state="disabled")
+            self.btn_stop.config(state="disabled")
+            self.btn_configure.config(state="disabled")
+        else:
+            self.btn_start.config(state="normal" if not self.started else "disabled")
+            self.btn_stop.config(state="normal" if self.started else "disabled")
+            self.btn_configure.config(state="normal" if not self.started else "disabled")
+
     def open_configure_window(self):
         self.gui_config.open()
 
@@ -901,6 +984,13 @@ class BasicSellerFrame(BaseStrategyFrame):
         self.gui_balances.purge_treeview()
         self.gui_orders.create_orders_treeview()
         self.gui_balances.create_balances_treeview()
+
+    def cleanup(self):
+        """Unbind events to prevent errors during teardown."""
+        super().cleanup()
+        # The <Configure> event is bound to this frame by its GUI_Orders component.
+        # Unbinding it here prevents TclErrors during test teardown.
+        self.unbind("<Configure>")
 
 class ArbitrageFrame(BaseStrategyFrame):
     def __init__(self, parent, main_app: "GUI_Main", master_config_manager: ConfigManager):

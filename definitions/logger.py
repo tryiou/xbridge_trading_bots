@@ -70,6 +70,12 @@ def setup_logging(name, log_file=None, level=logging.INFO, console=False, force=
     return log_handle
 
 
+def silence_noisy_loggers():
+    """Sets the logging level for noisy third-party libraries to INFO."""
+    logging.getLogger("urllib3.connectionpool").setLevel(logging.INFO)
+    logging.getLogger("ccxt.base.exchange").setLevel(logging.INFO)
+
+
 def setup_logger(strategy=None, ROOT_DIR=None):
     if strategy:
         general_log = setup_logging(name=f"{strategy}.general",
@@ -85,6 +91,9 @@ def setup_logger(strategy=None, ROOT_DIR=None):
                                  log_file=ROOT_DIR + '/logs/' + strategy + '_ccxt.log',
                                  level=logging.INFO,
                                  console=True)
+
+        silence_noisy_loggers()
+
         return general_log, trade_log, ccxt_log
 
     else:
