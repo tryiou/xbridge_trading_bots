@@ -2,6 +2,7 @@
 import asyncio
 import logging
 import threading
+import abc
 import tkinter as tk
 from enum import Enum
 from tkinter import ttk
@@ -29,6 +30,11 @@ class BaseStrategyFrame(ttk.Frame):
         self.send_process: threading.Thread | None = None
         self.started = False
         self.stopping = False
+        # Button attributes that will be created by create_standard_buttons
+        self.btn_start: ttk.Button | None = None
+        self.btn_stop: ttk.Button | None = None
+        self.btn_cancel_all: ttk.Button | None = None
+        self.btn_configure: ttk.Button | None = None
         self.refresh_id = None
 
         self.initialize_config()
@@ -202,33 +208,8 @@ class BaseStrategyFrame(ttk.Frame):
         """Purges and recreates widgets. To be overridden."""
         pass
 
-    def update_button_states(self):
-        """Updates button states based on bot status. To be overridden."""
-        pass
-
-    def cleanup(self):
-        """Perform any final cleanup, like unbinding events."""
-        pass
-
-
-class PingPongFrame(BaseStrategyFrame):
-    def __init__(self, parent, main_app: "GUI_Main", master_config_manager: ConfigManager):
-        super().__init__(parent, main_app, "pingpong", master_config_manager)
-        # Configure the grid for expansion. This allows the child frames
-        # (orders, balances) to grow with the window.
-        self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(1, weight=1)  # Orders frame
-        self.grid_rowconfigure(2, weight=1)  # Balances frame
-
-    def create_widgets(self):
-        self.gui_orders = GUI_Orders(self)
-        self.gui_balances = GUI_Balances(self)
-        self.gui_config = GUI_Config(self)
-        self.create_buttons()
-        self.gui_orders.create_orders_treeview()
-        self.gui_balances.create_balances_treeview()
-
-    def create_buttons(self):
+    def create_standard_buttons(self):
+        """Creates the standard START, STOP, CANCEL ALL, CONFIGURE buttons."""
         button_frame = ttk.Frame(self)
         button_frame.grid(column=0, row=0, padx=5, pady=5, sticky='ew')
         btn_width = 12
@@ -245,25 +226,66 @@ class PingPongFrame(BaseStrategyFrame):
         self.update_button_states()
 
     def update_button_states(self):
-        if self.stopping:
-            self.btn_start.config(state="disabled")
-            self.btn_stop.config(state="disabled")
-            self.btn_configure.config(state="disabled")
-        else:
-            self.btn_start.config(state="normal" if not self.started else "disabled")
-            self.btn_stop.config(state="normal" if self.started else "disabled")
-            self.btn_configure.config(state="normal" if not self.started else "disabled")
+        """Updates button states based on bot status."""
+        start_enabled = not self.started and not self.stopping
+        stop_enabled = self.started and not self.stopping
+        configure_enabled = not self.started and not self.stopping
+
+        if self.btn_start: self.btn_start.config(state="normal" if start_enabled else "disabled")
+        if self.btn_stop: self.btn_stop.config(state="normal" if stop_enabled else "disabled")
+        if self.btn_configure: self.btn_configure.config(state="normal" if configure_enabled else "disabled")
+        # cancel_all can always be active, or you can add logic for it too
+
+    def cleanup(self):
+        """Perform any final cleanup, like unbinding events."""
+        pass
+
+    def open_configure_window(self):
+        """Opens the configuration window for this strategy. To be overridden."""
+        pass
+
+
+class StandardStrategyFrame(BaseStrategyFrame, metaclass=abc.ABCMeta):
+    """Base class for standard strategy frames with Orders and Balances views."""
+
+    def __init__(self, parent, main_app: "GUI_Main", strategy_name: str, master_config_manager: ConfigManager):
+        self.gui_orders: "GUI_Orders"
+        self.gui_balances: "GUI_Balances"
+        self.gui_config: "BaseConfigWindow"
+        super().__init__(parent, main_app, strategy_name, master_config_manager)
+        # Configure the grid for expansion. This allows the child frames
+        # (orders, balances) to grow with the window.
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(1, weight=1)  # Orders frame
+        self.grid_rowconfigure(2, weight=1)  # Balances frame
+
+    @abc.abstractmethod
+    def _create_config_gui(self) -> "BaseConfigWindow":
+        """Creates the strategy-specific configuration GUI window."""
+        pass
+
+    def create_widgets(self):
+        """Creates the common widgets for a standard strategy frame."""
+        self.gui_orders = GUI_Orders(self)
+        self.gui_balances = GUI_Balances(self)
+        self.gui_config = self._create_config_gui()
+        self.create_standard_buttons()
+        self.gui_orders.create_orders_treeview()
+        self.gui_balances.create_balances_treeview()
 
     def refresh_gui(self):
+        """Refreshes the Orders and Balances display."""
         if self.winfo_exists():  # Check if widget exists before proceeding
             self.gui_orders.update_order_display()
             self.gui_balances.update_balance_display()
             super().refresh_gui()
 
     def open_configure_window(self):
+        """Opens the configuration window for this strategy."""
         self.gui_config.open()
 
     def purge_and_recreate_widgets(self):
+        """Purges and recreates the Orders and Balances treeviews."""
         self.gui_orders.purge_treeview()
         self.gui_balances.purge_treeview()
         self.gui_orders.create_orders_treeview()
@@ -275,6 +297,14 @@ class PingPongFrame(BaseStrategyFrame):
         # The <Configure> event is bound to this frame by its GUI_Orders component.
         # Unbinding it here prevents TclErrors during test teardown.
         self.unbind("<Configure>")
+
+
+class PingPongFrame(StandardStrategyFrame):
+    def __init__(self, parent, main_app: "GUI_Main", master_config_manager: ConfigManager):
+        super().__init__(parent, main_app, "pingpong", master_config_manager)
+
+    def _create_config_gui(self) -> "BaseConfigWindow":
+        return GUI_Config(self)
 
 
 class GUI_Orders:
@@ -940,70 +970,12 @@ class GUI_Config_BasicSeller(BaseConfigWindow):
         return {'seller_configs': seller_configs}
 
 
-class BasicSellerFrame(BaseStrategyFrame):
+class BasicSellerFrame(StandardStrategyFrame):
     def __init__(self, parent, main_app: "GUI_Main", master_config_manager: ConfigManager):
         super().__init__(parent, main_app, "basic_seller", master_config_manager)
-        # Configure the grid for expansion. This allows the child frames
-        # (orders, balances) to grow with the window.
-        self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(1, weight=1)  # Orders frame
-        self.grid_rowconfigure(2, weight=1)  # Balances frame
 
-    def create_widgets(self):
-        self.gui_orders = GUI_Orders(self)
-        self.gui_balances = GUI_Balances(self)
-        self.gui_config = GUI_Config_BasicSeller(self)
-        self.create_buttons()
-        self.gui_orders.create_orders_treeview()
-        self.gui_balances.create_balances_treeview()
-
-    def create_buttons(self):
-        button_frame = ttk.Frame(self)
-        button_frame.grid(column=0, row=0, padx=5, pady=5, sticky='ew')
-        btn_width = 12
-        self.btn_start = ttk.Button(button_frame, text="START", command=self.start, width=btn_width)
-        self.btn_start.grid(column=0, row=0, padx=5, pady=5)
-        self.btn_stop = ttk.Button(button_frame, text="STOP", command=lambda: self.stop(blocking=False),
-                                   width=btn_width)
-        self.btn_stop.grid(column=1, row=0, padx=5, pady=5)
-        self.btn_cancel_all = ttk.Button(button_frame, text="CANCEL ALL", command=self.cancel_all, width=btn_width)
-        self.btn_cancel_all.grid(column=2, row=0, padx=5, pady=5)
-        self.btn_configure = ttk.Button(button_frame, text="CONFIGURE", command=self.open_configure_window,
-                                        width=btn_width)
-        self.btn_configure.grid(column=3, row=0, padx=5, pady=5)
-        self.update_button_states()
-
-    def update_button_states(self):
-        if self.stopping:
-            self.btn_start.config(state="disabled")
-            self.btn_stop.config(state="disabled")
-            self.btn_configure.config(state="disabled")
-        else:
-            self.btn_start.config(state="normal" if not self.started else "disabled")
-            self.btn_stop.config(state="normal" if self.started else "disabled")
-            self.btn_configure.config(state="normal" if not self.started else "disabled")
-
-    def open_configure_window(self):
-        self.gui_config.open()
-
-    def refresh_gui(self):
-        if self.winfo_exists():  # Check if widget exists before proceeding
-            self.gui_orders.update_order_display()
-            self.gui_balances.update_balance_display()
-            super().refresh_gui()
-
-    def purge_and_recreate_widgets(self):
-        self.gui_orders.purge_treeview()
-        self.gui_balances.purge_treeview()
-        self.gui_orders.create_orders_treeview()
-        self.gui_balances.create_balances_treeview()
-
-    def cleanup(self):
-        """Unbind events to prevent errors during teardown."""
-        super().cleanup()
-        # The <Configure> event is bound to this frame by its GUI_Orders component.
-        # Unbinding it here prevents TclErrors during test teardown.
-        self.unbind("<Configure>")
+    def _create_config_gui(self) -> "BaseConfigWindow":
+        return GUI_Config_BasicSeller(self)
 
 
 class ArbitrageFrame(BaseStrategyFrame):
