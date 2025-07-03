@@ -304,7 +304,7 @@ class PingPongFrame(StandardStrategyFrame):
         super().__init__(parent, main_app, "pingpong", master_config_manager)
 
     def _create_config_gui(self) -> "BaseConfigWindow":
-        return GUI_Config(self)
+        return GUI_Config_PingPong(self)
 
 
 class GUI_Orders:
@@ -686,9 +686,9 @@ class BaseConfigWindow:
             self.status_label.config(foreground=color)
 
 
-class GUI_Config(BaseConfigWindow):
+class GUI_Config_PingPong(BaseConfigWindow):
     """
-    Manages the configuration window for the bot settings.
+    Manages the configuration window for the PingPong bot settings.
     """
 
     def __init__(self, parent: "BaseStrategyFrame") -> None:

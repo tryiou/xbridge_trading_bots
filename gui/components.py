@@ -5,7 +5,7 @@ from tkinter import ttk
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .frames import GUI_Config, GUI_Config_BasicSeller
+    from .frames import GUI_Config_PingPong, GUI_Config_BasicSeller
 
 
 class BaseDialog(tk.Toplevel):
@@ -43,7 +43,7 @@ class BaseDialog(tk.Toplevel):
 class BasePairDialog(BaseDialog):
     """Base dialog for adding/editing PingPong pairs."""
 
-    def __init__(self, parent, config: 'GUI_Config', title: str, values: tuple | None = None):
+    def __init__(self, parent, config: 'GUI_Config_PingPong', title: str, values: tuple | None = None):
         super().__init__(parent, config, title)
 
         # Initialize variables with defaults for "add" or provided values for "edit"
@@ -96,7 +96,7 @@ class BasePairDialog(BaseDialog):
 
 
 class AddPairDialog(BasePairDialog):
-    def __init__(self, parent, config: 'GUI_Config'):
+    def __init__(self, parent, config: 'GUI_Config_PingPong'):
         super().__init__(parent, config, "Add New Pair")
         self._create_buttons("Add", self.on_add)
 
@@ -109,7 +109,7 @@ class AddPairDialog(BasePairDialog):
 
 
 class PairConfigDialog(BasePairDialog):
-    def __init__(self, parent: tk.Toplevel, values: tuple, config: 'GUI_Config') -> None:
+    def __init__(self, parent: tk.Toplevel, values: tuple, config: 'GUI_Config_PingPong') -> None:
         super().__init__(parent, config, "Edit Pair Configuration", values=values)
         self.pair_entry.config(state='readonly')
         self._create_buttons("Save", self.on_save)
