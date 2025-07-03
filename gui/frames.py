@@ -3,8 +3,8 @@ import asyncio
 import logging
 import threading
 import tkinter as tk
-from tkinter import ttk
 from enum import Enum
+from tkinter import ttk
 from typing import TYPE_CHECKING
 
 from ruamel.yaml import YAML
@@ -16,8 +16,10 @@ from .components import AddPairDialog, PairConfigDialog, AddSellerDialog, Seller
 if TYPE_CHECKING:
     from .gui import GUI_Main
 
+
 class BaseStrategyFrame(ttk.Frame):
     """Base class for strategy-specific frames in the GUI."""
+
     def __init__(self, parent, main_app: "GUI_Main", strategy_name: str, master_config_manager: ConfigManager):
         super().__init__(parent)
         self.main_app = main_app
@@ -69,7 +71,7 @@ class BaseStrategyFrame(ttk.Frame):
             self.started = True
             self.update_button_states()
             self.after(0, self.start_refresh)
-            
+
         except Exception as e:
             self.main_app.status_var.set(f"Error starting {self.strategy_name} bot: {e}")
             log.error(f"Error starting bot thread: {e}", exc_info=True)
@@ -81,7 +83,8 @@ class BaseStrategyFrame(ttk.Frame):
         """
         if not self.config_manager or not self.started or self.stopping:
             if self.config_manager:
-                self.config_manager.general_log.debug(f"GUI: Ignoring STOP click for {self.strategy_name} (started={self.started}, stopping={self.stopping}).")
+                self.config_manager.general_log.debug(
+                    f"GUI: Ignoring STOP click for {self.strategy_name} (started={self.started}, stopping={self.stopping}).")
             return
 
         self.stopping = True
@@ -104,7 +107,8 @@ class BaseStrategyFrame(ttk.Frame):
     def _finalize_stop(self, reload_config: bool = True):
         """Cleans up the state after the bot thread has stopped."""
         if self.config_manager:
-            self.config_manager.general_log.debug(f"GUI: Finalizing stop for {self.strategy_name}. Reload config: {reload_config}")
+            self.config_manager.general_log.debug(
+                f"GUI: Finalizing stop for {self.strategy_name}. Reload config: {reload_config}")
         if self.send_process:
             if self.send_process.is_alive():
                 self.config_manager.general_log.warning("Bot thread did not terminate gracefully.")
@@ -117,7 +121,7 @@ class BaseStrategyFrame(ttk.Frame):
         self.started = False
         self.stopping = False
         self.update_button_states()
-        
+
         if reload_config:
             self.reload_configuration(loadxbridgeconf=False)
 
@@ -206,6 +210,7 @@ class BaseStrategyFrame(ttk.Frame):
         """Perform any final cleanup, like unbinding events."""
         pass
 
+
 class PingPongFrame(BaseStrategyFrame):
     def __init__(self, parent, main_app: "GUI_Main", master_config_manager: ConfigManager):
         super().__init__(parent, main_app, "pingpong", master_config_manager)
@@ -229,11 +234,13 @@ class PingPongFrame(BaseStrategyFrame):
         btn_width = 12
         self.btn_start = ttk.Button(button_frame, text="START", command=self.start, width=btn_width)
         self.btn_start.grid(column=0, row=0, padx=5, pady=5)
-        self.btn_stop = ttk.Button(button_frame, text="STOP", command=lambda: self.stop(blocking=False), width=btn_width)
+        self.btn_stop = ttk.Button(button_frame, text="STOP", command=lambda: self.stop(blocking=False),
+                                   width=btn_width)
         self.btn_stop.grid(column=1, row=0, padx=5, pady=5)
         self.btn_cancel_all = ttk.Button(button_frame, text="CANCEL ALL", command=self.cancel_all, width=btn_width)
         self.btn_cancel_all.grid(column=2, row=0, padx=5, pady=5)
-        self.btn_configure = ttk.Button(button_frame, text="CONFIGURE", command=self.open_configure_window, width=btn_width)
+        self.btn_configure = ttk.Button(button_frame, text="CONFIGURE", command=self.open_configure_window,
+                                        width=btn_width)
         self.btn_configure.grid(column=3, row=0, padx=5, pady=5)
         self.update_button_states()
 
@@ -248,7 +255,7 @@ class PingPongFrame(BaseStrategyFrame):
             self.btn_configure.config(state="normal" if not self.started else "disabled")
 
     def refresh_gui(self):
-        if self.winfo_exists(): # Check if widget exists before proceeding
+        if self.winfo_exists():  # Check if widget exists before proceeding
             self.gui_orders.update_order_display()
             self.gui_balances.update_balance_display()
             super().refresh_gui()
@@ -351,7 +358,8 @@ class GUI_Orders:
                 # self.logger.debug("Configuring orders columns.")
                 self._configure_columns()
             # The balances treeview is part of the same parent frame, so we can resize it from here.
-            if hasattr(self.parent, 'gui_balances') and self.parent.gui_balances.balances_treeview and self.parent.gui_balances.balances_treeview.winfo_exists():
+            if hasattr(self.parent,
+                       'gui_balances') and self.parent.gui_balances.balances_treeview and self.parent.gui_balances.balances_treeview.winfo_exists():
                 # self.logger.debug("Configuring balances columns.")
                 self.parent.gui_balances._configure_balance_columns()
         finally:
@@ -535,10 +543,11 @@ class GUI_Balances:
 class BaseConfigWindow:
     """Base class for strategy configuration Toplevel windows."""
 
-    def __init__(self, parent: "BaseStrategyFrame", title: str, config_file_path: str):
+    def __init__(self, parent: "BaseStrategyFrame"):
         self.parent = parent
-        self.title_text = title
-        self.config_file_path = config_file_path
+        strategy_title = parent.strategy_name.replace('_', ' ').title()
+        self.title_text = f"Configure {strategy_title} Bot"
+        self.config_file_path = f'./config/config_{parent.strategy_name}.yaml'
         self.config_window: tk.Toplevel | None = None
         self.status_var = tk.StringVar()
         self.status_label: ttk.Label | None = None
@@ -653,11 +662,11 @@ class GUI_Config(BaseConfigWindow):
     """
 
     def __init__(self, parent: "BaseStrategyFrame") -> None:
-        super().__init__(parent, "Configure PingPong Bot", './config/config_pingpong.yaml')
+        super().__init__(parent)
         self.debug_level_entry: ttk.Entry | None = None
         self.ttk_theme_entry: ttk.Entry | None = None
         self.pairs_treeview: ttk.Treeview | None = None
-    
+
     def _on_key_press_scroll(self, event: tk.Event, canvas: tk.Canvas, direction: int) -> None:
         if self.config_window and self.pairs_treeview and self.config_window.focus_get() == self.pairs_treeview:
             return
@@ -823,9 +832,10 @@ class GUI_Config(BaseConfigWindow):
         }
         return new_config
 
+
 class GUI_Config_BasicSeller(BaseConfigWindow):
     def __init__(self, parent: "BasicSellerFrame"):
-        super().__init__(parent, "Configure Basic Seller", './config/config_basicseller.yaml')
+        super().__init__(parent)
         self.sellers_treeview: ttk.Treeview | None = None
 
     def _create_widgets(self, parent_frame: ttk.Frame):
@@ -929,6 +939,7 @@ class GUI_Config_BasicSeller(BaseConfigWindow):
                     return None
         return {'seller_configs': seller_configs}
 
+
 class BasicSellerFrame(BaseStrategyFrame):
     def __init__(self, parent, main_app: "GUI_Main", master_config_manager: ConfigManager):
         super().__init__(parent, main_app, "basic_seller", master_config_manager)
@@ -952,11 +963,13 @@ class BasicSellerFrame(BaseStrategyFrame):
         btn_width = 12
         self.btn_start = ttk.Button(button_frame, text="START", command=self.start, width=btn_width)
         self.btn_start.grid(column=0, row=0, padx=5, pady=5)
-        self.btn_stop = ttk.Button(button_frame, text="STOP", command=lambda: self.stop(blocking=False), width=btn_width)
+        self.btn_stop = ttk.Button(button_frame, text="STOP", command=lambda: self.stop(blocking=False),
+                                   width=btn_width)
         self.btn_stop.grid(column=1, row=0, padx=5, pady=5)
         self.btn_cancel_all = ttk.Button(button_frame, text="CANCEL ALL", command=self.cancel_all, width=btn_width)
         self.btn_cancel_all.grid(column=2, row=0, padx=5, pady=5)
-        self.btn_configure = ttk.Button(button_frame, text="CONFIGURE", command=self.open_configure_window, width=btn_width)
+        self.btn_configure = ttk.Button(button_frame, text="CONFIGURE", command=self.open_configure_window,
+                                        width=btn_width)
         self.btn_configure.grid(column=3, row=0, padx=5, pady=5)
         self.update_button_states()
 
@@ -992,6 +1005,7 @@ class BasicSellerFrame(BaseStrategyFrame):
         # Unbinding it here prevents TclErrors during test teardown.
         self.unbind("<Configure>")
 
+
 class ArbitrageFrame(BaseStrategyFrame):
     def __init__(self, parent, main_app: "GUI_Main", master_config_manager: ConfigManager):
         super().__init__(parent, main_app, "arbitrage", master_config_manager)
@@ -1012,6 +1026,7 @@ class ArbitrageFrame(BaseStrategyFrame):
 
 class LogFrame(ttk.Frame):
     """A frame for displaying application logs."""
+
     def __init__(self, parent):
         super().__init__(parent)
         self.grid_rowconfigure(0, weight=1)
@@ -1046,6 +1061,7 @@ class LogFrame(ttk.Frame):
 
 class TextLogHandler(logging.Handler):
     """A logging handler that directs output to a Tkinter Text widget."""
+
     def __init__(self, log_frame: LogFrame):
         super().__init__()
         self.log_frame = log_frame
@@ -1058,6 +1074,7 @@ class TextLogHandler(logging.Handler):
 
 class StdoutRedirector:
     """A class to redirect stdout/stderr to the GUI log frame."""
+
     def __init__(self, log_frame: LogFrame, level: str, original_stream):
         self.log_frame = log_frame
         self.level = level

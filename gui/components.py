@@ -58,7 +58,8 @@ class BasePairDialog(BaseDialog):
         self._create_widgets()
 
     def _create_widgets(self):
-        ttk.Checkbutton(self, text="Enabled", variable=self.enabled_var).grid(row=0, column=0, padx=5, pady=2, sticky='w')
+        ttk.Checkbutton(self, text="Enabled", variable=self.enabled_var).grid(row=0, column=0, padx=5, pady=2,
+                                                                              sticky='w')
         ttk.Label(self, text="Name:").grid(row=1, column=0, padx=5, pady=2, sticky='w')
         self.name_entry = ttk.Entry(self, textvariable=self.name_var)
         self.name_entry.grid(row=1, column=1, padx=5, pady=2)
@@ -138,7 +139,8 @@ class BaseSellerDialog(BaseDialog):
         self._create_widgets()
 
     def _create_widgets(self):
-        ttk.Checkbutton(self, text="Enabled", variable=self.enabled_var).grid(row=0, column=0, padx=5, pady=2, sticky='w')
+        ttk.Checkbutton(self, text="Enabled", variable=self.enabled_var).grid(row=0, column=0, padx=5, pady=2,
+                                                                              sticky='w')
         ttk.Label(self, text="Name:").grid(row=1, column=0, padx=5, pady=2, sticky='w')
         self.name_entry = ttk.Entry(self, textvariable=self.name_var)
         self.name_entry.grid(row=1, column=1, padx=5, pady=2)

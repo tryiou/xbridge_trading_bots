@@ -1,5 +1,4 @@
 # gui/gui.py
-import asyncio
 import logging
 import os
 import sys
@@ -12,7 +11,7 @@ from ttkbootstrap import Style
 from definitions.config_manager import ConfigManager
 from definitions.logger import ColoredFormatter, setup_logging as setup_file_logging
 from .frames import (ArbitrageFrame, BasicSellerFrame, LogFrame, PingPongFrame,
-                   StdoutRedirector, TextLogHandler)
+                     StdoutRedirector, TextLogHandler)
 
 
 class GUI_Main:
@@ -61,23 +60,24 @@ class GUI_Main:
 
         # Configure the root logger
         root_logger = logging.getLogger()
-        root_logger.setLevel(logging.DEBUG) # Set to DEBUG to see all logs
+        root_logger.setLevel(logging.DEBUG)  # Set to DEBUG to see all logs
 
         # Since the backend loggers no longer add handlers in GUI mode,
         # we only need to clear the root logger to ensure a clean setup.
-        root_logger.handlers.clear() # Also clear root logger's handlers
+        root_logger.handlers.clear()  # Also clear root logger's handlers
 
         # Use the existing setup_logging function to add the file handler to the root logger.
         # This is forced to run even in GUI mode to restore file logging.
         log_dir = os.path.join(os.path.abspath(os.curdir), "logs")
         os.makedirs(log_dir, exist_ok=True)
-        log_file = os.path.join(log_dir, "gui_debug.log") # Changed name for clarity
+        log_file = os.path.join(log_dir, "gui_debug.log")  # Changed name for clarity
         setup_file_logging(name=None, log_file=log_file, level=logging.DEBUG, force=True)
 
         # Add the custom handler for the GUI log panel
         gui_handler = TextLogHandler(self.log_frame)
         # Use a standard, uncolored formatter for the GUI panel
-        gui_formatter = logging.Formatter('%(asctime)s [%(name)-18s] - %(levelname)-7s - %(message)s', datefmt='%H:%M:%S')
+        gui_formatter = logging.Formatter('%(asctime)s [%(name)-18s] - %(levelname)-7s - %(message)s',
+                                          datefmt='%H:%M:%S')
         gui_handler.setFormatter(gui_formatter)
         root_logger.addHandler(gui_handler)
 
