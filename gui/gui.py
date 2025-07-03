@@ -10,8 +10,8 @@ from ttkbootstrap import Style
 
 from definitions.config_manager import ConfigManager
 from definitions.logger import ColoredFormatter, setup_logging as setup_file_logging
-from gui.frames.frames import (ArbitrageFrame, BasicSellerFrame, LogFrame, PingPongFrame,
-                               StdoutRedirector, TextLogHandler)
+from gui.frames import (ArbitrageFrame, BasicSellerFrame, LogFrame, PingPongFrame,
+                        StdoutRedirector, TextLogHandler)
 
 
 class GUI_Main:
