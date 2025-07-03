@@ -12,10 +12,10 @@ from ruamel.yaml import YAML
 
 from definitions.config_manager import ConfigManager
 from definitions.starter import run_async_main
-from .components import AddPairDialog, PairConfigDialog, AddSellerDialog, SellerConfigDialog
+from gui.components import AddPairDialog, PairConfigDialog, AddSellerDialog, SellerConfigDialog
 
 if TYPE_CHECKING:
-    from .gui import GUI_Main
+    from gui.gui import GUI_Main
 
 
 class BaseStrategyFrame(ttk.Frame):

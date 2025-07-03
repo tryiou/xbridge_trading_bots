@@ -5,7 +5,7 @@ from tkinter import ttk
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .frames import GUI_Config_PingPong, GUI_Config_BasicSeller
+    from gui.frames.frames import GUI_Config_PingPong, GUI_Config_BasicSeller
 
 
 class BaseDialog(tk.Toplevel):
