@@ -6,12 +6,16 @@ import threading
 import tkinter as tk
 from tkinter import ttk
 
+# Get module-specific logger
+logger = logging.getLogger(__name__)
+
 from ttkbootstrap import Style
 
 from definitions.config_manager import ConfigManager
 from definitions.logger import ColoredFormatter, setup_logging as setup_file_logging
 from gui.frames import (ArbitrageFrame, BasicSellerFrame, LogFrame, PingPongFrame,
                         StdoutRedirector, TextLogHandler)
+from gui.components.data_panels import BalancesPanel
 
 
 class GUI_Main:
@@ -20,24 +24,36 @@ class GUI_Main:
     def __init__(self):
         self.root = tk.Tk()
         self.root.title("XBridge Trading Bots")
+        
+        # Handle Ctrl+C/KeyboardInterrupt signals for clean shutdown
+        import signal
+        def handle_signal(signum, frame):
+            self.root.after(0, self.on_closing)
+        if hasattr(signal, 'SIGINT'):
+            signal.signal(signal.SIGINT, handle_signal)
+        
         self.style = Style(theme="darkly")
         self.status_var = tk.StringVar(value="Idle")
 
         self.notebook = ttk.Notebook(self.root)
         self.notebook.pack(pady=10, padx=10)
 
-        # Create the log frame and set up logging *before* creating other frames
-        # that might use logging during their initialization.
-        self.log_frame = LogFrame(self.notebook)
-        self.setup_logging()  # Take control of logging BEFORE anything else.
-
         # Create a master ConfigManager to hold shared resources
-        # This must be done *before* setup_logging to ensure all backend loggers exist.
         self.master_config_manager = ConfigManager(strategy="gui")
 
-        # Create a shared container for token balances data
-        self.shared_balances_data = {}
-        self.balances_lock = threading.Lock()
+        # Create main panels
+        main_panel = ttk.Frame(self.root)
+        main_panel.pack(fill='both', expand=True, padx=10, pady=10)
+        
+        # Create notebook first
+        self.notebook = ttk.Notebook(main_panel)
+        self.notebook.pack(fill='both', expand=True, pady=10)
+        
+        # Create shared balances panel below notebook
+        balances_frame = ttk.LabelFrame(main_panel, text="Balances")
+        balances_frame.pack(fill='x', padx=5, pady=(0,5))
+        self.balances_panel = BalancesPanel(balances_frame)
+        self.balances_panel.pack(fill='both', expand=True)
         
         # Create and add frames for each strategy
         self.strategy_frames = {
@@ -46,10 +62,14 @@ class GUI_Main:
             'Arbitrage': ArbitrageFrame(self.notebook, self, self.master_config_manager),
         }
         for text, frame in self.strategy_frames.items():
+            logger.debug(f"Initializing {text} strategy frame")
             self.notebook.add(frame, text=text)
 
-        # Add the log frame to the notebook at the end
+        # Create and add the log frame as the last tab
+        logger.debug("Initializing log frame")
+        self.log_frame = LogFrame(self.notebook)
         self.notebook.add(self.log_frame, text='Logs')
+        self.setup_logging()  # Setup logging AFTER GUI structure is finalized
         
         # Start periodic task to update shared balances panel
         self.update_shared_balances()
@@ -93,13 +113,16 @@ class GUI_Main:
         console_formatter = ColoredFormatter('[%(asctime)s] [%(name)-18s] %(levelname)s - %(message)s')
         console_handler = logging.StreamHandler(original_stdout)
         console_handler.setFormatter(console_formatter)
+        log_level = logging.DEBUG
+        console_handler.setLevel(logging.DEBUG)  # Show INFO+ to console
         root_logger.addHandler(console_handler)
+        logger.info(f"Console logging initialized at {str(log_level)} level")
 
         # Redirect raw stdout and stderr for non-logging output (e.g., print() statements)
         sys.stdout = StdoutRedirector(self.log_frame, "INFO", original_stdout)
         sys.stderr = StdoutRedirector(self.log_frame, "ERROR", original_stderr)
 
-        logging.info("Logging initialized. GUI is ready.")
+        logger.info("Logging initialized. GUI is ready.")
 
     def create_status_bar(self) -> None:
         """Creates the status bar at the bottom of the main window."""
@@ -110,72 +133,100 @@ class GUI_Main:
 
     def on_tab_changed(self, event=None):
         """Handle tab changes to start/stop the appropriate refresh loops."""
+        tab_name = self.notebook.tab('current')['text']
+        logger.info(f"Tab changed to: {tab_name}")
+        
         # Stop all refresh loops first
+        logger.debug("Stopping all refresh loops")
         for frame in self.strategy_frames.values():
             frame.stop_refresh()
 
         # Start the refresh loop for the selected tab
         selected_widget = self.root.nametowidget(self.notebook.select())
         if hasattr(selected_widget, 'start_refresh'):
+            logger.debug(f"Starting refresh loop for {tab_name}")
             selected_widget.start_refresh()
 
     def on_closing(self) -> None:
-        """Handles the application closing event by stopping bots in a background thread."""
-        # Prevent multiple shutdown attempts
-        if getattr(self, "_is_closing", False):
-            return
-        self._is_closing = True
-
-        logging.info("Shutdown initiated. Stopping all running bots...")
-        self.status_var.set("Shutting down... Please wait.")
-        # Disable the close button to prevent multiple clicks
-        self.root.protocol("WM_DELETE_WINDOW", lambda: None)
-
-        # Start the shutdown process in a separate thread to avoid freezing the GUI
-        shutdown_thread = threading.Thread(target=self._shutdown_worker, daemon=True)
-        shutdown_thread.start()
+        """Handles application closing event using coordinated shutdown sequence"""
+        from definitions.shutdown import ShutdownCoordinator
         
-        # Cancel any pending balances updates
-        if hasattr(self, '_balances_update_id'):
-            self.root.after_cancel(self._balances_update_id)
+        ShutdownCoordinator.initiate_shutdown(
+            config_manager=self.master_config_manager,
+            strategies=self.strategy_frames,
+            gui_root=self.root
+        )
+        self.status_var.set("Shutting down... Please wait.")
+        
+
 
     def _shutdown_worker(self):
         """Worker thread to gracefully stop all bot threads."""
+        logger.info("Executing shutdown worker thread")
         running_frames = [
-            frame for frame in self.strategy_frames.values() if frame.started
+            frame for frame in self.strategy_frames.values() 
+            if frame.started and not frame.stopping
         ]
+        logger.debug(f"Processing {len(running_frames)} running frames")
 
-        # Stop each bot. The `stop` method will block this worker thread, which is what we want.
+        # First stop all frames and wait for them
         for frame in running_frames:
-            logging.info(f"Stopping {frame.strategy_name} bot...")
-            # Wait indefinitely for each bot to stop
+            logger.debug(f"Stopping {frame.strategy_name} bot")
             frame.stop(blocking=True, reload_config=False)
-
-        logging.info("All bots stopped. Closing application.")
-        self.root.after(0, self.root.destroy)
-        
-    def update_shared_balances(self):
-        """Periodically update shared balances data from all strategies"""
-        with self.balances_lock:
-            # Format data for panels
-            data = [{
-                "symbol": symbol,
-                "usd_price": token.get('usd_price', 0.0),
-                "total": token.get('total', 0.0),
-                "free": token.get('free', 0.0)
-            } for symbol, token in self.shared_balances_data.items()]
             
-            # Update all panels with the same aggregated data
-            for frame in self.strategy_frames.values():
-                if hasattr(frame, 'balances_panel'):
-                    frame.balances_panel.update_data(data)
+        # Then cancel all orders
+        for frame in running_frames:
+            logger.debug(f"Canceling orders for {frame.strategy_name}")
+            frame.cancel_all()
+
+        # Direct destruction instead of using after()
+        self._final_shutdown()
+
+    def _final_shutdown(self):
+        """Final cleanup and window destruction."""
+        # Destroy all strategy frames first
+        for frame in self.strategy_frames.values():
+            frame.cleanup()
+
+        # Then destroy root window
+        if self.root and self.root.winfo_exists():
+            try:
+                # Destroy any child windows first
+                for child in self.root.winfo_children():
+                    child.destroy()
+                
+                # Now destroy root
+                self.root.quit()
+                self.root.destroy()
+            except tk.TclError:
+                pass
+        # Ensure process exits
+        os._exit(0)
+    def update_shared_balances(self):
+        """Centralized balance refresh using tokens from strategy frames"""
+        logger.debug("Updating shared balances panel")
+        data = []
+        tokens_seen = set()
         
-        # Schedule next update
-        self._balances_update_id = self.root.after(1000, self.update_shared_balances)
+        # Collect tokens from all strategy frames
+        for frame in self.strategy_frames.values():
+            if getattr(frame, 'config_manager', None) and hasattr(frame.config_manager, 'tokens'):
+                tokens = frame.config_manager.tokens
+                for token_symbol, token_obj in tokens.items():
+                    if token_obj.cex and token_obj.dex and token_symbol not in tokens_seen:
+                        usd_price = token_obj.cex.usd_price or 0.0
+                        total = token_obj.dex.total_balance or 0.0
+                        free = token_obj.dex.free_balance or 0.0
+                        data.append({
+                            "symbol": token_symbol,
+                            "usd_price": usd_price,
+                            "total": total,
+                            "free": free
+                        })
+                        tokens_seen.add(token_symbol)
         
-    def update_shared_balance(self, symbol: str, field: str, value: float):
-        """Update shared balance data from any strategy"""
-        with self.balances_lock:
-            if symbol not in self.shared_balances_data:
-                self.shared_balances_data[symbol] = {'usd_price': 0.0, 'total': 0.0, 'free': 0.0}
-            self.shared_balances_data[symbol][field] = value
+        # Update the single shared balances panel
+        self.balances_panel.update_data(data)
+        
+        self._balances_update_id = self.root.after(2000, self.update_shared_balances)
+        

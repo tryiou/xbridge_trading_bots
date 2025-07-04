@@ -248,12 +248,12 @@ def run_async_main(config_manager, loop=None, startup_tasks=None):
         # Run the event loop until the main task is complete.
         loop.run_until_complete(main_task)
     except (SystemExit, KeyboardInterrupt):
-        config_manager.general_log.info("Received Stop signal. Initiating graceful shutdown...")
+        from definitions.shutdown import ShutdownCoordinator
+        config_manager.general_log.info("Received stop signal. Initiating coordinated shutdown...")
         if controller and not controller.shutdown_event.is_set():
-            # Signal the main loop to stop
             controller.shutdown_event.set()
-            # Wait for the main task to acknowledge the shutdown and finish
-            loop.run_until_complete(main_task)
+            # Use the proper async shutdown method for CLI
+            loop.run_until_complete(ShutdownCoordinator.shutdown_async(config_manager))
     except Exception as e:
         config_manager.general_log.error(f"Exception in run_async_main: {e}")
         traceback.print_exc()

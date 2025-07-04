@@ -6,6 +6,9 @@ import abc
 import tkinter as tk
 from enum import Enum
 from tkinter import ttk
+
+# Get module-specific logger
+logger = logging.getLogger(__name__)
 from typing import TYPE_CHECKING
 
 from ruamel.yaml import YAML
@@ -59,11 +62,14 @@ class BaseStrategyFrame(ttk.Frame):
     def start(self):
         """Starts the bot in a separate thread."""
         if not self.config_manager:
-            logging.error("Cannot start: config_manager is not initialized.")
+            logger.error("Cannot start: config_manager is not initialized.")
             return
 
+        logger.info(f"User clicked START for {self.strategy_name}")
+        logger.debug(f"Initializing bot thread for {self.strategy_name} | Config: {self.config_manager.__dict__.keys()}")
+        
         log = self.config_manager.general_log
-        log.debug("GUI: START button clicked.")
+        log.debug("Validating configuration parameters")
 
         self.stopping = False  # Reset stopping flag on start
         self.main_app.status_var.set(f"{self.strategy_name.capitalize()} bot is running...")
@@ -83,6 +89,7 @@ class BaseStrategyFrame(ttk.Frame):
         except Exception as e:
             self.main_app.status_var.set(f"Error starting {self.strategy_name} bot: {e}")
             log.error(f"Error starting bot thread: {e}", exc_info=True)
+            logger.critical(f"Failed to start {self.strategy_name} bot", exc_info=True)
             self.stop(blocking=True, reload_config=False)
 
     def stop(self, blocking: bool = False, reload_config: bool = True):
@@ -109,8 +116,21 @@ class BaseStrategyFrame(ttk.Frame):
         if blocking:
             # Used for application shutdown where we need to wait
             if self.send_process:
-                self.send_process.join()  # Wait indefinitely
+                # First try orderly shutdown
+                if self.config_manager.controller:
+                    self.config_manager.controller.shutdown_event.set()
+                
+                # Wait with timeout and force exit if needed
+                self.send_process.join(2)  # Reduced from 10 to 2 seconds
+                
+                if self.send_process.is_alive():
+                    self.config_manager.general_log.warning("Force shutdown of stuck thread")
+                    # Force stop the event loop
+                    if self.config_manager.controller and self.config_manager.controller.loop:
+                        self.config_manager.controller.loop.stop()
+                
             self._finalize_stop(reload_config)
+            # HTTP session is managed by async context, no need for explicit close
 
     def _finalize_stop(self, reload_config: bool = True):
         """Cleans up the state after the bot thread has stopped."""
@@ -175,7 +195,6 @@ class BaseStrategyFrame(ttk.Frame):
 
         if self.winfo_exists():
             self._update_orders_display()
-            self._update_balances_display()
 
         # Check if a non-blocking stop has completed
         if self.stopping and self.send_process and not self.send_process.is_alive():
@@ -233,14 +252,6 @@ class BaseStrategyFrame(ttk.Frame):
             })
         self.orders_panel.update_data(orders)
     
-    def _update_balances_display(self):
-        """Collects current balance data updates the shared balances cache"""
-        if self.config_manager and hasattr(self.config_manager, 'tokens'):
-            for token_symbol, token_obj in self.config_manager.tokens.items():
-                if token_obj.cex and token_obj.dex:
-                    self.main_app.update_shared_balance(token_symbol, 'usd_price', token_obj.cex.usd_price or 0.0)
-                    self.main_app.update_shared_balance(token_symbol, 'total', token_obj.dex.total_balance or 0.0)
-                    self.main_app.update_shared_balance(token_symbol, 'free', token_obj.dex.free_balance or 0.0)
 
     def on_closing(self):
         """Handles the application closing event."""
@@ -318,35 +329,19 @@ class StandardStrategyFrame(BaseStrategyFrame, metaclass=abc.ABCMeta):
 
     def create_widgets(self):
         """Creates the common widgets for a standard strategy frame."""
-        # Create frames with titles
+        # Create orders frame
         orders_frame = ttk.LabelFrame(self, text="Orders")
         orders_frame.grid(row=1, column=0, padx=5, pady=5, sticky="nsew")
         orders_frame.grid_rowconfigure(0, weight=1)
         orders_frame.grid_columnconfigure(0, weight=1)
         
-        balances_frame = ttk.LabelFrame(self, text="Balances")
-        balances_frame.grid(row=2, column=0, padx=5, pady=5, sticky="nsew")
-        balances_frame.grid_rowconfigure(0, weight=1)
-        balances_frame.grid_columnconfigure(0, weight=1)
-        
-        # Create panels within titled frames
+        # Create orders panel
         self.orders_panel = OrdersPanel(orders_frame)
-        self.balances_panel = BalancesPanel(balances_frame)
-        
-        # Add panels to frames
         self.orders_panel.grid(row=0, column=0, padx=0, pady=0, sticky="nsew")
-        self.balances_panel.grid(row=0, column=0, padx=0, pady=0, sticky="nsew")
         
         self.gui_config = self._create_config_gui()
         self.create_standard_buttons()
         
-        # Initialize shared tokens by adding our own
-        if self.config_manager and hasattr(self.config_manager, 'tokens'):
-            for token_symbol in self.config_manager.tokens:
-                # Main app will use first available value for each token
-                self.main_app.update_shared_balance(token_symbol, 'usd_price', 0.0)
-                self.main_app.update_shared_balance(token_symbol, 'total', 0.0)
-                self.main_app.update_shared_balance(token_symbol, 'free', 0.0)
 
 
     def open_configure_window(self):
@@ -354,13 +349,10 @@ class StandardStrategyFrame(BaseStrategyFrame, metaclass=abc.ABCMeta):
         self.gui_config.open()
 
     def purge_and_recreate_widgets(self):
-        """Purges and recreates the Orders and Balances treeviews."""
+        """Purges and recreates the Orders treeview."""
         self.orders_panel.destroy()
-        self.balances_panel.destroy()
         self.orders_panel = OrdersPanel(self)
-        self.balances_panel = BalancesPanel(self)
         self.orders_panel.grid(row=1, column=0, padx=5, pady=5, sticky="nsew")
-        self.balances_panel.grid(row=2, column=0, padx=5, pady=5, sticky="nsew")
 
     def cleanup(self):
         """Unbind events to prevent errors during teardown."""
