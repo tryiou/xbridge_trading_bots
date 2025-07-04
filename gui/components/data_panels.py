@@ -11,7 +11,11 @@ class BaseDataPanel(ttk.Frame):
         super().__init__(parent)                                                                                                                                                          
         self.columns = columns                                                                                                                                                            
         self.tree = ttk.Treeview(self, columns=[c[0] for c in columns], show='headings')                                                                                                  
-        self.scroll = ttk.Scrollbar(self, orient='vertical', command=self.tree.yview)                                                                                                     
+        self.scroll = ttk.Scrollbar(self, orient='vertical', command=self.tree.yview)
+
+        # Configure zebra striping
+        self.tree.tag_configure('evenrow', background='#333333')
+        self.tree.tag_configure('oddrow', background='#404040')
                                                                                                                                                                                           
         # Configure tree columns                                                                                                                                                          
         for col_id, col_name, _ in columns:                                                                                                                                               
@@ -47,20 +51,21 @@ class OrdersPanel(BaseDataPanel):
         # Set initial height to 8 rows
         self.tree.configure(height=8)
                                                                                                                                                                                           
-    def update_data(self, orders: List[Dict]):                                                                                                                                            
-        self.tree.delete(*self.tree.get_children())                                                                                                                                       
-        # Set treeview height to number of rows (max 10)
-        new_height = min(len(orders), 10) if len(orders) > 0 else 1
-        self.tree.configure(height=new_height)
+    def update_data(self, orders: List[Dict]):
+        self.tree.delete(*self.tree.get_children())
+        # Set height between 5-15 rows based on actual data count
+        display_height = max(min(len(orders), 15), 5)
+        self.tree.configure(height=display_height)
         
-        for order in orders:                                                                                                                                                              
-            self.tree.insert('', 'end', values=(                                                                                                                                          
-                order['pair'],                                                                                                                                                            
-                order.get('status', 'None'),                                                                                                                                           
-                order.get('side', 'None'),                                                                                                                                                 
-                order.get('flag', 'X'),                                                                                                                                                 
-                order.get('variation', 'None')                                                                                                                                       
-            ))                                                                                                                                                                            
+        # Add actual data rows up to 15 entries
+        for i, order in enumerate(orders[:15]):
+            self.tree.insert('', 'end', values=(
+                order['pair'],
+                order.get('status', 'None'),
+                order.get('side', 'None'),
+                order.get('flag', 'X'),
+                order.get('variation', 'None')
+            ), tags=('evenrow' if i % 2 == 0 else 'oddrow',))
                                                                                                                                                                                           
 class BalancesPanel(BaseDataPanel):                                                                                                                                                       
     """Replacement for original GUI_Balances"""                                                                                                                                           
@@ -77,17 +82,18 @@ class BalancesPanel(BaseDataPanel):
         # Set initial height to 8 rows
         self.tree.configure(height=8)                                                                                                                                            
                                                                                                                                                                                           
-    def update_data(self, balances: List[Dict]):                                                                                                                                          
+    def update_data(self, balances: List[Dict]):
         self.tree.delete(*self.tree.get_children())
-        # Set treeview height to number of rows (max 10)
-        new_height = min(len(balances), 10) if len(balances) > 0 else 1
-        self.tree.configure(height=new_height)
+        # Set height between 5-15 rows based on actual data count
+        display_height = max(min(len(balances), 15), 5)
+        self.tree.configure(height=display_height)
         
-        for balance in balances:                                                                                                                                                          
-            self.tree.insert('', 'end', values=(                                                                                                                                          
-                balance['symbol'],                                                                                                                                                        
-                f"${balance['usd_price']:.3f}",                                                                                                                                           
-                f"{balance['total']:.4f}",                                                                                                                                                
-                f"{balance['free']:.4f}",                                                                                                                                                 
-                f"${balance['total'] * balance['usd_price']:.2f}"                                                                                                                         
-            ))                                                                                                                                                                            
+        # Add actual data rows up to 15 entries
+        for i, balance in enumerate(balances[:15]):
+            self.tree.insert('', 'end', values=(
+                balance['symbol'],
+                f"${balance['usd_price']:.3f}",
+                f"{balance['total']:.4f}",
+                f"{balance['free']:.4f}",
+                f"${balance['total'] * balance['usd_price']:.2f}"
+            ), tags=('evenrow' if i % 2 == 0 else 'oddrow',))

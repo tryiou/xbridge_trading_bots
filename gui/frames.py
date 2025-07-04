@@ -234,16 +234,13 @@ class BaseStrategyFrame(ttk.Frame):
         self.orders_panel.update_data(orders)
     
     def _update_balances_display(self):
-        """Collects current balance data and updates display"""
-        balances = []
-        for token_symbol, token_obj in self.config_manager.tokens.items():
-            balances.append({
-                "symbol": token_symbol,
-                "usd_price": token_obj.cex.usd_price or 0.0,
-                "total": token_obj.dex.total_balance or 0.0,
-                "free": token_obj.dex.free_balance or 0.0
-            })
-        self.balances_panel.update_data(balances)
+        """Collects current balance data updates the shared balances cache"""
+        if self.config_manager and hasattr(self.config_manager, 'tokens'):
+            for token_symbol, token_obj in self.config_manager.tokens.items():
+                if token_obj.cex and token_obj.dex:
+                    self.main_app.update_shared_balance(token_symbol, 'usd_price', token_obj.cex.usd_price or 0.0)
+                    self.main_app.update_shared_balance(token_symbol, 'total', token_obj.dex.total_balance or 0.0)
+                    self.main_app.update_shared_balance(token_symbol, 'free', token_obj.dex.free_balance or 0.0)
 
     def on_closing(self):
         """Handles the application closing event."""
@@ -342,6 +339,14 @@ class StandardStrategyFrame(BaseStrategyFrame, metaclass=abc.ABCMeta):
         
         self.gui_config = self._create_config_gui()
         self.create_standard_buttons()
+        
+        # Initialize shared tokens by adding our own
+        if self.config_manager and hasattr(self.config_manager, 'tokens'):
+            for token_symbol in self.config_manager.tokens:
+                # Main app will use first available value for each token
+                self.main_app.update_shared_balance(token_symbol, 'usd_price', 0.0)
+                self.main_app.update_shared_balance(token_symbol, 'total', 0.0)
+                self.main_app.update_shared_balance(token_symbol, 'free', 0.0)
 
 
     def open_configure_window(self):

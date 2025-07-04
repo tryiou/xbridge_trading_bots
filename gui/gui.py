@@ -35,6 +35,10 @@ class GUI_Main:
         # This must be done *before* setup_logging to ensure all backend loggers exist.
         self.master_config_manager = ConfigManager(strategy="gui")
 
+        # Create a shared container for token balances data
+        self.shared_balances_data = {}
+        self.balances_lock = threading.Lock()
+        
         # Create and add frames for each strategy
         self.strategy_frames = {
             'PingPong': PingPongFrame(self.notebook, self, self.master_config_manager),
@@ -46,6 +50,9 @@ class GUI_Main:
 
         # Add the log frame to the notebook at the end
         self.notebook.add(self.log_frame, text='Logs')
+        
+        # Start periodic task to update shared balances panel
+        self.update_shared_balances()
 
         self.create_status_bar()
 
@@ -127,6 +134,10 @@ class GUI_Main:
         # Start the shutdown process in a separate thread to avoid freezing the GUI
         shutdown_thread = threading.Thread(target=self._shutdown_worker, daemon=True)
         shutdown_thread.start()
+        
+        # Cancel any pending balances updates
+        if hasattr(self, '_balances_update_id'):
+            self.root.after_cancel(self._balances_update_id)
 
     def _shutdown_worker(self):
         """Worker thread to gracefully stop all bot threads."""
@@ -142,3 +153,29 @@ class GUI_Main:
 
         logging.info("All bots stopped. Closing application.")
         self.root.after(0, self.root.destroy)
+        
+    def update_shared_balances(self):
+        """Periodically update shared balances data from all strategies"""
+        with self.balances_lock:
+            # Format data for panels
+            data = [{
+                "symbol": symbol,
+                "usd_price": token.get('usd_price', 0.0),
+                "total": token.get('total', 0.0),
+                "free": token.get('free', 0.0)
+            } for symbol, token in self.shared_balances_data.items()]
+            
+            # Update all panels with the same aggregated data
+            for frame in self.strategy_frames.values():
+                if hasattr(frame, 'balances_panel'):
+                    frame.balances_panel.update_data(data)
+        
+        # Schedule next update
+        self._balances_update_id = self.root.after(1000, self.update_shared_balances)
+        
+    def update_shared_balance(self, symbol: str, field: str, value: float):
+        """Update shared balance data from any strategy"""
+        with self.balances_lock:
+            if symbol not in self.shared_balances_data:
+                self.shared_balances_data[symbol] = {'usd_price': 0.0, 'total': 0.0, 'free': 0.0}
+            self.shared_balances_data[symbol][field] = value
