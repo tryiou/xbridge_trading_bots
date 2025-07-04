@@ -1,5 +1,6 @@
 import asyncio
 import os
+import subprocess
 import threading
 from typing import Optional, Dict, Any
 
@@ -100,6 +101,30 @@ class ShutdownCoordinator:
 
     def _cleanup_resources(self) -> None:
         """Release system resources and connections"""
+        # Clean up proxy process first
+        if getattr(self.config_manager, 'ccxt_manager', None):
+            cm = self.config_manager.ccxt_manager
+            if cm.proxy_process and cm.proxy_process.poll() is None:
+                try:
+                    self.config_manager.general_log.info(
+                        f"Stopping CCXT proxy (PID: {cm.proxy_process.pid}) on port {cm.proxy_port}..."
+                    )
+                    self.config_manager.general_log.debug("Sending SIGTERM to proxy process")
+                    cm.proxy_process.terminate()
+                    exit_code = cm.proxy_process.wait(timeout=5)
+                    self.config_manager.general_log.info(
+                        f"Proxy exited with code {exit_code}"
+                    )
+                except subprocess.TimeoutExpired:
+                    self.config_manager.general_log.warning(
+                        f"Proxy did not terminate gracefully after 5s, sending SIGKILL to PID {cm.proxy_process.pid}"
+                    )
+                    cm.proxy_process.kill()
+                except Exception as e:
+                    self.config_manager.general_log.error(
+                        f"Error stopping proxy: {str(e)} (PID: {cm.proxy_process.pid})"
+                    )
+
         if hasattr(self.config_manager, 'http_session'):
             self.config_manager.general_log.info("Closing HTTP session and cleaning up resources")
             try:

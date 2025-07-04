@@ -1,8 +1,11 @@
 import asyncio
 import json
+import os
 import socket
+import subprocess
 import sys
 import time
+from pathlib import Path
 
 import ccxt
 
@@ -12,6 +15,8 @@ from definitions.rpc import rpc_call
 class CCXTManager:
     def __init__(self, config_manager):
         self.config_manager = config_manager  # Store ConfigManager reference
+        self.proxy_process = None  # Initialize even if not used
+        self.proxy_port = 2233  # Defined here for shutdown cleanup
 
     def init_ccxt_instance(self, exchange, hostname=None, private_api=False, debug_level=1):
         # CCXT instance
@@ -93,6 +98,11 @@ class CCXTManager:
     async def ccxt_call_fetch_tickers(self, ccxt_o, symbols_list, proxy=True):
         start = time.time()
         err_count = 0
+        
+        # Start proxy if needed before first attempt
+        if proxy and not self.isportopen("127.0.0.1", 2233) and not hasattr(self, 'proxy_started'):
+            self._start_proxy()
+
         while True:
             try:
                 used_proxy = False
@@ -138,13 +148,49 @@ class CCXTManager:
         except:
             return False
 
+    def _start_proxy(self):
+        """Start CCXT proxy in subprocess with retries and proper logging"""
+        proxy_path = Path(__file__).parent.parent / "proxy_ccxt.py"
+        self.proxy_port = 2233  # Define port here since we removed from XBridgeManager
+        
+        self.config_manager.ccxt_log.info(f"🚀 Starting CCXT proxy server on port {self.proxy_port}")
+        self.config_manager.ccxt_log.debug(f"Proxy path: {proxy_path}")
+        self.config_manager.ccxt_log.debug(f"Start command: {sys.executable} {proxy_path}")
+
+        try:
+            self.proxy_process = subprocess.Popen(
+                [sys.executable, str(proxy_path)],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == 'nt' else 0
+            )
+
+            # Verify startup with retries
+            max_retries = 5
+            for attempt in range(1, max_retries+1):
+                time.sleep(attempt * 1)  # More frequent checks with progressive waiting
+                if self.isportopen("127.0.0.1", self.proxy_port):
+                    self.proxy_started = True
+                    self.config_manager.ccxt_log.info(
+                        f"✅ Proxy started successfully (PID: {self.proxy_process.pid}, port: {self.proxy_port})"
+                    )
+                    return
+                self.config_manager.ccxt_log.debug(f"Port check attempt {attempt}/{max_retries} failed")
+
+            self.config_manager.ccxt_log.error(f"❌ Proxy failed to start - port {self.proxy_port} not responding after {max_retries} attempts")
+            if self.proxy_process.stderr:
+                stderr_output = self.proxy_process.stderr.read().decode().strip()
+                if stderr_output:
+                    self.config_manager.ccxt_log.error(f"Proxy error output:\n{stderr_output}")
+
+        except Exception as e:
+            self.config_manager.ccxt_log.error(f"Proxy startup failed: {str(e)}")
+            self.proxy_process = None
+
     def _manage_error(self, error, err_count=1):
         err_type = type(error).__name__
         msg = f"parent: {str(sys._getframe(1).f_code.co_name)}, error: {str(type(error))}, {str(error)}, {str(err_type)}"
-        if self.config_manager.ccxt_log:
-            self.config_manager.ccxt_log.error(msg)
-        else:
-            self.config_manager.general_log.error(msg)
+        self.config_manager.ccxt_log.error(msg)
         if err_type in ["NetworkError", "DDoSProtection", "RateLimitExceeded", "InvalidNonce",
                         "RequestTimeout", "ExchangeNotAvailable", "Errno -3", "AuthenticationError",
                         "Temporary failure in name resolution", "ExchangeError", "BadResponse", "KeyError"]:
@@ -165,12 +211,12 @@ class CCXTManager:
         # Level 2: Log method name only
         if debug_level == 2:
             msg = f"ccxt_rpc_call( {func[10::]} ){timer}"
-            self.config_manager.general_log.info(msg)
+            self.config_manager.ccxt_log.info(msg)
         # Level 3: Log method and parameters
         elif debug_level >= 3:
             msg = f"ccxt_rpc_call( {func[10::]} {params} ){timer}"
-            self.config_manager.general_log.info(msg)
+            self.config_manager.ccxt_log.info(msg)
 
         # Level 4: Also log the full result
         if debug_level >= 4:
-            self.config_manager.general_log.debug(str(result))
+            self.config_manager.ccxt_log.debug(str(result))

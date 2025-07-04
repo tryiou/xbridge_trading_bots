@@ -2,6 +2,12 @@ import asyncio
 import configparser
 import os
 import uuid
+import socket
+import sys
+import os
+import subprocess
+import time
+from pathlib import Path
 
 from definitions.detect_rpc import detect_rpc
 from definitions.rpc import rpc_call
@@ -10,7 +16,8 @@ from definitions.rpc import rpc_call
 class XBridgeManager:
     def __init__(self, config_manager):
         self.config_manager = config_manager
-        self.logger = config_manager.general_log
+
+        self.logger = self.config_manager.general_log
         self.blocknet_user_rpc, self.blocknet_port_rpc, self.blocknet_password_rpc, self.blocknet_datadir_path = detect_rpc()
         self.xbridge_conf = None
         self.xbridge_fees_estimate = {}
@@ -26,6 +33,15 @@ class XBridgeManager:
             self.parse_xbridge_conf()
             # Calculate fee estimates
             self.calculate_xbridge_fees()
+
+    def isportopen(self, ip, port):
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            s.connect((ip, int(port)))
+            s.shutdown(2)
+            return True
+        except:
+            return False
 
     async def rpc_wrapper(self, method, params=None):
         if params is None:
