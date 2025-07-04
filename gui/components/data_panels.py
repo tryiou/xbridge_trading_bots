@@ -48,24 +48,26 @@ class OrdersPanel(BaseDataPanel):
                                                                                                                                                                                           
     def __init__(self, parent):                                                                                                                                                           
         super().__init__(parent, self.COLUMNS)                                                                                                                                            
-        # Set initial height to 8 rows
-        self.tree.configure(height=8)
+        # Set initial height to 5 rows                                                                                                                                                    
+        self.tree.configure(height=5)                                                                                                                                                            
                                                                                                                                                                                           
     def update_data(self, orders: List[Dict]):
         self.tree.delete(*self.tree.get_children())
-        # Set height between 5-15 rows based on actual data count
-        display_height = max(min(len(orders), 15), 5)
-        self.tree.configure(height=display_height)
-        
-        # Add actual data rows up to 15 entries
-        for i, order in enumerate(orders[:15]):
-            self.tree.insert('', 'end', values=(
-                order['pair'],
-                order.get('status', 'None'),
-                order.get('side', 'None'),
-                order.get('flag', 'X'),
-                order.get('variation', 'None')
-            ), tags=('evenrow' if i % 2 == 0 else 'oddrow',))
+        # Set height between 5-15 rows based on actual data count                                                                                                                         
+        display_height = max(min(len(orders), 15), 5)                                                                                                                                     
+
+        # But the Treeview shows the entire dataset regardless of visible height                                                                                                          
+        for i, order in enumerate(orders):                                                                                                                                                
+            self.tree.insert('', 'end', values=(                                                                                                                                          
+                order['pair'],                                                                                                                                                            
+                order.get('status', 'None'),                                                                                                                                              
+                order.get('side', 'None'),                                                                                                                                                
+                order.get('flag', 'X'),                                                                                                                                                   
+                order.get('variation', 'None')                                                                                                                                            
+            ), tags=('evenrow' if i % 2 == 0 else 'oddrow',))                                                                                                                             
+
+        # Set the height AFTER inserting all items so the view adapts to visible height                                                                                                   
+        self.tree.configure(height=display_height)                                                                                                                                        
                                                                                                                                                                                           
 class BalancesPanel(BaseDataPanel):                                                                                                                                                       
     """Replacement for original GUI_Balances"""                                                                                                                                           
@@ -76,20 +78,19 @@ class BalancesPanel(BaseDataPanel):
         ('free', 'Free', 20),                                                                                                                                                             
         ('total_usd', 'Total USD', 15)                                                                                                                                                    
     ]                                                                                                                                                                                     
-                                                                                                                                                                                          
-    def __init__(self, parent):                                                                                                                                                           
+
+    def __init__(self, parent):
         super().__init__(parent, self.COLUMNS)
-        # Set initial height to 8 rows
-        self.tree.configure(height=8)                                                                                                                                            
-                                                                                                                                                                                          
+        # Set initial height to 5 rows
+        self.tree.configure(height=5)
+
     def update_data(self, balances: List[Dict]):
         self.tree.delete(*self.tree.get_children())
         # Set height between 5-15 rows based on actual data count
         display_height = max(min(len(balances), 15), 5)
-        self.tree.configure(height=display_height)
-        
-        # Add actual data rows up to 15 entries
-        for i, balance in enumerate(balances[:15]):
+
+        # But the Treeview shows the entire dataset regardless of visible height
+        for i, balance in enumerate(balances):
             self.tree.insert('', 'end', values=(
                 balance['symbol'],
                 f"${balance['usd_price']:.3f}",
@@ -97,3 +98,6 @@ class BalancesPanel(BaseDataPanel):
                 f"{balance['free']:.4f}",
                 f"${balance['total'] * balance['usd_price']:.2f}"
             ), tags=('evenrow' if i % 2 == 0 else 'oddrow',))
+
+        # Set the height AFTER inserting all items so the view adapts to visible height
+        self.tree.configure(height=display_height)
