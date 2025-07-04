@@ -98,7 +98,7 @@ class CCXTManager:
     async def ccxt_call_fetch_tickers(self, ccxt_o, symbols_list, proxy=True):
         start = time.time()
         err_count = 0
-        
+
         # Start proxy if needed before first attempt
         if proxy and not self.isportopen("127.0.0.1", 2233) and not hasattr(self, 'proxy_started'):
             self._start_proxy()
@@ -109,7 +109,7 @@ class CCXTManager:
                 if self.isportopen("127.0.0.1", 2233) and proxy:  # CCXT PROXY
                     result = await rpc_call("ccxt_call_fetch_tickers", tuple(symbols_list), rpc_port=2233,
                                             debug=self.config_manager.config_ccxt.debug_level, display=False,
-                                            logger=self.config_manager.general_log)
+                                            logger=self.config_manager.general_log, timeout=60)
                     used_proxy = True
                 else:
                     loop = asyncio.get_running_loop()
@@ -152,7 +152,7 @@ class CCXTManager:
         """Start CCXT proxy in subprocess with retries and proper logging"""
         proxy_path = Path(__file__).parent.parent / "proxy_ccxt.py"
         self.proxy_port = 2233  # Define port here since we removed from XBridgeManager
-        
+
         self.config_manager.ccxt_log.info(f"🚀 Starting CCXT proxy server on port {self.proxy_port}")
         self.config_manager.ccxt_log.debug(f"Proxy path: {proxy_path}")
         self.config_manager.ccxt_log.debug(f"Start command: {sys.executable} {proxy_path}")
@@ -167,7 +167,7 @@ class CCXTManager:
 
             # Verify startup with retries
             max_retries = 5
-            for attempt in range(1, max_retries+1):
+            for attempt in range(1, max_retries + 1):
                 time.sleep(attempt * 1)  # More frequent checks with progressive waiting
                 if self.isportopen("127.0.0.1", self.proxy_port):
                     self.proxy_started = True
@@ -177,7 +177,8 @@ class CCXTManager:
                     return
                 self.config_manager.ccxt_log.debug(f"Port check attempt {attempt}/{max_retries} failed")
 
-            self.config_manager.ccxt_log.error(f"❌ Proxy failed to start - port {self.proxy_port} not responding after {max_retries} attempts")
+            self.config_manager.ccxt_log.error(
+                f"❌ Proxy failed to start - port {self.proxy_port} not responding after {max_retries} attempts")
             if self.proxy_process.stderr:
                 stderr_output = self.proxy_process.stderr.read().decode().strip()
                 if stderr_output:
@@ -191,9 +192,13 @@ class CCXTManager:
         err_type = type(error).__name__
         msg = f"parent: {str(sys._getframe(1).f_code.co_name)}, error: {str(type(error))}, {str(error)}, {str(err_type)}"
         self.config_manager.ccxt_log.error(msg)
-        if err_type in ["NetworkError", "DDoSProtection", "RateLimitExceeded", "InvalidNonce",
-                        "RequestTimeout", "ExchangeNotAvailable", "Errno -3", "AuthenticationError",
-                        "Temporary failure in name resolution", "ExchangeError", "BadResponse", "KeyError"]:
+        if err_type == "TimeoutError":  #
+            sleep_time = min(err_count * 2, 10)
+            self.config_manager.ccxt_log.warning(f"Timeout detected, retrying in {sleep_time}s")
+            time.sleep(sleep_time)
+        elif err_type in ["NetworkError", "DDoSProtection", "RateLimitExceeded", "InvalidNonce",
+                          "RequestTimeout", "ExchangeNotAvailable", "Errno -3", "AuthenticationError",
+                          "Temporary failure in name resolution", "ExchangeError", "BadResponse", "KeyError"]:
             time.sleep(err_count * 1)
         else:
             time.sleep(err_count * 1)
