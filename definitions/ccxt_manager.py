@@ -149,26 +149,22 @@ class CCXTManager:
             return False
 
     def _start_proxy(self):
-        """Start CCXT proxy in subprocess with retries and proper logging"""
+        """Start CCXT proxy - ONLY redirect outputs to void"""
         proxy_path = Path(__file__).parent.parent / "proxy_ccxt.py"
-        self.proxy_port = 2233  # Define port here since we removed from XBridgeManager
+        self.proxy_port = 2233
 
         self.config_manager.ccxt_log.info(f"🚀 Starting CCXT proxy server on port {self.proxy_port}")
-        self.config_manager.ccxt_log.debug(f"Proxy path: {proxy_path}")
-        self.config_manager.ccxt_log.debug(f"Start command: {sys.executable} {proxy_path}")
-
         try:
             self.proxy_process = subprocess.Popen(
                 [sys.executable, str(proxy_path)],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
                 creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == 'nt' else 0
             )
 
-            # Verify startup with retries
             max_retries = 5
             for attempt in range(1, max_retries + 1):
-                time.sleep(attempt * 1)  # More frequent checks with progressive waiting
+                time.sleep(attempt * 1)
                 if self.isportopen("127.0.0.1", self.proxy_port):
                     self.proxy_started = True
                     self.config_manager.ccxt_log.info(
@@ -183,7 +179,6 @@ class CCXTManager:
                 stderr_output = self.proxy_process.stderr.read().decode().strip()
                 if stderr_output:
                     self.config_manager.ccxt_log.error(f"Proxy error output:\n{stderr_output}")
-
         except Exception as e:
             self.config_manager.ccxt_log.error(f"Proxy startup failed: {str(e)}")
             self.proxy_process = None
