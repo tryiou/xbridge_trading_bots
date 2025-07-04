@@ -147,7 +147,8 @@ class ConfigManager:
                 if key not in user:
                     user[key] = value
                     updated = True
-                    self.general_log.info(f"Added missing key '{key}' to {os.path.basename(config_path)} from template.")
+                    self.general_log.info(
+                        f"Added missing key '{key}' to {os.path.basename(config_path)} from template.")
                 elif isinstance(value, dict) and isinstance(user.get(key), dict):
                     if merge_configs(value, user.get(key, {})):
                         updated = True

@@ -9,6 +9,7 @@ from contextlib import contextmanager
 
 from definitions.starter import TradingProcessor, MainController
 
+
 class PingPongStrategyTester:
     """
     A dedicated class to test the logic and various scenarios
@@ -41,7 +42,6 @@ class PingPongStrategyTester:
                 patch('asyncio.sleep', return_value=None), \
                 patch.object(self.pair.t1.dex, 'free_balance', 1000.0), \
                 patch.object(self.pair.t2.dex, 'free_balance', 1000.0):
-
             # Default mock behaviors
             mock_make_order.return_value = {'id': 'mock_order_id_123', 'status': 'created'}
             mock_get_status.return_value = {'id': 'mock_order_id_123', 'status': 'open'}
@@ -283,7 +283,8 @@ class PingPongStrategyTester:
             call_args = mocks['make_order'].call_args[0]
             # The new order should be a BUY order
             if call_args[0] == self.pair.t2.symbol:
-                self.config_manager.general_log.info("[TEST PASSED] Correctly wrote history and created next (BUY) order.")
+                self.config_manager.general_log.info(
+                    "[TEST PASSED] Correctly wrote history and created next (BUY) order.")
                 passed = True
             else:
                 self.config_manager.general_log.error(

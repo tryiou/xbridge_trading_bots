@@ -52,7 +52,8 @@ class GUITester:
         failed_count = 0
 
         for result in self.test_results:
-            status = f"{bcolors.OKGREEN}PASSED{bcolors.ENDC}" if result['passed'] else f"{bcolors.FAIL}FAILED{bcolors.ENDC}"
+            status = f"{bcolors.OKGREEN}PASSED{bcolors.ENDC}" if result[
+                'passed'] else f"{bcolors.FAIL}FAILED{bcolors.ENDC}"
             summary_lines.append(f"  - [{status}] {result['name']}")
             if result['passed']:
                 passed_count += 1
@@ -78,12 +79,14 @@ class GUITester:
         patchers.append(patch('definitions.detect_rpc.detect_rpc', return_value=('user', 'port', 'pass', '/fake/dir')))
 
         # 2. Mock config file creation and loading
-        patchers.append(patch('definitions.config_manager.ConfigManager.create_configs_from_templates', return_value=None))
+        patchers.append(
+            patch('definitions.config_manager.ConfigManager.create_configs_from_templates', return_value=None))
 
         # Mock _load_and_update_config to return a mock config object
         # This prevents file I/O and gives us control over config values.
         mock_config_data = {
-            'config_pingpong': {'debug_level': 2, 'ttk_theme': 'darkly', 'pair_configs': [{'name': 'test', 'pair': 'LTC/DOGE', 'enabled': True}]},
+            'config_pingpong': {'debug_level': 2, 'ttk_theme': 'darkly',
+                                'pair_configs': [{'name': 'test', 'pair': 'LTC/DOGE', 'enabled': True}]},
             'config_basicseller': {'seller_configs': [{'name': 'test', 'pair': 'LTC/DOGE', 'enabled': True}]},
             'config_arbitrage': {'trading_tokens': ['LTC', 'DOGE'], 'fee_token': 'BLOCK'},
             'config_xbridge': {
@@ -98,7 +101,8 @@ class GUITester:
             'config_thorchain': {}
         }
         patchers.append(patch('definitions.config_manager.ConfigManager._load_and_update_config',
-                              side_effect=lambda name: YamlToObject(mock_config_data.get(name.replace('.yaml', ''), {}))))
+                              side_effect=lambda name: YamlToObject(
+                                  mock_config_data.get(name.replace('.yaml', ''), {}))))
 
         # 3. Mock CCXT initialization to avoid network calls
         patchers.append(patch('definitions.ccxt_manager.CCXTManager.init_ccxt_instance'))

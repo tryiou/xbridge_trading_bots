@@ -3,29 +3,30 @@ import os
 import threading
 from typing import Optional, Dict, Any
 
+
 class ShutdownCoordinator:
     """Orchestrates application shutdown sequence across components"""
-    
+
     _instance = None
-    
+
     def __new__(cls):
         if cls._instance is None:
             cls._instance = super().__new__(cls)
             cls._instance._shutdown_in_progress = False
         return cls._instance
-    
+
     @classmethod
     def initiate_shutdown(cls, config_manager, strategies: Dict[str, Any], gui_root: Optional[Any] = None) -> None:
         """Initiate coordinated shutdown sequence"""
         instance = cls()
         if instance._shutdown_in_progress:
             return
-            
+
         instance._shutdown_in_progress = True
         instance.config_manager = config_manager
         instance.strategies = strategies
         instance.gui_root = gui_root
-        
+
         instance._log_shutdown_start()
         instance._disable_gui_actions()
         instance._begin_shutdown_sequence()
@@ -36,7 +37,7 @@ class ShutdownCoordinator:
         self.config_manager.general_log.info(
             f"Shutdown initiated | Strategies running: {len(running)} | Active: {', '.join(running)}"
         )
-        
+
     def _disable_gui_actions(self) -> None:
         """Disable GUI interactions during shutdown"""
         if self.gui_root:
@@ -56,13 +57,13 @@ class ShutdownCoordinator:
         """Perform ordered shutdown steps"""
         self.config_manager.general_log.info("Starting shutdown sequence - Phase 1: Stopping strategies")
         self._stop_strategies()
-        
-        self.config_manager.general_log.info("Shutdown phase 2: Canceling outstanding orders") 
+
+        self.config_manager.general_log.info("Shutdown phase 2: Canceling outstanding orders")
         self._cancel_outstanding_orders()
-        
+
         self.config_manager.general_log.info("Shutdown phase 3: Cleaning up resources")
         self._cleanup_resources()
-        
+
         self.config_manager.general_log.info("Shutdown phase 4: Finalizing process termination")
         self._finalize_shutdown()
 
@@ -70,7 +71,7 @@ class ShutdownCoordinator:
         """Gracefully stop all running strategies"""
         running_strategies = [s for s in self.strategies.values() if s.started and not s.stopping]
         self.config_manager.general_log.info(f"Stopping {len(running_strategies)} running strategies")
-        
+
         for strategy in running_strategies:
             try:
                 self.config_manager.general_log.info(f"Attempting to stop {strategy.strategy_name} strategy")
@@ -78,7 +79,7 @@ class ShutdownCoordinator:
                 self.config_manager.general_log.debug(f"Successfully sent stop signal to {strategy.strategy_name}")
             except Exception as e:
                 self.config_manager.general_log.error(
-                    f"Failed to stop {strategy.strategy_name}: {str(e)}", 
+                    f"Failed to stop {strategy.strategy_name}: {str(e)}",
                     exc_info=True
                 )
 
@@ -93,7 +94,7 @@ class ShutdownCoordinator:
                 self.config_manager.general_log.warning("No open orders found to cancel")
         except Exception as e:
             self.config_manager.general_log.error(
-                f"Failed to cancel orders: {str(e)}", 
+                f"Failed to cancel orders: {str(e)}",
                 exc_info=True
             )
 
@@ -106,7 +107,7 @@ class ShutdownCoordinator:
                 self.config_manager.general_log.debug("HTTP session closed successfully")
             except Exception as e:
                 self.config_manager.general_log.error(
-                    f"Error closing HTTP session: {str(e)}", 
+                    f"Error closing HTTP session: {str(e)}",
                     exc_info=True
                 )
         else:
@@ -115,7 +116,7 @@ class ShutdownCoordinator:
     def _finalize_shutdown(self) -> None:
         """Perform final termination steps"""
         self.config_manager.general_log.info("Finalizing shutdown process")
-        
+
         if self.gui_root:
             self.config_manager.general_log.debug("Closing GUI root window")
             try:
@@ -124,16 +125,16 @@ class ShutdownCoordinator:
                 self.config_manager.general_log.debug("GUI resources released")
             except Exception as e:
                 self.config_manager.general_log.error(
-                    f"Error closing GUI: {str(e)}", 
+                    f"Error closing GUI: {str(e)}",
                     exc_info=True
                 )
-        
+
         self.config_manager.general_log.info("Shutdown sequence completed. Exiting process")
         try:
             os._exit(0)
         except Exception as e:
             self.config_manager.general_log.critical(
-                f"CRITICAL FAILURE DURING EXIT: {str(e)}", 
+                f"CRITICAL FAILURE DURING EXIT: {str(e)}",
                 exc_info=True
             )
             raise SystemExit(1) from e
@@ -142,22 +143,22 @@ class ShutdownCoordinator:
     async def shutdown_async(cls, config_manager) -> None:
         """Asynchronous shutdown entry point"""
         config_manager.general_log.info("Starting asynchronous shutdown sequence")
-        
+
         try:
             config_manager.general_log.debug("Canceling XBridge orders")
             canceled = await config_manager.xbridge_manager.cancelallorders()
             config_manager.general_log.info(f"Canceled {len(canceled) if canceled else 0} orders in async shutdown")
-            
+
             if config_manager.controller:
                 config_manager.general_log.debug("Setting shutdown event flag")
                 config_manager.controller.shutdown_event.set()
                 config_manager.general_log.debug("Shutdown event flag set successfully")
-                
+
         except Exception as e:
             config_manager.general_log.error(
-                f"Async shutdown failed: {str(e)}", 
+                f"Async shutdown failed: {str(e)}",
                 exc_info=True
             )
             raise
-            
+
         config_manager.general_log.info("Async shutdown sequence completed")

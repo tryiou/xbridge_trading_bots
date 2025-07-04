@@ -76,20 +76,21 @@ of these templates:
 
 #### Available Templates
 
-| Template File                   | Purpose                                                         | Used By                    |
-|---------------------------------|-----------------------------------------------------------------|----------------------------|
-| `config_pingpong.yaml.template` | Trading pairs, amounts, and strategy parameters                 | PingPong Bot               |
-| `config_coins.yaml.template`    | (Optional) Static USD prices for coins without live market data | PingPong & BasicSeller Bots|
-| `config_ccxt.yaml.template`     | Exchange API configuration for real-time price feeds            | PingPong Bots              |
-| `config_xbridge.yaml.template`  | XBridge specific fees and monitoring settings                   | All Bots                   |
-| `config_thorchain.yaml.template`| Thorchain API and monitoring settings                           | Arbitrage Bot              |
-| `api_keys.local.json.template`  | (Optional) Private API keys for CCXT exchange                   | None                       |
+| Template File                    | Purpose                                                         | Used By                     |
+|----------------------------------|-----------------------------------------------------------------|-----------------------------|
+| `config_pingpong.yaml.template`  | Trading pairs, amounts, and strategy parameters                 | PingPong Bot                |
+| `config_coins.yaml.template`     | (Optional) Static USD prices for coins without live market data | PingPong & BasicSeller Bots |
+| `config_ccxt.yaml.template`      | Exchange API configuration for real-time price feeds            | PingPong Bots               |
+| `config_xbridge.yaml.template`   | XBridge specific fees and monitoring settings                   | All Bots                    |
+| `config_thorchain.yaml.template` | Thorchain API and monitoring settings                           | Arbitrage Bot               |
+| `api_keys.local.json.template`   | (Optional) Private API keys for CCXT exchange                   | None                        |
 
 #### Setup Commands
 
 ( Optional )
 Run the configuration preparation script. This will copy all necessary template files
-to your `config/` directory without overwriting any existing configurations. Trading bot will create missing config files at start.
+to your `config/` directory without overwriting any existing configurations. Trading bot will create missing config
+files at start.
 
 ```bash
 python prepare_configs.py
@@ -261,4 +262,4 @@ without warranty. Always test with small amounts first and understand the risks 
 
 ---
 
->*Built for the Blocknet ecosystem - Enabling truly decentralized cross-chain trading*
+> *Built for the Blocknet ecosystem - Enabling truly decentralized cross-chain trading*

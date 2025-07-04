@@ -4,6 +4,7 @@ import os
 import signal
 from functools import wraps
 
+import aiohttp
 import ccxt.async_support as ccxt
 from aiohttp import ClientSession, web
 
@@ -275,43 +276,33 @@ class WebServer:
 async def main():
     config = YamlToObject("./config/config_ccxt.yaml")
 
-    server = None
-    fetcher = None
-    session = None
-
-    try:
-        session = ClientSession()
+    async with aiohttp.ClientSession() as session:
         fetcher = PriceFetcher(config, session)
-        await fetcher.initialize()
+        try:
+            await fetcher.initialize()
 
-        server = WebServer(fetcher, "localhost", 2233)
+            server = WebServer(fetcher, "localhost", 2233)
+            loop = asyncio.get_running_loop()
+            stop_event = asyncio.Event()
 
-        loop = asyncio.get_running_loop()
+            def _signal_handler():
+                logging.info("Shutdown signal received.")
+                stop_event.set()
 
-        # Graceful shutdown on SIGINT/SIGTERM
-        stop_event = asyncio.Event()
+            if os.name != 'nt':
+                for sig in (signal.SIGINT, signal.SIGTERM):
+                    loop.add_signal_handler(sig, _signal_handler)
 
-        def _signal_handler():
-            logging.info("Shutdown signal received.")
-            stop_event.set()
-
-        if os.name != 'nt':
-            for sig in (signal.SIGINT, signal.SIGTERM):
-                loop.add_signal_handler(sig, _signal_handler)
-
-        await server.start()
-        await stop_event.wait()
-
-    except Exception as e:
-        logging.error(f"Critical error in main: {e}", exc_info=I_STDOUT)
-    finally:
-        if server:
-            await server.stop()
-        if fetcher:
-            await fetcher.close()
-        if session and not session.closed:
-            await session.close()
-        logging.info("Shutdown complete.")
+            await server.start()
+            await stop_event.wait()
+        except Exception as e:
+            logging.error(f"Critical error in main: {e}", exc_info=True)
+        finally:
+            if server:
+                await server.stop()
+            if fetcher:
+                await fetcher.close()
+            logging.info("Shutdown complete.")
 
 
 if __name__ == "__main__":

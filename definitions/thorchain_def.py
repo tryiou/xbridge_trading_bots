@@ -45,7 +45,7 @@ async def get_inbound_addresses(session: aiohttp.ClientSession, api_url: str):
 
 
 async def check_thorchain_path_status(from_chain: str, to_chain: str, session: aiohttp.ClientSession, api_url: str) -> \
-tuple[bool, str]:
+        tuple[bool, str]:
     """
     Checks if the trading path between two chains is active on Thorchain by inspecting inbound addresses.
     Returns a tuple (is_active: bool, reason: str).

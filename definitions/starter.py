@@ -26,6 +26,7 @@ class TradingProcessor:
 
     async def process_pairs(self, target_function):
         """Processes all pairs using the target function, but limits concurrency with a semaphore."""
+
         async def sem_task(pair):
             async with self.semaphore:
                 if self.controller.shutdown_event.is_set():
@@ -40,6 +41,7 @@ class TradingProcessor:
         tasks = [sem_task(pair) for pair in self.pairs_dict.values() if not pair.disabled]
         if tasks:
             await asyncio.gather(*tasks)
+
 
 class BalanceManager:
     def __init__(self, tokens_dict, config_manager, loop):

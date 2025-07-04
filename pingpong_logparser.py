@@ -83,7 +83,7 @@ def generate_completed_table(completed_cycles):
         # Add a check to ensure both orders have the necessary data before processing
         required_keys = ['maker', 'taker', 'maker_size', 'taker_size']
         if not all(key in sell_order for key in required_keys) or \
-           not all(key in buy_order for key in required_keys):
+                not all(key in buy_order for key in required_keys):
             logger.warning(f"Skipping incomplete completed cycle. SELL: {sell_order}, BUY: {buy_order}")
             continue
 

@@ -6,6 +6,8 @@ import uuid
 from itertools import combinations
 from typing import List, Dict, Any, Optional, Callable, Coroutine, TYPE_CHECKING
 
+import aiohttp
+
 from definitions.trade_state import TradeState
 from strategies.base_strategy import BaseStrategy
 
@@ -13,7 +15,6 @@ if TYPE_CHECKING:
     from definitions.config_manager import ConfigManager
     from definitions.pair import Pair
     from definitions.starter import MainController
-    import aiohttp
 
 
 class ArbitrageStrategy(BaseStrategy):
@@ -61,6 +62,7 @@ class ArbitrageStrategy(BaseStrategy):
         self.config_manager.general_log.info(f"  - Fee Token: {fee_token}")
         self.config_manager.general_log.info(f"  - Test Mode: {self.test_mode}")
         self.config_manager.general_log.info("------------------------------------")
+
     def _load_strategy_configs(self):
         """Loads strategy-specific configurations from the config files, with fallbacks."""
 
@@ -339,7 +341,7 @@ class ArbitrageStrategy(BaseStrategy):
             short_header = f"Buy {pair_instance.t1.symbol} on XBridge -> Sell on Thorchain"
 
         opportunity_details = f"Arbitrage Found ({short_header}): Net Profit: {profit_data['net_profit_ratio']:.2f}% on {pair_instance.symbol}." if \
-        profit_data['is_profitable'] else None
+            profit_data['is_profitable'] else None
 
         execution_data = {
             'leg': 1 if is_bid else 2,
@@ -636,8 +638,9 @@ class ArbitrageStrategy(BaseStrategy):
         self.config_manager.general_log.info(
             f"[{state.log_prefix}] Verifying return of {refund_amount} {refund_asset}...")
 
-        refund_confirmed = await self._verify_refund_received(refund_asset, refund_amount, state.check_id,
-                                                              since_timestamp)
+        async with aiohttp.ClientSession() as req_session:
+            refund_confirmed = await self._verify_refund_received(refund_asset, refund_amount, state.check_id,
+                                                                  since_timestamp, req_session)
 
         if refund_confirmed:
             self.config_manager.general_log.info(
@@ -655,7 +658,7 @@ class ArbitrageStrategy(BaseStrategy):
                 f"[{state.log_prefix}] Refund not yet confirmed. Will check again next cycle.")
 
     async def _verify_refund_received(self, token_symbol: str, expected_amount: float, check_id: str,
-                                      since_timestamp: Optional[float] = None) -> bool:
+                                      since_timestamp: Optional[float] = None, session=None) -> bool:
         from definitions.rpc import rpc_call
         logger = self.config_manager.general_log
         log_prefix = check_id if self.test_mode else check_id[:8]
@@ -674,7 +677,7 @@ class ArbitrageStrategy(BaseStrategy):
                     method="listtransactions", params=["*", 500, 0], url=f"http://{coin_conf.get('ip', '127.0.0.1')}",
                     # Increased count for safety
                     rpc_user=coin_conf.get('username'), rpc_port=coin_conf.get('port'),
-                    rpc_password=coin_conf.get('password'), logger=logger
+                    rpc_password=coin_conf.get('password'), logger=logger, session=session
                 )
                 if transactions is not None:
                     # If the call was successful, proceed with verification

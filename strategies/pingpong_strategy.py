@@ -141,7 +141,6 @@ class PingPongStrategy(MakerStrategy):
         # For BUY orders below the last sell price, or for any other case, return the plain float.
         return variation
 
-
     def init_virtual_order_logic(self, dex_pair_instance, order_history: dict):
         if not order_history or ('side' in order_history and order_history['side'] == 'BUY'):
             dex_pair_instance.create_virtual_sell_order()

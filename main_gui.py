@@ -7,6 +7,7 @@ from gui.gui import GUI_Main
 
 app = None
 
+
 def signal_handler(sig, frame):
     print("\nKeyboard interrupt detected. Scheduling application shutdown...")
     # Schedule the on_closing method to be called on the main Tkinter thread.
@@ -28,6 +29,7 @@ if __name__ == '__main__':
 
     if args.run_tests:
         from test_units.test_gui_app import GUITester
+
         print("Running GUI unit tests...")
         tester = GUITester()
         tester.run_all_tests()

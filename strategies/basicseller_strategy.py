@@ -25,7 +25,8 @@ class BasicSellerStrategy(MakerStrategy):
         self.config_manager.general_log.info(f"  - Token to Sell: {self.token_to_sell}")
         self.config_manager.general_log.info(f"  - Token to Buy: {self.token_to_buy}")
         if self.amount_token_to_sell is not None:
-            self.config_manager.general_log.info(f"  - Amount to Sell: {self.amount_token_to_sell} {self.token_to_sell}")
+            self.config_manager.general_log.info(
+                f"  - Amount to Sell: {self.amount_token_to_sell} {self.token_to_sell}")
         else:
             self.config_manager.general_log.info(f"  - Amount to Sell: None")
         if self.min_sell_price_usd is not None:

@@ -104,7 +104,7 @@ class CexToken:
         if hasattr(self.token.config_manager.config_coins.usd_ticker_custom, self.token.symbol):
             custom_price = getattr(self.token.config_manager.config_coins.usd_ticker_custom, self.token.symbol)
             result = custom_price / self.token.config_manager.tokens[
-                         'BTC'].cex.usd_price
+                'BTC'].cex.usd_price
         elif cex_symbol in self.token.config_manager.my_ccxt.symbols:
             result = await fetch_ticker_async(cex_symbol)
         else:

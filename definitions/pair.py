@@ -110,7 +110,7 @@ class DexPair:
             return value
         stepper = 10.0 ** digits
         return math.trunc(stepper * value) / stepper
-        
+
     def _construct_order_dict(self, side, maker_token, taker_token, maker_size, taker_size, original_price,
                               final_price):
         """A helper to construct the common order dictionary structure."""
