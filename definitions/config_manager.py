@@ -91,7 +91,7 @@ class ConfigManager:
             "config_coins.yaml": os.path.join(self.ROOT_DIR, "config", "config_coins.yaml"),
             "api_keys.local.json": os.path.join(self.ROOT_DIR, "config", "api_keys.local.json"),
             "config_pingpong.yaml": os.path.join(self.ROOT_DIR, "config", "config_pingpong.yaml"),
-            "config_basicseller.yaml": os.path.join(self.ROOT_DIR, "config", "config_basicseller.yaml"),
+            "config_basic_seller.yaml": os.path.join(self.ROOT_DIR, "config", "config_basic_seller.yaml"),
             "config_xbridge.yaml": os.path.join(self.ROOT_DIR, "config", "config_xbridge.yaml"),
             "config_arbitrage.yaml": os.path.join(self.ROOT_DIR, "config", "config_arbitrage.yaml"),
             "config_thorchain.yaml": os.path.join(self.ROOT_DIR, "config", "config_thorchain.yaml")
@@ -172,7 +172,7 @@ class ConfigManager:
         if self.strategy in ["pingpong", "gui"]:
             self.config_pingppong = self._load_and_update_config("config_pingpong.yaml")
         if self.strategy in ["basic_seller", "gui"]:
-            self.config_basicseller = self._load_and_update_config("config_basicseller.yaml")
+            self.config_basicseller = self._load_and_update_config("config_basic_seller.yaml")
         if self.strategy in ["arbitrage", "gui"]:
             self.config_arbitrage = self._load_and_update_config("config_arbitrage.yaml")
             self.config_thorchain = self._load_and_update_config("config_thorchain.yaml")
