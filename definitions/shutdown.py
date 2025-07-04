@@ -1,5 +1,4 @@
 import asyncio
-import logging
 import os
 import threading
 from typing import Optional, Dict, Any

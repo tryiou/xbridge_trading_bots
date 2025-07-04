@@ -1,6 +1,7 @@
+import logging
 import os
 import shutil
-import logging
+
 from ruamel.yaml import YAML
 
 from definitions.ccxt_manager import CCXTManager

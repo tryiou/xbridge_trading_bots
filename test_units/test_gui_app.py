@@ -1,12 +1,12 @@
+import logging
 import os
-import tkinter as tk
-from tkinter import ttk
 import sys
+import tkinter as tk
 import traceback
 from contextlib import contextmanager
-import logging
-from unittest.mock import patch
+from tkinter import ttk
 from typing import List, Dict, Any
+from unittest.mock import patch
 
 # We need to set the GUI mode before importing the GUI class
 # to prevent logging setup issues during tests.

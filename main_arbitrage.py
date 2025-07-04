@@ -2,8 +2,8 @@ import argparse
 import asyncio
 
 from definitions.config_manager import ConfigManager
-from test_units.test_arbitrage_strategy import ArbitrageStrategyTester
 from definitions.starter import run_async_main
+from test_units.test_arbitrage_strategy import ArbitrageStrategyTester
 
 
 def start():

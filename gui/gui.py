@@ -2,7 +2,6 @@
 import logging
 import os
 import sys
-import threading
 import tkinter as tk
 from tkinter import ttk
 
@@ -204,7 +203,7 @@ class GUI_Main:
         os._exit(0)
     def update_shared_balances(self):
         """Centralized balance refresh using tokens from strategy frames"""
-        logger.debug("Updating shared balances panel")
+        # logger.debug("Updating shared balances panel")
         data = []
         tokens_seen = set()
         

@@ -1,10 +1,9 @@
 # gui/frames.py
+import abc
 import asyncio
 import logging
 import threading
-import abc
 import tkinter as tk
-from enum import Enum
 from tkinter import ttk
 
 # Get module-specific logger
@@ -15,9 +14,8 @@ from ruamel.yaml import YAML
 
 from definitions.config_manager import ConfigManager
 from definitions.starter import run_async_main
-from .components.components import AddPairDialog, PairConfigDialog, AddSellerDialog, SellerConfigDialog
+from .components.dialogs import AddPairDialog, PairConfigDialog, AddSellerDialog, SellerConfigDialog
 from .components.data_panels import OrdersPanel, BalancesPanel
-from typing import Dict, List
 
 if TYPE_CHECKING:
     from gui.gui import GUI_Main
@@ -66,8 +64,9 @@ class BaseStrategyFrame(ttk.Frame):
             return
 
         logger.info(f"User clicked START for {self.strategy_name}")
-        logger.debug(f"Initializing bot thread for {self.strategy_name} | Config: {self.config_manager.__dict__.keys()}")
-        
+        logger.debug(
+            f"Initializing bot thread for {self.strategy_name} | Config: {self.config_manager.__dict__.keys()}")
+
         log = self.config_manager.general_log
         log.debug("Validating configuration parameters")
 
@@ -119,16 +118,16 @@ class BaseStrategyFrame(ttk.Frame):
                 # First try orderly shutdown
                 if self.config_manager.controller:
                     self.config_manager.controller.shutdown_event.set()
-                
+
                 # Wait with timeout and force exit if needed
                 self.send_process.join(2)  # Reduced from 10 to 2 seconds
-                
+
                 if self.send_process.is_alive():
                     self.config_manager.general_log.warning("Force shutdown of stuck thread")
                     # Force stop the event loop
                     if self.config_manager.controller and self.config_manager.controller.loop:
                         self.config_manager.controller.loop.stop()
-                
+
             self._finalize_stop(reload_config)
             # HTTP session is managed by async context, no need for explicit close
 
@@ -232,7 +231,8 @@ class BaseStrategyFrame(ttk.Frame):
             status = 'None'
             if self.started and pair_obj.dex.order and 'status' in pair_obj.dex.order:
                 status = pair_obj.dex.order.get('status', 'None')
-                current_order_side = pair_obj.dex.current_order.get('side', 'None') if pair_obj.dex.current_order else 'None'
+                current_order_side = pair_obj.dex.current_order.get('side',
+                                                                    'None') if pair_obj.dex.current_order else 'None'
             elif pair_obj.dex.disabled:
                 status = 'Disabled'
                 current_order_side = 'None'
@@ -251,7 +251,6 @@ class BaseStrategyFrame(ttk.Frame):
                 "variation": variation_display
             })
         self.orders_panel.update_data(orders)
-    
 
     def on_closing(self):
         """Handles the application closing event."""
@@ -311,9 +310,9 @@ class BaseStrategyFrame(ttk.Frame):
 class StandardStrategyFrame(BaseStrategyFrame, metaclass=abc.ABCMeta):
     """Base class for standard strategy frames with Orders and Balances views."""
 
-    def __init__(self, parent, main_app: "GUI_Main", strategy_name: str, master_config_manager: ConfigManager):                                                                                                                                              
-        self.orders_panel: OrdersPanel                                                                                                                                                   
-        self.balances_panel: BalancesPanel   
+    def __init__(self, parent, main_app: "GUI_Main", strategy_name: str, master_config_manager: ConfigManager):
+        self.orders_panel: OrdersPanel
+        self.balances_panel: BalancesPanel
         self.gui_config: "BaseConfigWindow"
         super().__init__(parent, main_app, strategy_name, master_config_manager)
         # Configure the grid for expansion. This allows the child frames
@@ -334,15 +333,13 @@ class StandardStrategyFrame(BaseStrategyFrame, metaclass=abc.ABCMeta):
         orders_frame.grid(row=1, column=0, padx=5, pady=5, sticky="nsew")
         orders_frame.grid_rowconfigure(0, weight=1)
         orders_frame.grid_columnconfigure(0, weight=1)
-        
+
         # Create orders panel
         self.orders_panel = OrdersPanel(orders_frame)
         self.orders_panel.grid(row=0, column=0, padx=0, pady=0, sticky="nsew")
-        
+
         self.gui_config = self._create_config_gui()
         self.create_standard_buttons()
-        
-
 
     def open_configure_window(self):
         """Opens the configuration window for this strategy."""
@@ -365,8 +362,6 @@ class PingPongFrame(StandardStrategyFrame):
 
     def _create_config_gui(self) -> "BaseConfigWindow":
         return GUI_Config_PingPong(self)
-
-
 
 
 class BaseConfigWindow:
@@ -785,6 +780,7 @@ class ArbitrageFrame(StandardStrategyFrame):
         # Temporary implementation - return mock config window
         class MockConfigWindow:
             def open(self): pass
+
         return MockConfigWindow()
 
     def _update_orders_display(self):

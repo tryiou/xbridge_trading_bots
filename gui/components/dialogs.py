@@ -1,4 +1,4 @@
-# gui/components.py
+# gui/dialogs.py
 import re
 import tkinter as tk
 from tkinter import ttk

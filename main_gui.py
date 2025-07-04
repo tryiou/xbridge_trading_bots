@@ -2,8 +2,8 @@ import argparse
 import signal
 import sys
 
-from gui.gui import GUI_Main
 from definitions.logger import set_gui_mode
+from gui.gui import GUI_Main
 
 app = None
 
