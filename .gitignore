@@ -19,3 +19,6 @@ logs/
 .aider.chat.history.md
 __pycache__
 *.pyc
+
+
+deprecated_frames.py

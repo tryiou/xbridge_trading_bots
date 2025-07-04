@@ -12,7 +12,9 @@ from ruamel.yaml import YAML
 
 from definitions.config_manager import ConfigManager
 from definitions.starter import run_async_main
-from gui.components import AddPairDialog, PairConfigDialog, AddSellerDialog, SellerConfigDialog
+from .components.components import AddPairDialog, PairConfigDialog, AddSellerDialog, SellerConfigDialog
+from .components.data_panels import OrdersPanel, BalancesPanel
+from typing import Dict, List
 
 if TYPE_CHECKING:
     from gui.gui import GUI_Main
@@ -150,7 +152,7 @@ class BaseStrategyFrame(ttk.Frame):
                 log.info("cancel_all: All orders cancelled successfully.")
             except Exception as e:
                 # Schedule GUI update on main thread
-                self.main_app.root.after(0, lambda: self.main_app.status_var.set(f"Error cancelling orders: {e}"))
+                self.main_app.root.after(0, lambda e=e: self.main_app.status_var.set(f"Error cancelling orders: {e}"))
                 log.error(f"Error during cancel_all worker: {e}", exc_info=True)
             log.debug("GUI: cancel_all worker thread finished.")
 
@@ -171,6 +173,10 @@ class BaseStrategyFrame(ttk.Frame):
         """Refreshes the GUI display periodically. To be overridden."""
         log = self.config_manager.general_log
 
+        if self.winfo_exists():
+            self._update_orders_display()
+            self._update_balances_display()
+
         # Check if a non-blocking stop has completed
         if self.stopping and self.send_process and not self.send_process.is_alive():
             log.info(f"Detected stopped thread for {self.strategy_name}. Finalizing...")
@@ -189,6 +195,55 @@ class BaseStrategyFrame(ttk.Frame):
 
         # If we get here, the bot is running normally, so schedule the next check.
         self.refresh_id = self.after(1500, self.refresh_gui)
+
+    @staticmethod
+    def _get_flag(status: str) -> str:
+        """Returns a flag ('V' or 'X') based on the order status."""
+        return 'V' if status in {
+            'open', 'new', 'created', 'accepting', 'hold', 'initialized', 'committed', 'finished'
+        } else 'X'
+
+    def _update_orders_display(self):
+        """Collects current order data and updates display"""
+        if not self.config_manager or not hasattr(self.config_manager, 'pairs'):
+            return
+        orders = []
+        for pair_obj in self.config_manager.pairs.values():
+            pair = pair_obj.cfg
+            status = 'None'
+            if self.started and pair_obj.dex.order and 'status' in pair_obj.dex.order:
+                status = pair_obj.dex.order.get('status', 'None')
+                current_order_side = pair_obj.dex.current_order.get('side', 'None') if pair_obj.dex.current_order else 'None'
+            elif pair_obj.dex.disabled:
+                status = 'Disabled'
+                current_order_side = 'None'
+            else:
+                current_order_side = 'None'
+
+            variation_display = 'None'
+            if self.started and pair_obj.dex.order and 'status' in pair_obj.dex.order:
+                variation_display = str(pair_obj.dex.variation)
+
+            orders.append({
+                "pair": pair.get("name", "Unnamed"),
+                "status": status,
+                "side": current_order_side,
+                "flag": self._get_flag(status),
+                "variation": variation_display
+            })
+        self.orders_panel.update_data(orders)
+    
+    def _update_balances_display(self):
+        """Collects current balance data and updates display"""
+        balances = []
+        for token_symbol, token_obj in self.config_manager.tokens.items():
+            balances.append({
+                "symbol": token_symbol,
+                "usd_price": token_obj.cex.usd_price or 0.0,
+                "total": token_obj.dex.total_balance or 0.0,
+                "free": token_obj.dex.free_balance or 0.0
+            })
+        self.balances_panel.update_data(balances)
 
     def on_closing(self):
         """Handles the application closing event."""
@@ -248,9 +303,9 @@ class BaseStrategyFrame(ttk.Frame):
 class StandardStrategyFrame(BaseStrategyFrame, metaclass=abc.ABCMeta):
     """Base class for standard strategy frames with Orders and Balances views."""
 
-    def __init__(self, parent, main_app: "GUI_Main", strategy_name: str, master_config_manager: ConfigManager):
-        self.gui_orders: "GUI_Orders"
-        self.gui_balances: "GUI_Balances"
+    def __init__(self, parent, main_app: "GUI_Main", strategy_name: str, master_config_manager: ConfigManager):                                                                                                                                              
+        self.orders_panel: OrdersPanel                                                                                                                                                   
+        self.balances_panel: BalancesPanel   
         self.gui_config: "BaseConfigWindow"
         super().__init__(parent, main_app, strategy_name, master_config_manager)
         # Configure the grid for expansion. This allows the child frames
@@ -266,19 +321,28 @@ class StandardStrategyFrame(BaseStrategyFrame, metaclass=abc.ABCMeta):
 
     def create_widgets(self):
         """Creates the common widgets for a standard strategy frame."""
-        self.gui_orders = GUI_Orders(self)
-        self.gui_balances = GUI_Balances(self)
+        # Create frames with titles
+        orders_frame = ttk.LabelFrame(self, text="Orders")
+        orders_frame.grid(row=1, column=0, padx=5, pady=5, sticky="nsew")
+        orders_frame.grid_rowconfigure(0, weight=1)
+        orders_frame.grid_columnconfigure(0, weight=1)
+        
+        balances_frame = ttk.LabelFrame(self, text="Balances")
+        balances_frame.grid(row=2, column=0, padx=5, pady=5, sticky="nsew")
+        balances_frame.grid_rowconfigure(0, weight=1)
+        balances_frame.grid_columnconfigure(0, weight=1)
+        
+        # Create panels within titled frames
+        self.orders_panel = OrdersPanel(orders_frame)
+        self.balances_panel = BalancesPanel(balances_frame)
+        
+        # Add panels to frames
+        self.orders_panel.grid(row=0, column=0, padx=0, pady=0, sticky="nsew")
+        self.balances_panel.grid(row=0, column=0, padx=0, pady=0, sticky="nsew")
+        
         self.gui_config = self._create_config_gui()
         self.create_standard_buttons()
-        self.gui_orders.create_orders_treeview()
-        self.gui_balances.create_balances_treeview()
 
-    def refresh_gui(self):
-        """Refreshes the Orders and Balances display."""
-        if self.winfo_exists():  # Check if widget exists before proceeding
-            self.gui_orders.update_order_display()
-            self.gui_balances.update_balance_display()
-            super().refresh_gui()
 
     def open_configure_window(self):
         """Opens the configuration window for this strategy."""
@@ -286,17 +350,16 @@ class StandardStrategyFrame(BaseStrategyFrame, metaclass=abc.ABCMeta):
 
     def purge_and_recreate_widgets(self):
         """Purges and recreates the Orders and Balances treeviews."""
-        self.gui_orders.purge_treeview()
-        self.gui_balances.purge_treeview()
-        self.gui_orders.create_orders_treeview()
-        self.gui_balances.create_balances_treeview()
+        self.orders_panel.destroy()
+        self.balances_panel.destroy()
+        self.orders_panel = OrdersPanel(self)
+        self.balances_panel = BalancesPanel(self)
+        self.orders_panel.grid(row=1, column=0, padx=5, pady=5, sticky="nsew")
+        self.balances_panel.grid(row=2, column=0, padx=5, pady=5, sticky="nsew")
 
     def cleanup(self):
         """Unbind events to prevent errors during teardown."""
         super().cleanup()
-        # The <Configure> event is bound to this frame by its GUI_Orders component.
-        # Unbinding it here prevents TclErrors during test teardown.
-        self.unbind("<Configure>")
 
 
 class PingPongFrame(StandardStrategyFrame):
@@ -307,267 +370,6 @@ class PingPongFrame(StandardStrategyFrame):
         return GUI_Config_PingPong(self)
 
 
-class GUI_Orders:
-    """
-    Manages the display and updates of trading orders in a Treeview widget.
-    """
-
-    class OrdersColumns(Enum):
-        PAIR = "Pair"
-        STATUS = "Status"
-        SIDE = "Side"
-        FLAG = "Flag"
-        VARIATION = "Variation"
-
-    def __init__(self, parent: "BaseStrategyFrame") -> None:
-        self.parent = parent
-        self.sortedpairs: list[str] = []
-        self.orders_frame: ttk.LabelFrame | None = None
-        self.orders_treeview: ttk.Treeview | None = None
-        self._is_resizing = False  # Add a re-entry guard flag
-        # Create a logger specific to this GUI component instance
-        self.logger = logging.getLogger(f"gui.{self.parent.strategy_name}.orders")
-        # Bind the resize event to the parent frame once during initialization.
-        # This prevents adding duplicate bindings on each configuration reload.
-        self.logger.debug(f"Binding <Configure> event.")
-        self.parent.bind("<Configure>", self._on_resize)
-
-    def create_orders_treeview(self) -> None:
-        # Get enabled pairs from config
-        self.sortedpairs = sorted(self.parent.config_manager.pairs.keys())
-        columns = [col.value for col in self.OrdersColumns]
-        self.orders_frame = ttk.LabelFrame(self.parent, text="Orders")
-        self.orders_frame.grid(row=1, column=0, padx=5, pady=5, sticky='nsew')
-        self.orders_frame.grid_rowconfigure(0, weight=1)
-        self.orders_frame.grid_columnconfigure(0, weight=1)
-
-        height = len(self.sortedpairs) + 1
-        self.orders_treeview = ttk.Treeview(
-            self.orders_frame,
-            columns=list(columns),
-            height=height,
-            show="headings"
-        )
-        self.orders_treeview.grid(row=0, column=0, padx=5, pady=5, sticky='nsew')
-
-        # Bind to the <Map> event for the *initial* configuration.
-        # This ensures the widget is drawn and has a size before we configure columns.
-        self.orders_treeview.bind("<Map>", self._initial_configure)
-
-        for pair in self.sortedpairs:
-            if self.orders_treeview:
-                self.orders_treeview.insert("", tk.END, values=[pair, "None", "None", "X", "None"])
-
-    def _initial_configure(self, event=None):
-        """A one-time configuration that runs after the widget is mapped to the screen."""
-        # The _on_resize method contains the logic to configure both treeviews.
-        self._on_resize()
-        # Unbind after the first run to avoid this logic running again if the widget is hidden and re-shown.
-        self.orders_treeview.unbind("<Map>")
-
-    def _on_resize(self, event=None):
-        """
-        Schedules the column resizing to avoid recursive event loops.
-        This is the entry point for the <Configure> event.
-        """
-        if self._is_resizing:
-            # self.logger.debug("Resize event ignored due to re-entry guard.")
-            return
-        # self.logger.debug("Resize event triggered, scheduling resize action.")
-        self._is_resizing = True
-        # Schedule the actual resize work to run after a short delay.
-        # This breaks the synchronous event cascade that causes the freeze.
-        self.parent.after(50, self._execute_resize)
-
-    def _execute_resize(self):
-        """Performs the actual column resizing and resets the guard flag."""
-        # self.logger.debug("Executing scheduled resize.")
-        try:
-            # We only need to re-configure, as the logic is now dynamic.
-            if self.orders_treeview and self.orders_treeview.winfo_exists():
-                # self.logger.debug("Configuring orders columns.")
-                self._configure_columns()
-            # The balances treeview is part of the same parent frame, so we can resize it from here.
-            if hasattr(self.parent,
-                       'gui_balances') and self.parent.gui_balances.balances_treeview and self.parent.gui_balances.balances_treeview.winfo_exists():
-                # self.logger.debug("Configuring balances columns.")
-                self.parent.gui_balances._configure_balance_columns()
-        finally:
-            # Reset the flag *after* the work is done.
-            # self.logger.debug("Resize execution finished, resetting flag.")
-            self._is_resizing = False
-
-    def _configure_columns(self):
-        if not self.orders_treeview or self.orders_treeview.winfo_width() <= 1:
-            return  # Don't configure if widget isn't drawn yet
-
-        # Ratios for proportional scaling
-        col_ratios = {
-            self.OrdersColumns.PAIR: 25,
-            self.OrdersColumns.STATUS: 25,
-            self.OrdersColumns.SIDE: 20,
-            self.OrdersColumns.FLAG: 10,
-            self.OrdersColumns.VARIATION: 20,
-        }
-        col_anchors = {
-            self.OrdersColumns.PAIR: "w",
-            self.OrdersColumns.STATUS: "center",
-            self.OrdersColumns.SIDE: "center",
-            self.OrdersColumns.FLAG: "center",
-            self.OrdersColumns.VARIATION: "e",
-        }
-
-        total_ratio = sum(col_ratios.values())
-        available_width = self.orders_treeview.winfo_width()
-
-        for column in self.OrdersColumns:
-            if self.orders_treeview and total_ratio > 0:
-                ratio = col_ratios.get(column, 0)
-                anchor = col_anchors.get(column, "center")
-                width = int((ratio / total_ratio) * available_width)
-                self.orders_treeview.heading(column.value, text=column.value, anchor=anchor)
-                self.orders_treeview.column(column.value, width=width, anchor=anchor, stretch=False)
-
-    def update_order_display(self) -> None:
-        """
-        Updates the order display in the Treeview with current bot status.
-        """
-        if self.parent.started:
-            for key, pair in self.parent.config_manager.pairs.items():
-                if self.orders_treeview:
-                    for item_id in self.orders_treeview.get_children():
-                        values = self.orders_treeview.item(item_id, 'values')
-
-                        display_text = pair.cfg['name']
-                        if values and values[0] == display_text:
-                            order_status = 'None'
-                            current_order_side = 'None'
-                            variation_display = 'None'
-
-                            if self.parent.started and pair.dex.order and 'status' in pair.dex.order:
-                                order_status = pair.dex.order.get('status', 'None')
-                                current_order_side = pair.dex.current_order.get('side', 'None')
-                                variation_display = str(pair.dex.variation)
-                            elif pair.dex.disabled:
-                                order_status = 'Disabled'
-
-                            new_values = [
-                                display_text,
-                                order_status,
-                                current_order_side,
-                                self.get_flag(order_status),
-                                variation_display
-                            ]
-                            if tuple(new_values) != values:
-                                self.orders_treeview.item(item_id, values=new_values)
-
-    def purge_treeview(self) -> None:
-        if self.orders_frame:
-            for widget in self.orders_frame.winfo_children():
-                widget.destroy()
-            self.orders_frame.destroy()
-        self.orders_frame = None
-        self.orders_treeview = None
-
-    @staticmethod
-    def get_flag(status: str) -> str:
-        """Returns a flag ('V' or 'X') based on the order status."""
-        return 'V' if status in {
-            'open', 'new', 'created', 'accepting', 'hold', 'initialized', 'committed', 'finished'
-        } else 'X'
-
-
-class GUI_Balances:
-    class BalancesColumns(Enum):
-        COIN = "Coin"
-        USD_TICKER = "USD ticker"
-        TOTAL = "Total"
-        FREE = "Free"
-        TOTAL_USD = "Total USD"
-
-    def __init__(self, parent: "BaseStrategyFrame"):
-        self.parent = parent
-        # Create a logger specific to this GUI component instance
-        self.logger = logging.getLogger(f"gui.{self.parent.strategy_name}.balances")
-        self.balances_frame: ttk.LabelFrame | None = None
-        self.balances_treeview: ttk.Treeview | None = None
-
-    def create_balances_treeview(self) -> None:
-        columns = [col.value for col in self.BalancesColumns]
-        self.balances_frame = ttk.LabelFrame(self.parent, text="Balances")
-        self.balances_frame.grid(row=2, column=0, padx=5, pady=5, sticky='nsew')
-        self.balances_frame.grid_rowconfigure(0, weight=1)
-        self.balances_frame.grid_columnconfigure(0, weight=1)
-
-        height = len(self.parent.config_manager.tokens.keys())
-        self.balances_treeview = ttk.Treeview(self.balances_frame, columns=list(columns), show="headings",
-                                              height=height, selectmode="none")
-        self.balances_treeview.grid(row=0, column=0, padx=5, pady=5, sticky='nsew')
-        # The initial configuration is now triggered by the <Map> event on the Orders treeview.
-        for token in self.parent.config_manager.tokens:
-            if self.balances_treeview:
-                data = (token, str(None), str(None), str(None), str(None))
-                self.balances_treeview.insert("", tk.END, values=data)
-
-    def _configure_balance_columns(self):
-        if not self.balances_treeview or self.balances_treeview.winfo_width() <= 1:
-            return  # Don't configure if widget isn't drawn yet
-
-        # Distribution: Coin (25%), USD Ticker (20%), Total (20%), Free (20%), Total USD (15%) = 100%
-        col_ratios = {
-            self.BalancesColumns.COIN: 25,
-            self.BalancesColumns.USD_TICKER: 20,
-            self.BalancesColumns.TOTAL: 20,
-            self.BalancesColumns.FREE: 20,
-            self.BalancesColumns.TOTAL_USD: 15,
-        }
-        col_anchors = {
-            self.BalancesColumns.COIN: "w",
-            self.BalancesColumns.USD_TICKER: "e",
-            self.BalancesColumns.TOTAL: "e",
-            self.BalancesColumns.FREE: "e",
-            self.BalancesColumns.TOTAL_USD: "e",
-        }
-
-        total_ratio = sum(col_ratios.values())
-        available_width = self.balances_treeview.winfo_width()
-
-        for column in self.BalancesColumns:
-            if self.balances_treeview and total_ratio > 0:
-                ratio = col_ratios.get(column, 0)
-                anchor = col_anchors.get(column, "center")
-                width = int((ratio / total_ratio) * available_width)
-                self.balances_treeview.heading(column.value, text=column.value, anchor=anchor)
-                self.balances_treeview.column(column.value, width=width, anchor=anchor, stretch=False)
-
-    def update_balance_display(self) -> None:
-        if self.balances_treeview:
-            for item_id in self.balances_treeview.get_children():
-                values = self.balances_treeview.item(item_id, 'values')
-                token = values[0]
-
-                token_data = self.parent.config_manager.tokens[token]
-                usd_price = token_data.cex.usd_price
-                dex_total_balance = token_data.dex.total_balance
-                dex_free_balance = token_data.dex.free_balance
-
-                new_values = [
-                    token,
-                    f"{usd_price:.3f}$" if usd_price else f"{0:.3f}$",
-                    f"{dex_total_balance:.4f}" if dex_total_balance else f"{0:.4f}",
-                    f"{dex_free_balance:.4f}" if dex_free_balance else f"{0:.4f}",
-                    f"{usd_price * dex_total_balance:.3f}$" if usd_price and dex_total_balance else f"{0:.3f}$"
-                ]
-                if list(new_values) != list(values):
-                    self.balances_treeview.item(item_id, values=new_values)
-
-    def purge_treeview(self) -> None:
-        if self.balances_frame:
-            for widget in self.balances_frame.winfo_children():
-                widget.destroy()
-            self.balances_frame.destroy()
-        self.balances_frame = None
-        self.balances_treeview = None
 
 
 class BaseConfigWindow:
@@ -978,20 +780,19 @@ class BasicSellerFrame(StandardStrategyFrame):
         return GUI_Config_BasicSeller(self)
 
 
-class ArbitrageFrame(BaseStrategyFrame):
+class ArbitrageFrame(StandardStrategyFrame):
     def __init__(self, parent, main_app: "GUI_Main", master_config_manager: ConfigManager):
         super().__init__(parent, main_app, "arbitrage", master_config_manager)
-        # Configure the grid for expansion. This allows the child frames
-        # (orders, balances) to grow with the window.
-        self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(1, weight=1)  # Orders frame
-        self.grid_rowconfigure(2, weight=1)  # Balances frame
 
-    def create_widgets(self):
-        ttk.Label(self, text="Arbitrage Controls Go Here").pack(padx=20, pady=20)
-        # TODO: Add entry field for min_profit_margin.
-        # TODO: Add a Text widget to display arbitrage opportunities.
-        # TODO: Add START/STOP buttons.
+    def _create_config_gui(self) -> "BaseConfigWindow":
+        # Temporary implementation - return mock config window
+        class MockConfigWindow:
+            def open(self): pass
+        return MockConfigWindow()
+
+    def _update_orders_display(self):
+        """Override for arbitrage since it doesn't have DEX orders"""
+        self.orders_panel.update_data([])
 
 
 # --- New Logging Components ---
