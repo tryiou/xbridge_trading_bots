@@ -150,7 +150,8 @@ class BaseStrategyFrame(ttk.Frame):
         self.update_button_states()                                                                                                                                                                                    
                                                                                                                                                                                                                        
         # Purge and recreate orders display                                                                                                                                                                            
-        self.purge_and_recreate_widgets()                                                                                                                                                                                 
+        self.purge_and_recreate_widgets()                                                                                                                                                                              
+        self.refresh_gui()  # Force immediate refresh                                                                                                                                                                  
                                                                                                                                                                                                                        
         if reload_config:                                                                                                                                                                                              
             self.reload_configuration(loadxbridgeconf=False)
