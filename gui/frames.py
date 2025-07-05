@@ -131,25 +131,28 @@ class BaseStrategyFrame(ttk.Frame):
             self._finalize_stop(reload_config)
             # HTTP session is managed by async context, no need for explicit close
 
-    def _finalize_stop(self, reload_config: bool = True):
-        """Cleans up the state after the bot thread has stopped."""
-        if self.config_manager:
-            self.config_manager.general_log.debug(
-                f"GUI: Finalizing stop for {self.strategy_name}. Reload config: {reload_config}")
-        if self.send_process:
-            if self.send_process.is_alive():
-                self.config_manager.general_log.warning("Bot thread did not terminate gracefully.")
-                self.main_app.status_var.set("Bot stopped (forcefully).")
-            else:
-                self.main_app.status_var.set("Bot stopped.")
-                self.config_manager.general_log.info("Bot stopped successfully.")
-
-        self.send_process = None
-        self.started = False
-        self.stopping = False
-        self.update_button_states()
-
-        if reload_config:
+    def _finalize_stop(self, reload_config: bool = True):                                                                                                                                                              
+        """Cleans up the state after the bot thread has stopped."""                                                                                                                                                    
+        if self.config_manager:                                                                                                                                                                                        
+            self.config_manager.general_log.debug(                                                                                                                                                                     
+                f"GUI: Finalizing stop for {self.strategy_name}. Reload config: {reload_config}")                                                                                                                      
+        if self.send_process:                                                                                                                                                                                          
+            if self.send_process.is_alive():                                                                                                                                                                           
+                self.config_manager.general_log.warning("Bot thread did not terminate gracefully.")                                                                                                                    
+                self.main_app.status_var.set("Bot stopped (forcefully).")                                                                                                                                              
+            else:                                                                                                                                                                                                      
+                self.main_app.status_var.set("Bot stopped.")                                                                                                                                                           
+                self.config_manager.general_log.info("Bot stopped successfully.")                                                                                                                                      
+                                                                                                                                                                                                                       
+        self.send_process = None                                                                                                                                                                                       
+        self.started = False                                                                                                                                                                                           
+        self.stopping = False                                                                                                                                                                                          
+        self.update_button_states()                                                                                                                                                                                    
+                                                                                                                                                                                                                       
+        # Purge and recreate orders display                                                                                                                                                                            
+        self.purge_and_recreate_widgets()                                                                                                                                                                                 
+                                                                                                                                                                                                                       
+        if reload_config:                                                                                                                                                                                              
             self.reload_configuration(loadxbridgeconf=False)
 
     def cancel_all(self):

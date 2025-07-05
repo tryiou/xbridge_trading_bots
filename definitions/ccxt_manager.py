@@ -170,6 +170,7 @@ class CCXTManager:
                     self.config_manager.ccxt_log.info(
                         f"✅ Proxy started successfully (PID: {self.proxy_process.pid}, port: {self.proxy_port})"
                     )
+                    time.sleep(0.5)  # Allow server initialization
                     return
                 self.config_manager.ccxt_log.debug(f"Port check attempt {attempt}/{max_retries} failed")
 
@@ -193,7 +194,7 @@ class CCXTManager:
             time.sleep(sleep_time)
         elif err_type in ["NetworkError", "DDoSProtection", "RateLimitExceeded", "InvalidNonce",
                           "RequestTimeout", "ExchangeNotAvailable", "Errno -3", "AuthenticationError",
-                          "Temporary failure in name resolution", "ExchangeError", "BadResponse", "KeyError"]:
+                          "Temporary failure in name resolution", "ExchangeError", "BadResponse", "KeyError", "BadRequest"]:
             time.sleep(err_count * 1)
         else:
             time.sleep(err_count * 1)
