@@ -1,6 +1,7 @@
 import asyncio
 import os
 import subprocess
+import sys
 import threading
 from typing import Optional, Dict, Any
 
@@ -77,22 +78,38 @@ class ShutdownCoordinator:
             try:
                 self.config_manager.general_log.info(f"Attempting to stop {strategy.strategy_name} strategy")
                 strategy.stop(blocking=True, reload_config=False)
-                self.config_manager.general_log.debug(f"Successfully sent stop signal to {strategy.strategy_name}")
+                
+                # Additional check if strategy thread is still alive
+                if strategy.send_process and strategy.send_process.is_alive():
+                    self.config_manager.general_log.warning(
+                        f"{strategy.strategy_name} thread did not terminate, sending final SIGTERM")
+                    strategy._finalize_stop(reload_config=False)
+                    
             except Exception as e:
                 self.config_manager.general_log.error(
                     f"Failed to stop {strategy.strategy_name}: {str(e)}",
                     exc_info=True
                 )
+            finally:
+                # Force release resources if still holding any
+                if hasattr(strategy, 'cleanup'):
+                    strategy.cleanup()
 
     def _cancel_outstanding_orders(self) -> None:
         """Cancel any remaining open orders"""
         self.config_manager.general_log.info("Initiating cancellation of all open orders")
         try:
-            canceled = asyncio.run(self.config_manager.xbridge_manager.cancelallorders())
+            # Add timeout for order cancellation
+            canceled = asyncio.run(asyncio.wait_for(
+                self.config_manager.xbridge_manager.cancelallorders(),
+                timeout=10.0
+            ))
             if canceled:
                 self.config_manager.general_log.info(f"Successfully canceled {len(canceled)} open orders")
             else:
                 self.config_manager.general_log.warning("No open orders found to cancel")
+        except asyncio.TimeoutError:
+            self.config_manager.general_log.error("Timed out canceling orders - proceeding with shutdown")
         except Exception as e:
             self.config_manager.general_log.error(
                 f"Failed to cancel orders: {str(e)}",
@@ -156,13 +173,20 @@ class ShutdownCoordinator:
 
         self.config_manager.general_log.info("Shutdown sequence completed. Exiting process")
         try:
-            os._exit(0)
+            # First try normal exit to allow cleanup handlers
+            sys.exit(0)
+        except SystemExit as e:
+            # If normal exit blocked, force exit after final log
+            self.config_manager.general_log.critical(
+                f"Force exiting process after failed clean exit: {str(e)}"
+            )
+            os._exit(e.code)
         except Exception as e:
             self.config_manager.general_log.critical(
                 f"CRITICAL FAILURE DURING EXIT: {str(e)}",
                 exc_info=True
             )
-            raise SystemExit(1) from e
+            os._exit(1)
 
     @classmethod
     async def shutdown_async(cls, config_manager) -> None:
