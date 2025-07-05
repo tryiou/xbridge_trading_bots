@@ -3,6 +3,7 @@ import abc
 import asyncio
 import logging
 import threading
+import time
 import tkinter as tk
 from tkinter import ttk
 
@@ -131,29 +132,29 @@ class BaseStrategyFrame(ttk.Frame):
             self._finalize_stop(reload_config)
             # HTTP session is managed by async context, no need for explicit close
 
-    def _finalize_stop(self, reload_config: bool = True):                                                                                                                                                              
-        """Cleans up the state after the bot thread has stopped."""                                                                                                                                                    
-        if self.config_manager:                                                                                                                                                                                        
-            self.config_manager.general_log.debug(                                                                                                                                                                     
-                f"GUI: Finalizing stop for {self.strategy_name}. Reload config: {reload_config}")                                                                                                                      
-        if self.send_process:                                                                                                                                                                                          
-            if self.send_process.is_alive():                                                                                                                                                                           
-                self.config_manager.general_log.warning("Bot thread did not terminate gracefully.")                                                                                                                    
-                self.main_app.status_var.set("Bot stopped (forcefully).")                                                                                                                                              
-            else:                                                                                                                                                                                                      
-                self.main_app.status_var.set("Bot stopped.")                                                                                                                                                           
-                self.config_manager.general_log.info("Bot stopped successfully.")                                                                                                                                      
-                                                                                                                                                                                                                       
-        self.send_process = None                                                                                                                                                                                       
-        self.started = False                                                                                                                                                                                           
-        self.stopping = False                                                                                                                                                                                          
-        self.update_button_states()                                                                                                                                                                                    
-                                                                                                                                                                                                                       
+    def _finalize_stop(self, reload_config: bool = True):
+        """Cleans up the state after the bot thread has stopped."""
+        if self.config_manager:
+            self.config_manager.general_log.debug(
+                f"GUI: Finalizing stop for {self.strategy_name}. Reload config: {reload_config}")
+        if self.send_process:
+            if self.send_process.is_alive():
+                self.config_manager.general_log.warning("Bot thread did not terminate gracefully.")
+                self.main_app.status_var.set("Bot stopped (forcefully).")
+            else:
+                self.main_app.status_var.set("Bot stopped.")
+                self.config_manager.general_log.info("Bot stopped successfully.")
+
+        self.send_process = None
+        self.started = False
+        self.stopping = False
+        self.update_button_states()
+
         # Purge and recreate orders display                                                                                                                                                                            
-        self.purge_and_recreate_widgets()                                                                                                                                                                              
+        self.purge_and_recreate_widgets()
         self.refresh_gui()  # Force immediate refresh                                                                                                                                                                  
-                                                                                                                                                                                                                       
-        if reload_config:                                                                                                                                                                                              
+
+        if reload_config:
             self.reload_configuration(loadxbridgeconf=False)
 
     def cancel_all(self):
@@ -303,8 +304,12 @@ class BaseStrategyFrame(ttk.Frame):
         # cancel_all can always be active, or you can add logic for it too
 
     def cleanup(self):
-        """Perform any final cleanup, like unbinding events."""
-        pass
+        """Perform final cleanup including canceling periodic tasks and detaching events."""
+        # Cancel any pending refresh loop
+        self.stop_refresh()
+        # Unbind all event listeners
+        self.unbind_all("<Motion>")  # Example for all motion events
+        self.unbind_all("<Button>")  # Example for all button events
 
     def open_configure_window(self):
         """Opens the configuration window for this strategy. To be overridden."""
@@ -802,6 +807,10 @@ class LogFrame(ttk.Frame):
         self.grid_rowconfigure(0, weight=1)
         self.grid_columnconfigure(0, weight=1)
 
+        self.log_entries = []  # Track (timestamp, line_start, line_end)
+        self.prune_interval = 30 * 60 * 1000  # Check every 30 minutes
+        self.after(self.prune_interval, self.prune_old_logs)
+
         self.log_text = tk.Text(self, wrap='word', state='disabled', height=10, background="#222", foreground="white")
         scrollbar = ttk.Scrollbar(self, orient="vertical", command=self.log_text.yview)
         self.log_text.configure(yscrollcommand=scrollbar.set)
@@ -821,12 +830,58 @@ class LogFrame(ttk.Frame):
         Adds a pre-formatted log message to the text widget. Thread-safe.
         """
         self.log_text.config(state='normal')
-        # The level name is used as the tag for coloring
+
+        # Store current line count before adding
+        line_count = int(self.log_text.index('end-1c').split('.')[0])
+
+        # Add new log with timestamp
         self.log_text.insert(tk.END, message, (level,))
         if not message.endswith('\n'):
             self.log_text.insert(tk.END, '\n')
+
+        # Record entry time and line numbers
+        now = time.time()
+        self.log_entries.append((now, line_count, line_count + 1))
+
+        # Keep text widget manageable
+        if len(self.log_entries) > 10000:  # Safety valve
+            self.log_text.delete(1.0, f'{len(self.log_entries) - 5000}.0')
+            self.log_entries = self.log_entries[-5000:]
+
         self.log_text.see(tk.END)
         self.log_text.config(state='disabled')
+
+    def prune_old_logs(self):
+        if not self.winfo_exists():
+            return
+
+        cutoff = time.time() - 6 * 60 * 60  # 6 hours ago
+        keep = []
+
+        try:
+            self.log_text.config(state='normal')
+            
+            # Iterate in reverse to maintain correct indices after deletions
+            for i in reversed(range(len(self.log_entries))):
+                entry = self.log_entries[i]
+                if entry[0] <= cutoff:
+                    self.log_text.delete(f'{entry[1]}.0', f'{entry[2]}.0')
+                    del self.log_entries[i]
+                    
+            # Rebase remaining entries with correct line numbers
+            new_entries = []
+            current_line = 1
+            for ts, _, _ in self.log_entries:
+                new_entries.append((ts, current_line, current_line + 1))
+                current_line += 1
+                
+            self.log_entries = new_entries
+
+        finally:
+            self.log_text.config(state='disabled')
+            # Reschedule pruning only if window exists
+            if self.winfo_exists():
+                self.after(self.prune_interval, self.prune_old_logs)
 
 
 class TextLogHandler(logging.Handler):

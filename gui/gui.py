@@ -148,24 +148,41 @@ class GUI_Main:
             selected_widget.start_refresh()
 
     def on_closing(self) -> None:
-        """Handles application closing event using coordinated shutdown sequence"""
+        """Handles application closing event by signaling shutdown coordinator"""
         from definitions.shutdown import ShutdownCoordinator
 
+        # Cancel the periodic balance updates immediately
+        if hasattr(self, '_balances_update_id'):
+            self.root.after_cancel(self._balances_update_id)
+
+        # Update status and signal all components to stop
+        self.status_var.set("Shutting down... Please wait.")
+
+        # Start coordinated shutdown
         ShutdownCoordinator.initiate_shutdown(
             config_manager=self.master_config_manager,
             strategies=self.strategy_frames,
             gui_root=self.root
         )
-        self.status_var.set("Shutting down... Please wait.")
+
+        # Disable further interaction with the window
+        self.root.grab_set()  # Prevent interactions with other windows
+        self.root.focus_force()  # Maintain focus
 
     def _shutdown_worker(self):
-        """Worker thread to gracefully stop all bot threads."""
+        """Worker thread to gracefully stop all bot threads and cleanup resources"""
         logger.info("Executing shutdown worker thread")
         running_frames = [
             frame for frame in self.strategy_frames.values()
             if frame.started and not frame.stopping
         ]
         logger.debug(f"Processing {len(running_frames)} running frames")
+
+        # Cancel the periodic balance updates first
+        if hasattr(self, '_balances_update_id'):
+            self.root.after_cancel(self._balances_update_id)
+            del self._balances_update_id
+            logger.debug("Cancelled _balances_update_id")
 
         # First stop all frames and wait for them
         for frame in running_frames:
@@ -177,32 +194,47 @@ class GUI_Main:
             logger.debug(f"Canceling orders for {frame.strategy_name}")
             frame.cancel_all()
 
-        # Direct destruction instead of using after()
-        self._final_shutdown()
+        # Tell Tkinter to quit and then destroy
+        self.root.after(100, self._final_shutdown)
 
     def _final_shutdown(self):
         """Final cleanup and window destruction."""
-        # Destroy all strategy frames first
+        # Clean up all strategy frames first
         for frame in self.strategy_frames.values():
             frame.cleanup()
+            frame.destroy()
 
-        # Then destroy root window
+        # Reset references to allow garbage collection
+        self.strategy_frames = {}
+        self.balances_panel = None
+
+        # Then destroy root window if it exists
         if self.root and self.root.winfo_exists():
             try:
-                # Destroy any child windows first
-                for child in self.root.winfo_children():
-                    child.destroy()
+                # Unregister protocol handlers
+                self.root.protocol("WM_DELETE_WINDOW", lambda: None)
 
-                # Now destroy root
+                # Cancel any pending async updates
+                if hasattr(self, '_balances_update_id'):
+                    self.root.after_cancel(self._balances_update_id)
+                
+                # Process any pending events before destruction
+                self.root.update()
+                self.root.update_idletasks()
+
+                # Cleanup internal tkinter structures
                 self.root.quit()
-                self.root.destroy()
+                self.root.withdraw()
             except tk.TclError:
                 pass
-        # Ensure process exits
+
+        # Ensure process exits cleanly
         os._exit(0)
 
     def update_shared_balances(self):
         """Centralized balance refresh using tokens from strategy frames"""
+        if not self.root.winfo_exists():  # Prevent updates after destruction
+            return
         # logger.debug("Updating shared balances panel")
         data = []
         tokens_seen = set()
