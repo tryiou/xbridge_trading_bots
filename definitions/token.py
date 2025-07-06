@@ -13,6 +13,18 @@ class Token:
         self.dex = DexToken(self, dex_enabled)
         self.cex = CexToken(self)
 
+    @property
+    def dex_total_balance(self):
+        return getattr(self.dex, 'total_balance', None) if self.dex else None
+
+    @property
+    def dex_free_balance(self):
+        return getattr(self.dex, 'free_balance', None) if self.dex else None
+
+    @property
+    def cex_usd_price(self):
+        return getattr(self.cex, 'usd_price', None) if self.cex else None
+
 
 class DexToken:
     def __init__(self, parent_token, dex_enabled=True):

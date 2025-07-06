@@ -185,14 +185,14 @@ class GUI_Main:
                     tokens = frame.config_manager.tokens
                     for token_symbol, token_obj in tokens.items():
                         if getattr(token_obj, 'cex', None) and getattr(token_obj, 'dex', None) and token_symbol not in tokens_seen:
-                            usd_price = getattr(getattr(token_obj, 'cex', None), 'usd_price', 0.0) or 0.0
-                            total = getattr(getattr(token_obj, 'dex', None), 'total_balance', 0.0) or 0.0
-                            free = getattr(getattr(token_obj, 'dex', None), 'free_balance', 0.0) or 0.0
+                            balance_total = token_obj.dex_total_balance or 0.0
+                            balance_free = token_obj.dex_free_balance or 0.0
+                            usd_price = token_obj.cex_usd_price or 0.0
                             data.append({
                                 "symbol": token_symbol,
                                 "usd_price": usd_price,
-                                "total": total,
-                                "free": free
+                                "total": balance_total,
+                                "free": balance_free
                             })
                             tokens_seen.add(token_symbol)
 

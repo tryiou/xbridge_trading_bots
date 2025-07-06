@@ -57,7 +57,7 @@ class BaseDataPanel(ttk.Frame):
             # Logging handled through parent frame's config manager 
             pass  # Errors are already logged in the strategy thread
         finally:
-            self.after(500, self._process_updates)
+            self.after(250, self._process_updates)
 
     def _safe_update(self, items: List[Dict]):
         """To be implemented by subclasses"""
@@ -81,6 +81,11 @@ class OrdersPanel(BaseDataPanel):
 
     def _safe_update(self, orders: List[Dict]):
         """Main thread only - actual UI update"""
+        # Only update if orders have changed
+        if getattr(self, '_last_orders', None) == orders:
+            return
+        self._last_orders = orders.copy()
+        
         self.tree.delete(*self.tree.get_children())
         display_height = max(min(len(orders), 15), 5)
 
@@ -113,6 +118,11 @@ class BalancesPanel(BaseDataPanel):
 
     def _safe_update(self, balances: List[Dict]):
         """Main thread only - actual UI update"""
+        # Only update if balances have changed
+        if getattr(self, '_last_balances', None) == balances:
+            return
+        self._last_balances = balances.copy()
+        
         self.tree.delete(*self.tree.get_children())
         display_height = max(min(len(balances), 15), 5)
 
