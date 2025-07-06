@@ -7,6 +7,7 @@ import uuid
 import weakref
 
 from definitions.detect_rpc import detect_rpc
+from definitions.logger import setup_logging
 from definitions.rpc import rpc_call
 
 
@@ -15,7 +16,7 @@ class XBridgeManager:
 
     def __init__(self, config_manager):
         self.config_manager = config_manager
-        self.logger = logging.getLogger(__name__)
+        self.logger = setup_logging(name=f"{self.config_manager.strategy}.xbridge_manager", level=logging.DEBUG, console=True)
         self.blocknet_user_rpc, self.blocknet_port_rpc, self.blocknet_password_rpc, self.blocknet_datadir_path = detect_rpc()
         self.xbridge_conf = None
         self.xbridge_fees_estimate = {}

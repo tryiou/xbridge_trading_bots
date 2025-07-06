@@ -92,7 +92,6 @@ class GUI_Main:
         """Periodic check to maintain GUI responsiveness"""
         def watchdog():
             if self._watchdog_count > 5:  # 25 seconds no response
-                self.root.bell()  # Force GUI wakeup
                 self.root.update_idletasks()
                 self._watchdog_count = 0
             else:
