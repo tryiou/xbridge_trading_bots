@@ -160,14 +160,14 @@ class CCXTManager:
                (CCXTManager._proxy_process and CCXTManager._proxy_process.poll() is None):
                 # Proxy already running
                 if CCXTManager._proxy_process:
-                    self.config_manager.ccxt_log.info(f"🔁 CCXT proxy already running (PID: {CCXTManager._proxy_process.pid})")
+                    self.config_manager.ccxt_log.info(f"CCXT proxy already running (PID: {CCXTManager._proxy_process.pid})")
                 else:
-                    self.config_manager.ccxt_log.info(f"🔌 CCXT proxy port {CCXTManager._proxy_port} already occupied")
+                    self.config_manager.ccxt_log.info(f"CCXT proxy port {CCXTManager._proxy_port} already occupied")
                 return
 
             proxy_path = Path(__file__).parent.parent / "proxy_ccxt.py"
 
-            self.config_manager.ccxt_log.info(f"🚀 Starting CCXT proxy server on port {CCXTManager._proxy_port}")
+            self.config_manager.ccxt_log.info(f"Starting CCXT proxy server on port {CCXTManager._proxy_port}")
             try:
                 CCXTManager._proxy_process = subprocess.Popen(
                     [sys.executable, str(proxy_path)],
@@ -181,14 +181,14 @@ class CCXTManager:
                     time.sleep(attempt * 1)
                     if self.isportopen("127.0.0.1", CCXTManager._proxy_port):
                         self.config_manager.ccxt_log.info(
-                            f"✅ Proxy started successfully (PID: {CCXTManager._proxy_process.pid}, port: {CCXTManager._proxy_port})"
+                            f"Proxy started successfully (PID: {CCXTManager._proxy_process.pid}, port: {CCXTManager._proxy_port})"
                         )
                         time.sleep(0.5)  # Allow server initialization
                         return
                     self.config_manager.ccxt_log.debug(f"Port check attempt {attempt}/{max_retries} failed")
 
                 self.config_manager.ccxt_log.error(
-                    f"❌ Proxy failed to start - port {CCXTManager._proxy_port} not responding after {max_retries} attempts")
+                    f"Proxy failed to start - port {CCXTManager._proxy_port} not responding after {max_retries} attempts")
                 if CCXTManager._proxy_process.stderr:
                     stderr_output = CCXTManager._proxy_process.stderr.read().decode().strip()
                     if stderr_output:

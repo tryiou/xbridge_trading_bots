@@ -16,7 +16,8 @@ class XBridgeManager:
 
     def __init__(self, config_manager):
         self.config_manager = config_manager
-        self.logger = setup_logging(name=f"{self.config_manager.strategy}.xbridge_manager", level=logging.DEBUG, console=True)
+        strategy = self.config_manager.strategy if hasattr(config_manager,'strategy') else 'no_strat'
+        self.logger = setup_logging(name=f"{strategy}.xbridge_manager", level=logging.DEBUG, console=True)
         self.blocknet_user_rpc, self.blocknet_port_rpc, self.blocknet_password_rpc, self.blocknet_datadir_path = detect_rpc()
         self.xbridge_conf = None
         self.xbridge_fees_estimate = {}
