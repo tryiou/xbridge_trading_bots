@@ -4,6 +4,28 @@ import tkinter as tk
 from tkinter import ttk
 from typing import TYPE_CHECKING
 
+
+class Validators:
+    """Centralized validation rules for GUI inputs"""
+
+    @staticmethod
+    def trading_pair(value: str) -> bool:
+        """Validate pair format: 3-5 uppercase letters separated by slash"""
+        cleaned = value.strip().upper()
+        return re.match(r"^[A-Z]{3,5}/[A-Z]{3,5}$", cleaned) is not None
+
+    @staticmethod
+    def numeric_range(value: str, min_val: float, max_val: float = None) -> bool:
+        """Validate positive numeric value with optional range"""
+        try:
+            num = float(value)
+            if max_val is None:
+                return num >= min_val
+            return min_val <= num <= max_val
+        except ValueError:
+            return False
+
+
 if TYPE_CHECKING:
     from gui.frames import GUI_Config_PingPong, GUI_Config_BasicSeller
 
@@ -24,20 +46,34 @@ class BaseDialog(tk.Toplevel):
         self.grab_set()
 
     def _validate_pair(self, pair_var):
-        pair = pair_var.get().strip().upper()
-        if not re.match(r"^[A-Z]{2,}/[A-Z]{2,}$", pair):
-            self.config.update_status("Invalid pair format. Must be TOKEN1/TOKEN2 (both tokens 2+ chars)", 'red')
+        """Validate trading pair using centralized validator"""
+        pair = pair_var.get()
+        if not Validators.trading_pair(pair):
+            self.config.update_status("Invalid pair format. Must be like BTC/USDT (3-5 uppercase letters)", 'red')
             return False
         return True
 
     def _validate_numeric(self, *string_vars):
-        try:
-            for var in string_vars:
-                float(var.get())
-            return True
-        except ValueError as e:
-            self.config.update_status(f"Invalid numeric value: {str(e)}", 'red')
-            return False
+        """Validate numeric values are non-negative numbers"""
+        for var in string_vars:
+            var_name = ''
+            if hasattr(var, '_name'):
+                var_name = getattr(var, '_name')
+            value = var.get()
+
+            # Check for empty value
+            if not value:
+                self.config.update_status(f"Value required for {var_name}", 'red')
+                return False
+
+                # Validate non-negative number
+            if not Validators.numeric_range(value, 0, None):
+                self.config.update_status(
+                    f"Value must be a non-negative number for {var_name}: {value}",
+                    'red'
+                )
+                return False
+        return True
 
 
 class BasePairDialog(BaseDialog):

@@ -4,12 +4,12 @@ from .maker_strategy import MakerStrategy
 class PingPongStrategy(MakerStrategy):
     def __init__(self, config_manager, controller=None):
         super().__init__(config_manager, controller)
-        self.config_pingppong = config_manager.config_pingppong  # Direct access to pingpong config
+        self.config_pingpong = config_manager.config_pingpong  # Direct access to pingpong config
 
     def initialize_strategy_specifics(self, **kwargs):
         # PingPong doesn't need specific args passed from CLI, its config is loaded
         self.config_manager.general_log.info("--- PingPong Strategy Parameters ---")
-        enabled_pairs = [p for p in self.config_pingppong.pair_configs if p.get('enabled', True)]
+        enabled_pairs = [p for p in self.config_pingpong.pair_configs if p.get('enabled', True)]
         if not enabled_pairs:
             self.config_manager.general_log.info("  - No enabled pairs found in config_pingpong.yaml.")
         else:
@@ -24,16 +24,16 @@ class PingPongStrategy(MakerStrategy):
         self.config_manager.general_log.info("------------------------------------")
 
     def get_tokens_for_initialization(self, **kwargs) -> list:
-        tokens_list = [cfg['pair'].split("/")[0] for cfg in self.config_pingppong.pair_configs if
+        tokens_list = [cfg['pair'].split("/")[0] for cfg in self.config_pingpong.pair_configs if
                        cfg.get('enabled', True)]
         tokens_list.extend(
-            [cfg['pair'].split("/")[1] for cfg in self.config_pingppong.pair_configs if cfg.get('enabled', True)])
+            [cfg['pair'].split("/")[1] for cfg in self.config_pingpong.pair_configs if cfg.get('enabled', True)])
         return list(set(tokens_list))
 
     def get_pairs_for_initialization(self, tokens_dict, **kwargs) -> dict:
         from definitions.pair import Pair  # Import here to avoid circular dependency
         pairs = {}
-        enabled_pairs = [cfg for cfg in self.config_pingppong.pair_configs if cfg.get('enabled', True)]
+        enabled_pairs = [cfg for cfg in self.config_pingpong.pair_configs if cfg.get('enabled', True)]
         for cfg in enabled_pairs:
             t1, t2 = cfg['pair'].split("/")
             pair_name = f"{cfg['name']}"

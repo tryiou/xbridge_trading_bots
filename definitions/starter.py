@@ -67,14 +67,15 @@ class BalanceManager:
         return self.timer_main_dx_update_bals is None or time.time() - self.timer_main_dx_update_bals > UPDATE_BALANCES_DELAY
 
     async def _update_token_balance(self, token_data, xb_tokens):
-        if xb_tokens and token_data.symbol in xb_tokens:
-            utxos = await self.config_manager.xbridge_manager.gettokenutxo(token_data.symbol, used=True)
-            bal, bal_free = self._calculate_balances(utxos)
-            token_data.dex.total_balance = bal
-            token_data.dex.free_balance = bal_free
-        else:
-            token_data.dex.total_balance = None
-            token_data.dex.free_balance = None
+        with self.config_manager.resource_lock:
+            if xb_tokens and token_data.symbol in xb_tokens:
+                utxos = await self.config_manager.xbridge_manager.gettokenutxo(token_data.symbol, used=True)
+                bal, bal_free = self._calculate_balances(utxos)
+                token_data.dex.total_balance = bal
+                token_data.dex.free_balance = bal_free
+            else:
+                token_data.dex.total_balance = None
+                token_data.dex.free_balance = None
 
     def _calculate_balances(self, utxos):
         bal = bal_free = 0

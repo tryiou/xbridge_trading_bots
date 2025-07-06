@@ -69,6 +69,7 @@ class GUI_Main:
         logger.debug("Initializing log frame")
         self.log_frame = LogFrame(self.notebook)
         self.notebook.add(self.log_frame, text='Logs')
+
         self.setup_logging()  # Setup logging AFTER GUI structure is finalized
 
         # Start periodic task to update shared balances panel
@@ -78,7 +79,6 @@ class GUI_Main:
 
         # Start the refresh loop for the initially selected tab
         self.notebook.bind("<<NotebookTabChanged>>", self.on_tab_changed)
-        self.on_tab_changed()  # Manually trigger for the first tab
 
     def setup_logging(self):
         """Configures logging to display in the GUI and redirects stdout/stderr."""
@@ -169,68 +169,6 @@ class GUI_Main:
         self.root.grab_set()  # Prevent interactions with other windows
         self.root.focus_force()  # Maintain focus
 
-    def _shutdown_worker(self):
-        """Worker thread to gracefully stop all bot threads and cleanup resources"""
-        logger.info("Executing shutdown worker thread")
-        running_frames = [
-            frame for frame in self.strategy_frames.values()
-            if frame.started and not frame.stopping
-        ]
-        logger.debug(f"Processing {len(running_frames)} running frames")
-
-        # Cancel the periodic balance updates first
-        if hasattr(self, '_balances_update_id'):
-            self.root.after_cancel(self._balances_update_id)
-            del self._balances_update_id
-            logger.debug("Cancelled _balances_update_id")
-
-        # First stop all frames and wait for them
-        for frame in running_frames:
-            logger.debug(f"Stopping {frame.strategy_name} bot")
-            frame.stop(blocking=True, reload_config=False)
-
-        # Then cancel all orders
-        for frame in running_frames:
-            logger.debug(f"Canceling orders for {frame.strategy_name}")
-            frame.cancel_all()
-
-        # Tell Tkinter to quit and then destroy
-        self.root.after(100, self._final_shutdown)
-
-    def _final_shutdown(self):
-        """Final cleanup and window destruction."""
-        # Clean up all strategy frames first
-        for frame in self.strategy_frames.values():
-            frame.cleanup()
-            frame.destroy()
-
-        # Reset references to allow garbage collection
-        self.strategy_frames = {}
-        self.balances_panel = None
-
-        # Then destroy root window if it exists
-        if self.root and self.root.winfo_exists():
-            try:
-                # Unregister protocol handlers
-                self.root.protocol("WM_DELETE_WINDOW", lambda: None)
-
-                # Cancel any pending async updates
-                if hasattr(self, '_balances_update_id'):
-                    self.root.after_cancel(self._balances_update_id)
-                
-                # Process any pending events before destruction
-                self.root.update()
-                self.root.update_idletasks()
-
-                # Cleanup internal tkinter structures
-                self.root.quit()
-                self.root.withdraw()
-            except tk.TclError:
-                pass
-
-        # Ensure process exits cleanly
-        os._exit(0)
-
     def update_shared_balances(self):
         """Centralized balance refresh using tokens from strategy frames"""
         if not self.root.winfo_exists():  # Prevent updates after destruction
@@ -239,22 +177,24 @@ class GUI_Main:
         data = []
         tokens_seen = set()
 
-        # Collect tokens from all strategy frames
-        for frame in self.strategy_frames.values():
-            if getattr(frame, 'config_manager', None) and hasattr(frame.config_manager, 'tokens'):
-                tokens = frame.config_manager.tokens
-                for token_symbol, token_obj in tokens.items():
-                    if token_obj.cex and token_obj.dex and token_symbol not in tokens_seen:
-                        usd_price = token_obj.cex.usd_price or 0.0
-                        total = token_obj.dex.total_balance or 0.0
-                        free = token_obj.dex.free_balance or 0.0
-                        data.append({
-                            "symbol": token_symbol,
-                            "usd_price": usd_price,
-                            "total": total,
-                            "free": free
-                        })
-                        tokens_seen.add(token_symbol)
+        # Use lock to safely access tokens_dict
+        with self.master_config_manager.resource_lock:
+            # Collect tokens from all strategy frames
+            for frame in self.strategy_frames.values():
+                if getattr(frame, 'config_manager', None) and hasattr(frame.config_manager, 'tokens'):
+                    tokens = frame.config_manager.tokens
+                    for token_symbol, token_obj in tokens.items():
+                        if token_obj.cex and token_obj.dex and token_symbol not in tokens_seen:
+                            usd_price = token_obj.cex.usd_price or 0.0
+                            total = token_obj.dex.total_balance or 0.0
+                            free = token_obj.dex.free_balance or 0.0
+                            data.append({
+                                "symbol": token_symbol,
+                                "usd_price": usd_price,
+                                "total": total,
+                                "free": free
+                            })
+                            tokens_seen.add(token_symbol)
 
         # Update the single shared balances panel
         self.balances_panel.update_data(data)

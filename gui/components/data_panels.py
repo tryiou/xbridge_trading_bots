@@ -1,9 +1,10 @@
+import queue
 from tkinter import ttk
 from typing import List, Dict, Tuple
 
 
 class BaseDataPanel(ttk.Frame):
-    """Base class for data display panels"""
+    """Base class for data display panels with thread-safe updates"""
 
     def __init__(self, parent, columns: List[Tuple[str, str, int]]):
         """                                                                                                                                                                               
@@ -32,9 +33,35 @@ class BaseDataPanel(ttk.Frame):
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(0, weight=1)
 
+        # Prepare update queue
+        self._update_queue = queue.Queue()
+        self.after(100, self._process_updates)
+
     def update_data(self, items: List[Dict]):
-        """Update panel with new data (to be overridden)"""
-        raise NotImplementedError
+        """Thread-safe entry point for all updates"""
+        if not self.winfo_exists():
+            return
+        try:
+            self._update_queue.put(items.copy())
+        except RuntimeError:
+            # Panel being destroyed - ignore
+            pass
+
+    def _process_updates(self):
+        """Process queued updates in main thread"""
+        try:
+            while not self._update_queue.empty():
+                items = self._update_queue.get_nowait()
+                self._safe_update(items)
+        except Exception as e:
+            # Logging handled through parent frame's config manager 
+            pass  # Errors are already logged in the strategy thread
+        finally:
+            self.after(500, self._process_updates)
+
+    def _safe_update(self, items: List[Dict]):
+        """To be implemented by subclasses"""
+        pass
 
 
 class OrdersPanel(BaseDataPanel):
@@ -52,12 +79,11 @@ class OrdersPanel(BaseDataPanel):
         # Set initial height to 5 rows                                                                                                                                                    
         self.tree.configure(height=5)
 
-    def update_data(self, orders: List[Dict]):
+    def _safe_update(self, orders: List[Dict]):
+        """Main thread only - actual UI update"""
         self.tree.delete(*self.tree.get_children())
-        # Set height between 5-15 rows based on actual data count                                                                                                                         
         display_height = max(min(len(orders), 15), 5)
 
-        # But the Treeview shows the entire dataset regardless of visible height                                                                                                          
         for i, order in enumerate(orders):
             self.tree.insert('', 'end', values=(
                 order['pair'],
@@ -67,7 +93,6 @@ class OrdersPanel(BaseDataPanel):
                 order.get('variation', 'None')
             ), tags=('evenrow' if i % 2 == 0 else 'oddrow',))
 
-            # Set the height AFTER inserting all items so the view adapts to visible height
         self.tree.configure(height=display_height)
 
 
@@ -86,12 +111,11 @@ class BalancesPanel(BaseDataPanel):
         # Set initial height to 5 rows
         self.tree.configure(height=5)
 
-    def update_data(self, balances: List[Dict]):
+    def _safe_update(self, balances: List[Dict]):
+        """Main thread only - actual UI update"""
         self.tree.delete(*self.tree.get_children())
-        # Set height between 5-15 rows based on actual data count
         display_height = max(min(len(balances), 15), 5)
 
-        # But the Treeview shows the entire dataset regardless of visible height
         for i, balance in enumerate(balances):
             self.tree.insert('', 'end', values=(
                 balance['symbol'],
@@ -101,5 +125,4 @@ class BalancesPanel(BaseDataPanel):
                 f"${balance['total'] * balance['usd_price']:.2f}"
             ), tags=('evenrow' if i % 2 == 0 else 'oddrow',))
 
-        # Set the height AFTER inserting all items so the view adapts to visible height
         self.tree.configure(height=display_height)

@@ -1,6 +1,7 @@
 import logging
 import os
 import shutil
+import threading
 
 from ruamel.yaml import YAML
 
@@ -19,6 +20,7 @@ class ConfigManager:
     def __init__(self, strategy, master_manager=None):
         self.strategy = strategy
         self.ROOT_DIR = os.path.abspath(os.curdir)
+        self.resource_lock = threading.RLock()
 
         if master_manager:
             # In GUI slave mode, just get a reference to the existing loggers.
@@ -33,7 +35,7 @@ class ConfigManager:
         # Initialize config attributes to None
         self.config_ccxt = None
         self.config_coins = None
-        self.config_pingppong = None
+        self.config_pingpong = None
         self.config_basicseller = None
         self.config_xbridge = None
         self.config_arbitrage = None
@@ -45,7 +47,7 @@ class ConfigManager:
             self.general_log.info(f"Attaching to shared resources for strategy: {self.strategy}")
             self.config_ccxt = master_manager.config_ccxt
             self.config_coins = master_manager.config_coins
-            self.config_pingppong = master_manager.config_pingppong
+            self.config_pingpong = master_manager.config_pingpong
             self.config_basicseller = master_manager.config_basicseller
             self.config_xbridge = master_manager.config_xbridge
             self.config_arbitrage = master_manager.config_arbitrage
@@ -53,9 +55,13 @@ class ConfigManager:
 
             # Create new manager instances. They will be initialized with this
             # slave ConfigManager instance, giving them the correct logger.
-            self.xbridge_manager = XBridgeManager(self)
-            self.ccxt_manager = CCXTManager(self)
 
+            # self.xbridge_manager = XBridgeManager(self)
+
+            self.xbridge_manager = master_manager.xbridge_manager  # we share the xbridge instance to every slaves
+
+            self.ccxt_manager = CCXTManager(self)
+            self.general_log.info(f"ccxt_instance: {str(self.ccxt_manager)}")
             # Share the underlying CCXT connection object from the master to avoid
             # re-initializing it (e.g., re-loading markets).
             if master_manager.ccxt_manager:
@@ -68,7 +74,6 @@ class ConfigManager:
             # If this is the master GUI manager, initialize shared components now.
             if self.strategy == "gui":
                 self._init_ccxt()
-
         self.strategy_config = {}
         self.strategy_instance: BaseStrategy = None
         self.tokens = {}  # Token data
@@ -76,6 +81,8 @@ class ConfigManager:
         self.load_xbridge_conf_on_startup = True  # Default value, will be updated by initialize
         self.disabled_coins = []  # Centralized disabled coins tracking
         self.controller = None
+        self.general_log.info("self.general_log.info ConfigManager initialized 1")
+        print("print ConfigManager initialized 3")
 
     @property
     def my_ccxt(self):
@@ -172,7 +179,7 @@ class ConfigManager:
         # In standalone mode, only load the relevant strategy config.
         # In GUI mode (strategy='gui'), load all of them.
         if self.strategy in ["pingpong", "gui"]:
-            self.config_pingppong = self._load_and_update_config("config_pingpong.yaml")
+            self.config_pingpong = self._load_and_update_config("config_pingpong.yaml")
         if self.strategy in ["basic_seller", "gui"]:
             self.config_basicseller = self._load_and_update_config("config_basic_seller.yaml")
         if self.strategy in ["arbitrage", "gui"]:

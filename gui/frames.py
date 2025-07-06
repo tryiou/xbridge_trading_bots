@@ -2,6 +2,7 @@
 import abc
 import asyncio
 import logging
+import os
 import threading
 import time
 import tkinter as tk
@@ -34,6 +35,7 @@ class BaseStrategyFrame(ttk.Frame):
         self.send_process: threading.Thread | None = None
         self.started = False
         self.stopping = False
+        self.cleaned = True  # initialize as True; no cleanup needed on init
         # Button attributes that will be created by create_standard_buttons
         self.btn_start: ttk.Button | None = None
         self.btn_stop: ttk.Button | None = None
@@ -58,38 +60,60 @@ class BaseStrategyFrame(ttk.Frame):
         """Placeholder for creating strategy-specific widgets. To be overridden."""
         pass
 
+    def _pre_start_validation(self):
+        """Validate critical pre-conditions before starting"""
+        if not self.config_manager:
+            raise RuntimeError("Config manager not initialized")
+        if not hasattr(self.config_manager, 'strategy_instance'):
+            raise RuntimeError("Strategy not properly initialized")
+        if self.send_process and self.send_process.is_alive():
+            raise RuntimeError("Bot thread already running")
+
+    def _critical_error_handler(self, error):
+        """Handle critical errors in GUI-safe context"""
+        self.stop(blocking=True)
+        self.main_app.status_var.set(f"CRITICAL ERROR: {str(error)}")
+        if self.config_manager:  # Ensure config_manager exists before accessing its logger
+            self.config_manager.general_log.error(f"Thread crashed: {str(error)}", exc_info=True)
+
+    def _thread_wrapper(self, func, *args):
+        """Wrap thread execution for proper error handling"""
+        try:
+            func(*args)
+        except Exception as e:
+            self.main_app.root.after(0, self._critical_error_handler, e)
+
     def start(self):
         """Starts the bot in a separate thread."""
-        if not self.config_manager:
-            logger.error("Cannot start: config_manager is not initialized.")
-            return
-
-        logger.info(f"User clicked START for {self.strategy_name}")
-        logger.debug(
-            f"Initializing bot thread for {self.strategy_name} | Config: {self.config_manager.__dict__.keys()}")
-
-        log = self.config_manager.general_log
-        log.debug("Validating configuration parameters")
-
-        self.stopping = False  # Reset stopping flag on start
-        self.main_app.status_var.set(f"{self.strategy_name.capitalize()} bot is running...")
-        log.debug("GUI: Fetching startup tasks.")
-        startup_tasks = self.config_manager.strategy_instance.get_startup_tasks()
-        log.debug("GUI: Creating bot thread.")
-        self.send_process = threading.Thread(target=run_async_main,
-                                             args=(self.config_manager, None, startup_tasks),
-                                             daemon=True)
         try:
-            self.config_manager.general_log.info(f"{self.strategy_name.capitalize()} bot starting.")
+            self._pre_start_validation()
+            log = self.config_manager.general_log
+            log.info(f"User clicked START for {self.strategy_name}")
+            self.stopping = False
+            self.main_app.status_var.set(f"{self.strategy_name.capitalize()} bot is running...")
+
+            startup_tasks = self.config_manager.strategy_instance.get_startup_tasks()
+            self.send_process = threading.Thread(
+                target=self._thread_wrapper,
+                args=(run_async_main, self.config_manager, None, startup_tasks),
+                daemon=True,
+                name=f"BotThread-{self.strategy_name}"
+            )
+            log.info(f"{self.strategy_name.capitalize()} bot starting.")
             self.send_process.start()
             self.started = True
+            self.cleaned = False  # Mark that we are starting; not cleaned yet
             self.update_button_states()
             self.after(0, self.start_refresh)
 
         except Exception as e:
-            self.main_app.status_var.set(f"Error starting {self.strategy_name} bot: {e}")
-            log.error(f"Error starting bot thread: {e}", exc_info=True)
-            logger.critical(f"Failed to start {self.strategy_name} bot", exc_info=True)
+            error_msg = f"Error starting {self.strategy_name} bot: {e}"
+            self.main_app.status_var.set(error_msg)
+            # Use module logger if config_manager isn't available
+            if self.config_manager:
+                self.config_manager.general_log.error(error_msg, exc_info=True)
+            else:
+                logger.error(error_msg, exc_info=True)
             self.stop(blocking=True, reload_config=False)
 
     def stop(self, blocking: bool = False, reload_config: bool = True):
@@ -108,10 +132,20 @@ class BaseStrategyFrame(ttk.Frame):
         self.config_manager.general_log.info(f"Attempting to stop {self.strategy_name} bot...")
 
         if self.config_manager.controller and self.config_manager.controller.loop:
-            # Safely set the asyncio event from a different thread
-            self.config_manager.controller.loop.call_soon_threadsafe(
-                self.config_manager.controller.shutdown_event.set
-            )
+            # Thread-safe shutdown with locking
+            shutdown_event = self.config_manager.controller.shutdown_event
+            lconf = self.config_manager
+            loop = self.config_manager.controller.loop
+
+            # Check loop is still valid and operational
+            if not loop.is_closed():
+                def set_event():
+                    with lconf.resource_lock:
+                        shutdown_event.set()
+
+                # Only schedule if loop is actually running
+                if loop.is_running():
+                    loop.call_soon_threadsafe(set_event)
 
         if blocking:
             # Used for application shutdown where we need to wait
@@ -126,7 +160,9 @@ class BaseStrategyFrame(ttk.Frame):
                 if self.send_process.is_alive():
                     self.config_manager.general_log.warning("Force shutdown of stuck thread")
                     # Force stop the event loop
-                    if self.config_manager.controller and self.config_manager.controller.loop:
+                    if (self.config_manager.controller and
+                            self.config_manager.controller.loop and
+                            not self.config_manager.controller.loop.is_closed()):
                         self.config_manager.controller.loop.stop()
 
             self._finalize_stop(reload_config)
@@ -148,6 +184,7 @@ class BaseStrategyFrame(ttk.Frame):
         self.send_process = None
         self.started = False
         self.stopping = False
+        self.cleaned = True  # Mark that cleanup is complete
         self.update_button_states()
 
         # Purge and recreate orders display                                                                                                                                                                            
@@ -176,7 +213,8 @@ class BaseStrategyFrame(ttk.Frame):
                 log.info("cancel_all: All orders cancelled successfully.")
             except Exception as e:
                 # Schedule GUI update on main thread
-                self.main_app.root.after(0, lambda e=e: self.main_app.status_var.set(f"Error cancelling orders: {e}"))
+                self.main_app.root.after(0,
+                                         lambda err=e: self.main_app.status_var.set(f"Error cancelling orders: {err}"))
                 log.error(f"Error during cancel_all worker: {e}", exc_info=True)
             log.debug("GUI: cancel_all worker thread finished.")
 
@@ -195,26 +233,31 @@ class BaseStrategyFrame(ttk.Frame):
 
     def refresh_gui(self):
         """Refreshes the GUI display periodically. To be overridden."""
-        log = self.config_manager.general_log
+        # Critical: skip if frame/widget is being destroyed                                                                                                                                                            
+        if not self.winfo_exists():
+            return
 
-        if self.winfo_exists():
+        log = self.config_manager.general_log if self.config_manager else logger
+
+        # Only update if the orders panel and its parent frame exist
+        if (hasattr(self, 'orders_panel') and self.orders_panel.winfo_exists() and
+                hasattr(self, 'orders_frame') and self.orders_frame.winfo_exists()):
             self._update_orders_display()
 
-        # Check if a non-blocking stop has completed
-        if self.stopping and self.send_process and not self.send_process.is_alive():
+        # Handle expected shutdown complete
+        if self.stopping and self.send_process and not self.send_process.is_alive() and not self.cleaned:
             log.info(f"Detected stopped thread for {self.strategy_name}. Finalizing...")
             self._finalize_stop()
-            return  # Stop the refresh loop for this frame
+            return  # End this refresh cycle
 
-        # Check for a crash (thread died while it was supposed to be running)
-        if self.started and not self.stopping and self.send_process and not self.send_process.is_alive():
+        # Handle crash detection (thread died unexpectedly)
+        if self.started and not self.stopping and self.send_process and not self.send_process.is_alive() and not self.cleaned:
             log.error(f"{self.strategy_name} bot thread died unexpectedly (crashed)!")
             self.main_app.status_var.set(f"{self.strategy_name} bot CRASHED!")
-            # The thread is already dead, so just finalize the stop state.
             self._finalize_stop(reload_config=False)
             log.info("GUI: Issuing cancel_all after crash detection.")
             self.cancel_all()
-            return  # Stop the refresh loop for this frame
+            return  # End this refresh cycle
 
         # If we get here, the bot is running normally, so schedule the next check.
         self.refresh_id = self.after(1500, self.refresh_gui)
@@ -337,14 +380,14 @@ class StandardStrategyFrame(BaseStrategyFrame, metaclass=abc.ABCMeta):
 
     def create_widgets(self):
         """Creates the common widgets for a standard strategy frame."""
-        # Create orders frame
-        orders_frame = ttk.LabelFrame(self, text="Orders")
-        orders_frame.grid(row=1, column=0, padx=5, pady=5, sticky="nsew")
-        orders_frame.grid_rowconfigure(0, weight=1)
-        orders_frame.grid_columnconfigure(0, weight=1)
+        # Create and preserve orders frame
+        self.orders_frame = ttk.LabelFrame(self, text="Orders")
+        self.orders_frame.grid(row=1, column=0, padx=5, pady=5, sticky="nsew")
+        self.orders_frame.grid_rowconfigure(0, weight=1)
+        self.orders_frame.grid_columnconfigure(0, weight=1)
 
-        # Create orders panel
-        self.orders_panel = OrdersPanel(orders_frame)
+        # Create orders panel inside preserved frame
+        self.orders_panel = OrdersPanel(self.orders_frame)
         self.orders_panel.grid(row=0, column=0, padx=0, pady=0, sticky="nsew")
 
         self.gui_config = self._create_config_gui()
@@ -355,10 +398,11 @@ class StandardStrategyFrame(BaseStrategyFrame, metaclass=abc.ABCMeta):
         self.gui_config.open()
 
     def purge_and_recreate_widgets(self):
-        """Purges and recreates the Orders treeview."""
+        """Purges and recreates the Orders treeview while preserving the frame."""
+        # Only destroy/recreate the orders panel contents
         self.orders_panel.destroy()
-        self.orders_panel = OrdersPanel(self)
-        self.orders_panel.grid(row=1, column=0, padx=5, pady=5, sticky="nsew")
+        self.orders_panel = OrdersPanel(self.orders_frame)
+        self.orders_panel.grid(row=0, column=0, padx=0, pady=0, sticky="nsew")
 
     def cleanup(self):
         """Unbind events to prevent errors during teardown."""
@@ -454,23 +498,33 @@ class BaseConfigWindow:
             self.active_dialog = None
         return dialog
 
-    def save_config(self) -> None:
-        new_config = self._get_config_data_to_save()
-        if new_config is None:
-            return  # Save operation was cancelled or failed validation
-
+    def _atomic_save(self, new_config):
+        """Safe config save using temporary file and atomic replace"""
         yaml_writer = YAML()
         yaml_writer.default_flow_style = False
         yaml_writer.indent(mapping=2, sequence=4, offset=2)
 
+        temp_path = f"{self.config_file_path}.tmp"
         try:
-            with open(self.config_file_path, 'w') as file:
-                yaml_writer.dump(new_config, file)
+            with open(temp_path, 'w') as f:
+                yaml_writer.dump(new_config, f)
+            os.replace(temp_path, self.config_file_path)
+            return True
+        except Exception as e:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+            raise
 
+    def save_config(self) -> None:
+        """Save configuration with transaction safety"""
+        try:
+            new_config = self._get_config_data_to_save()
+            if new_config is None:
+                return  # Save operation was cancelled or failed validation
+            self._atomic_save(new_config)
             # Reload the master configuration manager to pick up changes from the file.
             if self.parent.master_config_manager:
                 self.parent.master_config_manager.load_configs()
-
             self.update_status("Configuration saved and reloaded successfully.", 'lightgreen')
             # Now, reload the strategy frame's specific configuration from the master.
             self.parent.reload_configuration(loadxbridgeconf=True)
@@ -538,14 +592,14 @@ class GUI_Config_PingPong(BaseConfigWindow):
         ttk.Label(general_frame, text="Debug Level:").grid(row=0, column=0, padx=5, pady=5, sticky='w')
         self.debug_level_entry = ttk.Entry(general_frame)
         self.debug_level_entry.grid(row=0, column=1, padx=5, pady=5, sticky='ew')
-        if self.parent.config_manager and self.parent.config_manager.config_pingppong:
-            self.debug_level_entry.insert(0, str(self.parent.config_manager.config_pingppong.debug_level))
+        if self.parent.config_manager and self.parent.config_manager.config_pingpong:
+            self.debug_level_entry.insert(0, str(self.parent.config_manager.config_pingpong.debug_level))
 
         ttk.Label(general_frame, text="TTK Theme:").grid(row=1, column=0, padx=5, pady=5, sticky='w')
         self.ttk_theme_entry = ttk.Entry(general_frame)
         self.ttk_theme_entry.grid(row=1, column=1, padx=5, pady=5, sticky='ew')
-        if self.parent.config_manager and self.parent.config_manager.config_pingppong:
-            self.ttk_theme_entry.insert(0, self.parent.config_manager.config_pingppong.ttk_theme)
+        if self.parent.config_manager and self.parent.config_manager.config_pingpong:
+            self.ttk_theme_entry.insert(0, self.parent.config_manager.config_pingpong.ttk_theme)
 
     def _create_pairs_treeview_widgets(self, parent_frame: ttk.Frame) -> None:
         tree_frame = ttk.LabelFrame(parent_frame, text="Pair Configurations")
@@ -576,8 +630,8 @@ class GUI_Config_PingPong(BaseConfigWindow):
         self._populate_pairs_treeview()
 
     def _populate_pairs_treeview(self) -> None:
-        if self.pairs_treeview and self.parent.config_manager and self.parent.config_manager.config_pingppong:
-            for cfg in self.parent.config_manager.config_pingppong.pair_configs:
+        if self.pairs_treeview and self.parent.config_manager and self.parent.config_manager.config_pingpong:
+            for cfg in self.parent.config_manager.config_pingpong.pair_configs:
                 self.pairs_treeview.insert('', 'end', values=(
                     cfg.get('name', ''),
                     'Yes' if cfg.get('enabled', True) else 'No',
@@ -860,21 +914,21 @@ class LogFrame(ttk.Frame):
 
         try:
             self.log_text.config(state='normal')
-            
+
             # Iterate in reverse to maintain correct indices after deletions
             for i in reversed(range(len(self.log_entries))):
                 entry = self.log_entries[i]
                 if entry[0] <= cutoff:
                     self.log_text.delete(f'{entry[1]}.0', f'{entry[2]}.0')
                     del self.log_entries[i]
-                    
+
             # Rebase remaining entries with correct line numbers
             new_entries = []
             current_line = 1
             for ts, _, _ in self.log_entries:
                 new_entries.append((ts, current_line, current_line + 1))
                 current_line += 1
-                
+
             self.log_entries = new_entries
 
         finally:
