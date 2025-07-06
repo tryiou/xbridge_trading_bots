@@ -41,9 +41,6 @@ class GUI_Main:
         self.style = Style(theme="darkly")
         self.status_var = tk.StringVar(value="Idle")
 
-        self.notebook = ttk.Notebook(self.root)
-        self.notebook.pack(pady=10, padx=10)
-
         # Create a master ConfigManager to hold shared resources
         self.master_config_manager = ConfigManager(strategy="gui")
 
@@ -77,7 +74,7 @@ class GUI_Main:
         self.notebook.add(self.log_frame, text='Logs')
 
         # Finalize logging setup AFTER GUI components are ready
-        self.setup_gui_logging()  
+        self.setup_gui_logging()
         self.start_watchdog()
 
         # Start periodic task to update shared balances panel
@@ -90,6 +87,7 @@ class GUI_Main:
 
     def start_watchdog(self):
         """Periodic check to maintain GUI responsiveness"""
+
         def watchdog():
             if self._watchdog_count > 5:  # 25 seconds no response
                 self.root.update_idletasks()
@@ -97,14 +95,14 @@ class GUI_Main:
             else:
                 self._watchdog_count += 1
             self.root.after(5000, watchdog)
-        
+
         self.root.after(5000, watchdog)
 
     def setup_console_logging(self):
         """Initializes console logging before GUI components are ready"""
         root_logger = logging.getLogger()
         root_logger.setLevel(logging.DEBUG)
-        
+
         # Clear existing handlers to avoid duplicates
         root_logger.handlers.clear()
 
@@ -124,18 +122,18 @@ class GUI_Main:
     def setup_gui_logging(self):
         """Finalizes logging setup after GUI components are initialized"""
         root_logger = logging.getLogger()
-        
+
         # Add GUI panel handler
         gui_handler = TextLogHandler(self.log_frame)
         gui_formatter = logging.Formatter('%(asctime)s [%(name)-18s] - %(levelname)-7s - %(message)s',
-                                        datefmt='%H:%M:%S')
+                                          datefmt='%H:%M:%S')
         gui_handler.setFormatter(gui_formatter)
         root_logger.addHandler(gui_handler)
 
         # Redirect stdout/stderr after GUI is ready
         sys.stdout = StdoutRedirector(self.log_frame, "INFO", sys.__stdout__)
         sys.stderr = StdoutRedirector(self.log_frame, "ERROR", sys.__stderr__)
-        
+
         logger.info("GUI logging initialized")
 
     def create_status_bar(self) -> None:
@@ -198,7 +196,8 @@ class GUI_Main:
                 if getattr(frame, 'config_manager', None) and hasattr(frame.config_manager, 'tokens'):
                     tokens = frame.config_manager.tokens
                     for token_symbol, token_obj in tokens.items():
-                        if getattr(token_obj, 'cex', None) and getattr(token_obj, 'dex', None) and token_symbol not in tokens_seen:
+                        if getattr(token_obj, 'cex', None) and getattr(token_obj, 'dex',
+                                                                       None) and token_symbol not in tokens_seen:
                             balance_total = token_obj.dex_total_balance or 0.0
                             balance_free = token_obj.dex_free_balance or 0.0
                             usd_price = token_obj.cex_usd_price or 0.0
