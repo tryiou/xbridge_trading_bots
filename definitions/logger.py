@@ -74,6 +74,7 @@ def silence_noisy_loggers():
     """Sets the logging level for noisy third-party libraries to INFO."""
     logging.getLogger("urllib3.connectionpool").setLevel(logging.INFO)
     logging.getLogger("ccxt.base.exchange").setLevel(logging.INFO)
+    logging.getLogger("asyncio").setLevel(logging.INFO)
 
 
 def setup_logger(strategy=None, ROOT_DIR=None):

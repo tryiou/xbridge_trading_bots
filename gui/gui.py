@@ -23,6 +23,12 @@ class GUI_Main:
     def __init__(self):
         self.root = tk.Tk()
         self.root.title("XBridge Trading Bots")
+        self._watchdog_count = 0
+
+        # Initialize console logging FIRST
+        self.setup_console_logging()
+        logger = logging.getLogger(__name__)
+        logger.info("Initializing GUI application")
 
         # Handle Ctrl+C/KeyboardInterrupt signals for clean shutdown
         import signal
@@ -70,7 +76,9 @@ class GUI_Main:
         self.log_frame = LogFrame(self.notebook)
         self.notebook.add(self.log_frame, text='Logs')
 
-        self.setup_logging()  # Setup logging AFTER GUI structure is finalized
+        # Finalize logging setup AFTER GUI components are ready
+        self.setup_gui_logging()  
+        self.start_watchdog()
 
         # Start periodic task to update shared balances panel
         self.update_shared_balances()
@@ -80,49 +88,56 @@ class GUI_Main:
         # Start the refresh loop for the initially selected tab
         self.notebook.bind("<<NotebookTabChanged>>", self.on_tab_changed)
 
-    def setup_logging(self):
-        """Configures logging to display in the GUI and redirects stdout/stderr."""
-        original_stdout = sys.stdout
-        original_stderr = sys.stderr
+    def start_watchdog(self):
+        """Periodic check to maintain GUI responsiveness"""
+        def watchdog():
+            if self._watchdog_count > 5:  # 25 seconds no response
+                self.root.bell()  # Force GUI wakeup
+                self.root.update_idletasks()
+                self._watchdog_count = 0
+            else:
+                self._watchdog_count += 1
+            self.root.after(5000, watchdog)
+        
+        self.root.after(5000, watchdog)
 
-        # Configure the root logger
+    def setup_console_logging(self):
+        """Initializes console logging before GUI components are ready"""
         root_logger = logging.getLogger()
-        root_logger.setLevel(logging.DEBUG)  # Set to DEBUG to see all logs
+        root_logger.setLevel(logging.DEBUG)
+        
+        # Clear existing handlers to avoid duplicates
+        root_logger.handlers.clear()
 
-        # Since the backend loggers no longer add handlers in GUI mode,
-        # we only need to clear the root logger to ensure a clean setup.
-        root_logger.handlers.clear()  # Also clear root logger's handlers
-
-        # Use the existing setup_logging function to add the file handler to the root logger.
-        # This is forced to run even in GUI mode to restore file logging.
+        # Setup file logging first
         log_dir = os.path.join(os.path.abspath(os.curdir), "logs")
         os.makedirs(log_dir, exist_ok=True)
-        log_file = os.path.join(log_dir, "gui_debug.log")  # Changed name for clarity
+        log_file = os.path.join(log_dir, "gui_debug.log")
         setup_file_logging(name=None, log_file=log_file, level=logging.DEBUG, force=True)
 
-        # Add the custom handler for the GUI log panel
+        # Add colored console handler
+        console_formatter = ColoredFormatter('[%(asctime)s] [%(name)-18s] %(levelname)s - %(message)s')
+        console_handler = logging.StreamHandler(sys.stdout)
+        console_handler.setFormatter(console_formatter)
+        console_handler.setLevel(logging.DEBUG)
+        root_logger.addHandler(console_handler)
+
+    def setup_gui_logging(self):
+        """Finalizes logging setup after GUI components are initialized"""
+        root_logger = logging.getLogger()
+        
+        # Add GUI panel handler
         gui_handler = TextLogHandler(self.log_frame)
-        # Use a standard, uncolored formatter for the GUI panel
         gui_formatter = logging.Formatter('%(asctime)s [%(name)-18s] - %(levelname)-7s - %(message)s',
-                                          datefmt='%H:%M:%S')
+                                        datefmt='%H:%M:%S')
         gui_handler.setFormatter(gui_formatter)
         root_logger.addHandler(gui_handler)
 
-        # Add a handler to also print logs to the console (stdout)
-        # Use the same ColoredFormatter as the standalone scripts
-        console_formatter = ColoredFormatter('[%(asctime)s] [%(name)-18s] %(levelname)s - %(message)s')
-        console_handler = logging.StreamHandler(original_stdout)
-        console_handler.setFormatter(console_formatter)
-        log_level = logging.DEBUG
-        console_handler.setLevel(logging.DEBUG)  # Show INFO+ to console
-        root_logger.addHandler(console_handler)
-        logger.info(f"Console logging initialized at {str(log_level)} level")
-
-        # Redirect raw stdout and stderr for non-logging output (e.g., print() statements)
-        sys.stdout = StdoutRedirector(self.log_frame, "INFO", original_stdout)
-        sys.stderr = StdoutRedirector(self.log_frame, "ERROR", original_stderr)
-
-        logger.info("Logging initialized. GUI is ready.")
+        # Redirect stdout/stderr after GUI is ready
+        sys.stdout = StdoutRedirector(self.log_frame, "INFO", sys.__stdout__)
+        sys.stderr = StdoutRedirector(self.log_frame, "ERROR", sys.__stderr__)
+        
+        logger.info("GUI logging initialized")
 
     def create_status_bar(self) -> None:
         """Creates the status bar at the bottom of the main window."""

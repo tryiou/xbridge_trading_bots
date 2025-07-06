@@ -159,11 +159,12 @@ class BaseStrategyFrame(ttk.Frame):
 
                 if self.send_process.is_alive():
                     self.config_manager.general_log.warning("Force shutdown of stuck thread")
-                    # Force stop the event loop
-                    if (self.config_manager.controller and
+                    # Cleanly cancel remaining tasks instead of force-stopping loop
+                    if (self.config_manager.controller and 
                             self.config_manager.controller.loop and
                             not self.config_manager.controller.loop.is_closed()):
-                        self.config_manager.controller.loop.stop()
+                        self.config_manager.controller.loop.call_soon_threadsafe(
+                            self.config_manager.controller.shutdown_event.set)
 
             self._finalize_stop(reload_config)
             # HTTP session is managed by async context, no need for explicit close

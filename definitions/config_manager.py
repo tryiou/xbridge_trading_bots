@@ -6,7 +6,7 @@ import threading
 from ruamel.yaml import YAML
 
 from definitions.ccxt_manager import CCXTManager
-from definitions.logger import setup_logger
+from definitions.logger import setup_logger, setup_logging
 from definitions.token import Token
 from definitions.xbridge_manager import XBridgeManager
 from definitions.yaml_mix import YamlToObject
@@ -21,6 +21,9 @@ class ConfigManager:
         self.strategy = strategy
         self.ROOT_DIR = os.path.abspath(os.curdir)
         self.resource_lock = threading.RLock()
+        self.logger =  setup_logging(name="config_manager",
+                                 level=logging.DEBUG, console=True)
+
 
         if master_manager:
             # In GUI slave mode, just get a reference to the existing loggers.
@@ -41,10 +44,15 @@ class ConfigManager:
         self.config_arbitrage = None
         self.config_thorchain = None
 
+        # Mark role for resource management
+        self.is_master = not master_manager
+        role = "master" if self.is_master else "slave"
+        self.logger.debug(f"ConfigManager initializing as {role} for '{strategy}' strategy")
+
         if master_manager:
             # GUI Slave Mode: Inherit configs, but create own managers to ensure
             # correct logger context.
-            self.general_log.info(f"Attaching to shared resources for strategy: {self.strategy}")
+            self.logger.info(f"Attaching to shared resources for strategy: {self.strategy}")
             self.config_ccxt = master_manager.config_ccxt
             self.config_coins = master_manager.config_coins
             self.config_pingpong = master_manager.config_pingpong
@@ -61,7 +69,7 @@ class ConfigManager:
             self.xbridge_manager = master_manager.xbridge_manager  # we share the xbridge instance to every slaves
 
             self.ccxt_manager = CCXTManager(self)
-            self.general_log.info(f"ccxt_instance: {str(self.ccxt_manager)}")
+            self.logger.info(f"ccxt_instance: {str(self.ccxt_manager)}")
             # Share the underlying CCXT connection object from the master to avoid
             # re-initializing it (e.g., re-loading markets).
             if master_manager.ccxt_manager:
@@ -81,8 +89,7 @@ class ConfigManager:
         self.load_xbridge_conf_on_startup = True  # Default value, will be updated by initialize
         self.disabled_coins = []  # Centralized disabled coins tracking
         self.controller = None
-        self.general_log.info("self.general_log.info ConfigManager initialized 1")
-        print("print ConfigManager initialized 3")
+        self.logger.debug("ConfigManager setup complete")
 
     @property
     def my_ccxt(self):
@@ -114,14 +121,14 @@ class ConfigManager:
                 if os.path.exists(template_path):
                     try:
                         shutil.copy(template_path, target_path)
-                        self.general_log.info(f"Created config file: {target_name} from template")
+                        self.logger.info(f"Created config file: {target_name} from template")
                     except Exception as e:
-                        self.general_log.error(f"Failed to create config file {target_name}: {str(e)}")
+                        self.logger.error(f"Failed to create config file {target_name}: {str(e)}")
                 else:
-                    self.general_log.error(f"Template file {template_path} not found in config directory")
+                    self.logger.error(f"Template file {template_path} not found in config directory")
             else:
                 # Target file exists
-                self.general_log.info(f"{target_name}: Already exists")
+                self.logger.info(f"{target_name}: Already exists")
 
     def _load_and_update_config(self, config_name: str):
         """
@@ -133,7 +140,7 @@ class ConfigManager:
         template_path = os.path.join(self.ROOT_DIR, "config", "templates", config_name + ".template")
 
         if not os.path.exists(template_path):
-            self.general_log.warning(f"Template file not found: {template_path}. Cannot check for missing keys.")
+            self.logger.warning(f"Template file not found: {template_path}. Cannot check for missing keys.")
             return YamlToObject(config_path)
 
         yaml = YAML()
@@ -154,7 +161,7 @@ class ConfigManager:
                 if key not in user:
                     user[key] = value
                     updated = True
-                    self.general_log.info(
+                    self.logger.info(
                         f"Added missing key '{key}' to {os.path.basename(config_path)} from template.")
                 elif isinstance(value, dict) and isinstance(user.get(key), dict):
                     if merge_configs(value, user.get(key, {})):
@@ -165,9 +172,9 @@ class ConfigManager:
             try:
                 with open(config_path, 'w') as f:
                     yaml.dump(user_config, f)
-                self.general_log.info(f"Updated {os.path.basename(config_path)} with missing keys from template.")
+                self.logger.info(f"Updated {os.path.basename(config_path)} with missing keys from template.")
             except Exception as e:
-                self.general_log.error(f"Failed to save updated config file {config_path}: {e}")
+                self.logger.error(f"Failed to save updated config file {config_path}: {e}")
 
         return YamlToObject(user_config)
 

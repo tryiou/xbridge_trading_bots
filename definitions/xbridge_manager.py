@@ -1,30 +1,28 @@
 import asyncio
 import configparser
+import logging
 import os
-import uuid
 import socket
-import sys
-import os
-import subprocess
-import time
-from pathlib import Path
+import uuid
+import weakref
 
 from definitions.detect_rpc import detect_rpc
 from definitions.rpc import rpc_call
 
 
 class XBridgeManager:
+    _loops = weakref.WeakSet()
+
     def __init__(self, config_manager):
         self.config_manager = config_manager
-
-        self.logger = self.config_manager.general_log
+        self.logger = logging.getLogger(__name__)
         self.blocknet_user_rpc, self.blocknet_port_rpc, self.blocknet_password_rpc, self.blocknet_datadir_path = detect_rpc()
         self.xbridge_conf = None
         self.xbridge_fees_estimate = {}
 
         # Optional: Test RPC connection during initialization
         if not self.test_rpc():
-            self.logger.error(f'Blocknet core rpc server not responding or credentials incorrect.')
+            self.logger.error(f'Blocknet core RPC server not responding or credentials incorrect.')
             # Depending on desired behavior, you might want to raise an exception or exit here.
             # For now, just log the error.
 
@@ -44,16 +42,52 @@ class XBridgeManager:
             return False
 
     async def rpc_wrapper(self, method, params=None):
+        """Execute RPC call in a threadpool with proper async isolation"""
         if params is None:
             params = []
-        result = await rpc_call(method=method,
-                                params=params,
-                                rpc_user=self.blocknet_user_rpc,
-                                rpc_port=self.blocknet_port_rpc,
-                                rpc_password=self.blocknet_password_rpc,
-                                debug=self.config_manager.config_xbridge.debug_level,
-                                logger=self.logger)  # Pass the instance logger
-        return result
+
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            None,
+            self._exec_rpc,
+            method,
+            params,
+            self.blocknet_user_rpc,
+            self.blocknet_password_rpc,
+            self.blocknet_port_rpc,
+            self.config_manager.config_xbridge.debug_level
+        )
+
+    def _exec_rpc(self, method, params, rpc_user, rpc_password, rpc_port, debug_level):
+        """Execute RPC on a threadpool thread with dedicated event loop"""
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        self._loops.add(loop)
+        try:
+            return loop.run_until_complete(
+                rpc_call(
+                    method=method,
+                    params=params,
+                    rpc_user=rpc_user,
+                    rpc_password=rpc_password,
+                    rpc_port=rpc_port,
+                    debug=debug_level,
+                    logger=self.logger,  # Fixed typo: self.logger
+                    session=None  # Create new session per call
+                )
+            )
+        except Exception as e:
+            self.logger.error(f"RPC call failed: {str(e)}", exc_info=True)
+            raise
+        finally:
+            try:
+                loop.close()
+                if not loop.is_closed():
+                    self.logger.error("EVENT LOOP FAILED TO CLOSE!")
+                    import traceback
+                    traceback.print_stack()
+            finally:
+                self._loops.discard(loop)
 
     def test_rpc(self):
         # This method is called from constructor, so it cannot be async.
