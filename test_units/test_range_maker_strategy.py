@@ -1,143 +1,130 @@
-import logging
 import asyncio
-import io
-import pandas as pd
-import time
-import yfinance as yf
-from aiohttp import ClientSession, TCPConnector, ClientTimeout
+import logging
 from datetime import datetime
 from pathlib import Path
-from typing import List, Dict
+from typing import Dict
 
+import matplotlib
+matplotlib.use('Agg') # Use non-interactive backend for animation saving
+import matplotlib.animation as animation
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
 from definitions.logger import setup_logging
 
+timeframe = '1h'
+period = "30d"
+
 
 class RangeMakerBacktester:
     """Backtesting engine for RangeMaker strategy simulations"""
 
-    def __init__(self, strategy_instance, data_path: str):
+    def __init__(self, strategy_instance):
         self.strategy = strategy_instance
-        self.data_path = data_path
         self.logger = strategy_instance.logger
         self.historical_data = None
         self.simulation_results = []
         self.metrics = {}
+        # Dynamically construct data_file_path using the script's directory and global variables
+        self.data_file_path = Path(
+            __file__).parent / f"{self.get_pair_symbol()}_historical_data_{period}_{timeframe}.csv"
 
-        self.logger = setup_logging(name="range_maker_backtester", level=logging.DEBUG, console=True)
+        self.logger = setup_logging(name="range_maker_backtester", level=logging.INFO, console=True)
+        self.strategy.logger.setLevel(logging.DEBUG)  # Increase verbosity for troubleshooting
+        self.logger.info("RangeMakerBacktester initialized.")
         # Simulation state
         self.current_balances = {}
         self.order_history = []
         self.price_history = []
         self.inventory_history = []
         self.fee_history = []
+        self.initial_balances = {}
+        self.final_balances = {}
+        self.initial_price = 0
+        self.final_price = 0
+        self.animation_data = []  # Store data for animation frames
+        self.logger.debug(f"Backtester initialized. Data will be loaded/saved from: {self.data_file_path}")
 
-    async def load_historical_data(self, time_frame: str = '1h'):
-        """
-        Load historical price data from CSV/JSON file.
-        Expected columns: timestamp, open, high, low, close, volume
-        """
-        self.logger.info(f"Loading historical data from: {self.data_path}")
-        self.logger.debug(f"Requested time frame: {time_frame}")
+    def get_pair_symbol(self) -> str:
+        """Helper to get the pair symbol from active positions, or a default."""
+        if self.strategy.active_positions:
+            return next(iter(self.strategy.active_positions.keys())).replace('/', '_')
+        return "UNKNOWN_PAIR"
 
-        path = Path(self.data_path)
-        self.logger.debug(f"Resolved path: {path.absolute()}")
+    async def load_historical_data(self):
+        """
+        Load historical price data from CSV file and prepare it for backtesting.
+        """
+        self.logger.info(f"Attempting to load historical data from: {self.data_file_path}")
+        file_path = self.data_file_path
+        if not file_path.exists():
+            self.logger.error(f"Historical data file not found at {file_path.absolute()}")
+            raise FileNotFoundError(f"Historical data file not found at {file_path.absolute()}")
+        self.logger.debug(f"Found historical data file at: {file_path.absolute()}")
+
         try:
-            if path.suffix == '.csv':
-                self.logger.debug("Loading CSV file")
-                self.logger.debug(f"Attempting to read CSV from: {path.absolute()}")
-                
-                # First read just the columns to debug structure
-                try:
-                    cols = pd.read_csv(path, nrows=0).columns.tolist()
-                    self.logger.debug(f"CSV columns detected: {cols}")
-                    self.logger.debug(f"Checking for timestamp column in: {cols}")
-                    
-                    # Check if timestamp exists, fallback to date
-                    if 'timestamp' not in cols and 'date' in cols:
-                        self.logger.warning("'timestamp' column not found but 'date' exists - using 'date' as timestamp")
-                        self.historical_data = pd.read_csv(path, parse_dates=['date'])
-                        self.historical_data.rename(columns={'date': 'timestamp'}, inplace=True)
-                    else:
-                        self.historical_data = pd.read_csv(path, parse_dates=['timestamp'])
-                        
-                    self.logger.debug(f"CSV loaded successfully. Columns: {self.historical_data.columns.tolist()}")
-                    self.logger.debug(f"First 3 rows:\n{self.historical_data.head(3).to_string()}")
-                    self.logger.debug(f"Date range: {self.historical_data['timestamp'].min()} to {self.historical_data['timestamp'].max()}")
-                    
-                except Exception as read_error:
-                    self.logger.error("CSV structure debug - reading first 5 rows as plain text:")
-                    with open(path, 'r') as f:
-                        for i, line in enumerate(f):
-                            if i < 5:
-                                self.logger.error(f"Row {i}: {line.strip()}")
-                            else:
-                                break
-                    raise read_error
-            else:
-                error_msg = f"Unsupported file format: {path.suffix}. Use CSV or JSON"
-                self.logger.error(error_msg)
-                raise ValueError(error_msg)
+            # Load the raw data
+            self.logger.debug(f"Reading CSV from {file_path}")
+            raw_data = pd.read_csv(file_path, parse_dates=['date'])
+            raw_data.rename(columns={'date': 'timestamp'}, inplace=True)
+            self.logger.debug(f"Raw data loaded. Columns: {raw_data.columns.tolist()}, Rows: {len(raw_data)}")
 
-            # Get actual column names from the data
-            price_columns = [col for col in self.historical_data.columns if col != 'timestamp']
-            
-            self.historical_data = self.historical_data.resample(time_frame, on='timestamp').agg({
-                col: 'mean' for col in price_columns  # Use mean for price columns when resampling
-            }).reset_index()
-            
-            # Create single price column from average of both assets
-            self.historical_data['close'] = self.historical_data[price_columns].mean(axis=1)
-            self.historical_data['open'] = self.historical_data[price_columns].mean(axis=1)
-            self.historical_data['high'] = self.historical_data[price_columns].mean(axis=1)
-            self.historical_data['low'] = self.historical_data[price_columns].mean(axis=1)
-            self.historical_data['volume'] = 0  # Volume not available in sample data
+            # Determine pair and required columns
+            if not self.strategy.active_positions:
+                self.logger.error(
+                    "Strategy active_positions is empty. Cannot determine pair name for historical data loading.")
+                raise ValueError("Strategy not initialized with active positions.")
+            pair_name = next(iter(self.strategy.active_positions.keys()))
+            self.logger.info(f"Determined pair name for historical data: {pair_name}")
+            base, quote = pair_name.split('/')
+            base_col, quote_col = f"{base}-USD", f"{quote}-USD"
+            self.logger.debug(f"Base column: {base_col}, Quote column: {quote_col}")
 
-            # Verify we have required timestamp column
-            if 'timestamp' not in self.historical_data.columns:
-                raise ValueError("Missing required 'timestamp' column in historical data")
-            self.logger.debug(f"Data types:\n{self.historical_data.dtypes}")
-            self.logger.debug(f"Final columns after processing: {self.historical_data.columns.tolist()}")
+            if base_col not in raw_data.columns or quote_col not in raw_data.columns:
+                self.logger.error(
+                    f"Missing required price columns for {pair_name} in {self.data_file_path}. Expected '{base_col}' and '{quote_col}'. Available columns: {raw_data.columns.tolist()}")
+                raise ValueError(f"Missing required price columns for {pair_name} in {self.data_file_path}")
+            self.logger.debug("Required price columns found in raw data.")
 
-        except FileNotFoundError as e:
-            self.logger.error(f"Data file not found: {path}")
-            self.logger.error(f"Absolute path: {path.absolute()}")
-            self.logger.error("Please check: ")
-            self.logger.error("- File exists at this path")
-            self.logger.error("- File permissions (read access)")
-            self.logger.error("- Disk space availability")
-            raise
-        except pd.errors.EmptyDataError as e:
-            self.logger.error(f"Empty data file: {path}")
-            raise
+            # Set timestamp as index and resample to the desired timeframe, forward-filling gaps
+            self.logger.debug(f"Resampling data to {timeframe} and forward-filling gaps.")
+            self.historical_data = raw_data.set_index('timestamp').resample(timeframe).ffill()
+            self.logger.debug(f"Data resampled. New shape: {self.historical_data.shape}")
+
+            # Calculate the correct pair price (Base/Quote)
+            self.logger.debug(f"Calculating '{pair_name}' close price from '{base_col}' and '{quote_col}'.")
+            self.historical_data['close'] = self.historical_data[base_col] / self.historical_data[quote_col]
+            self.historical_data.loc[self.historical_data[quote_col] == 0, 'close'] = np.nan
+            self.logger.debug("Pair price calculated.")
+
+            # Fill any remaining NaNs after calculation
+            self.logger.debug("Filling any remaining NaNs (forward and backward fill).")
+            self.historical_data.ffill(inplace=True)
+            self.historical_data.bfill(inplace=True)
+            self.logger.debug("NaNs filled.")
+
+            # Simplify OHLC data for this backtest
+            self.logger.debug("Simplifying OHLC data.")
+            for col in ['open', 'high', 'low']:
+                self.historical_data[col] = self.historical_data['close']
+            self.historical_data['volume'] = 0
+            self.logger.debug("OHLC data simplified.")
+
+            self.historical_data.reset_index(inplace=True)
+            self.logger.info(f"Successfully loaded and processed {len(self.historical_data)} historical data points.")
+
         except Exception as e:
-            self.logger.error(f"Unexpected error loading data: {str(e)}")
-            self.logger.error("Data loading failed", exc_info=True)
+            self.logger.error(f"Error loading or processing historical data: {e}", exc_info=True)
             raise
 
-        # Get actual column names from the data
-        price_columns = [col for col in self.historical_data.columns if col != 'timestamp']
-        
-        self.historical_data = self.historical_data.resample(time_frame, on='timestamp').agg({
-            col: 'mean' for col in price_columns  # Use mean for price columns when resampling
-        }).reset_index()
-        
-        # Create single price column from average of both assets
-        self.historical_data['close'] = self.historical_data[price_columns].mean(axis=1)
-        self.historical_data['open'] = self.historical_data[price_columns].mean(axis=1)
-        self.historical_data['high'] = self.historical_data[price_columns].mean(axis=1)
-        self.historical_data['low'] = self.historical_data[price_columns].mean(axis=1)
-        self.historical_data['volume'] = 0  # Volume not available in sample data
-
-        self.logger.info(f"Loaded {len(self.historical_data)} historical data points")
-
-    async def download_sample_data(self, file_path: str, pair: str):
+    async def download_sample_data(self, file_path: str, pair: str, interval: str):
         """Download sample historical price data using yfinance"""
+        self.logger.info(
+            f"Attempting to download sample data for {pair} with period={period}, interval={interval} to {file_path}")
         try:
             import yfinance as yf
+            self.logger.debug("yfinance package imported successfully.")
         except ImportError:
             self.logger.error("yfinance package required for downloading historical data")
             self.logger.error("Install with: pip install yfinance")
@@ -145,297 +132,451 @@ class RangeMakerBacktester:
 
         if "/" in pair:
             base_token, quote_token = pair.split("/")
-            yahoo_symbols = [f"{base_token}-USD", f"{quote_token}-USD"]
+            base_sym, quote_sym = f"{base_token}-USD", f"{quote_token}-USD"
+            self.logger.debug(f"Parsed pair: Base={base_token} ({base_sym}), Quote={quote_token} ({quote_sym})")
         else:
+            self.logger.error(f"Invalid pair format: {pair}. Must be in BASE/QUOTE format")
             raise ValueError(f"Invalid pair format: {pair}. Must be in BASE/QUOTE format")
 
         try:
-            # Download historical data for both tokens
-            data = yf.download(
-                tickers=yahoo_symbols,
-                period="1y",
-                interval="1d",
-                group_by='ticker',
-                progress=False
-            )
+            self.logger.info(f"Downloading historical data for {base_sym} and {quote_sym}...")
+            base_data = yf.download(tickers=base_sym, period=period, interval=interval, progress=False)
+            quote_data = yf.download(tickers=quote_sym, period=period, interval=interval, progress=False)
+            self.logger.info("Historical data download complete.")
 
-            # Process and merge the data
-            dfs = []
-            for symbol in yahoo_symbols:
-                df = data[symbol][['Open', 'High', 'Low', 'Close', 'Volume']]
-                df = df.reset_index().rename(columns={'Date': 'date'})
-                df['symbol'] = symbol
-                dfs.append(df)
+            self.logger.debug("Combining 'Close' prices into a single DataFrame.")
+            df = pd.DataFrame(index=base_data.index)
+            df.index.name = 'date'
+            df[base_sym] = base_data['Close']
+            df[quote_sym] = quote_data['Close']
+            self.logger.debug(f"Combined DataFrame created. Shape: {df.shape}")
 
-            merged_df = pd.concat(dfs)
-            # Forward fill and take last value when resampling
-            merged_df = merged_df.pivot_table(
-                index='date', 
-                columns='symbol',
-                values=['Open', 'High', 'Low', 'Close', 'Volume'],
-                aggfunc='last'
-            )
-            merged_df.ffill(inplace=True)
-            merged_df.to_csv(file_path)
-            
+            self.logger.debug("Forward-filling any missing values.")
+            df.ffill(inplace=True)
+            df.bfill(inplace=True)
+            self.logger.debug("Missing values filled.")
+
+            df.to_csv(file_path)
             self.logger.info(f"Successfully downloaded and saved data to {file_path}")
             return
 
         except Exception as e:
-            self.logger.error(f"Failed to download data using yfinance: {str(e)}")
+            self.logger.error(f"Failed to download data using yfinance: {str(e)}", exc_info=True)
             self.logger.error("Please check the token symbols and your internet connection")
             raise ValueError("Historical data download failed")
 
-    async def execute_fullbacktest(self, initial_balances: Dict[str, float] = None):
+    def _setup_mock_pairs(self):
+        """Create mock Pair objects for backtesting"""
+        self.logger.info("Setting up mock Pair objects for backtesting.")
+        from definitions.pair import Pair
+        from definitions.token import Token
+
+        if not self.strategy.active_positions:
+            self.logger.warning("No active positions found in strategy. Skipping mock pair setup.")
+            return
+
+        for pair_name, position in self.strategy.active_positions.items():
+            self.logger.debug(f"Setting up mock pair for {pair_name}")
+            t1_sym, t2_sym = pair_name.split('/')
+            token1 = Token(t1_sym, self.strategy.config_manager)
+            token2 = Token(t2_sym, self.strategy.config_manager)
+            token1.dex = lambda: None
+            token2.dex = lambda: None
+            setattr(token1.dex, 'free_balance', self.current_balances.get(t1_sym, 0))
+            setattr(token2.dex, 'free_balance', self.current_balances.get(t2_sym, 0))
+            self.logger.debug(
+                f"Mock balances set for {t1_sym}: {self.current_balances.get(t1_sym, 0)} and {t2_sym}: {self.current_balances.get(t2_sym, 0)}")
+
+            pair_cfg = {
+                'name': pair_name,
+                'min_price': position.min_price,
+                'max_price': position.max_price,
+                'grid_density': position.grid_density
+            }
+            self.logger.debug(f"Pair config for {pair_name}: {pair_cfg}")
+
+            self.strategy.pairs[pair_name] = Pair(
+                token1=token1,
+                token2=token2,
+                cfg=pair_cfg,
+                strategy="range_maker",
+                config_manager=self.strategy.config_manager
+            )
+            self.logger.debug(f"Mock Pair object created for {pair_name}.")
+        self.logger.info("Mock Pair objects setup complete.")
+
+    async def execute_fullbacktest(self, initial_balances: Dict[str, float], period: str = "1y", interval: str = "1h",
+                                   animate_graph: bool = False):
         """
         Run full historical simulation with initial token balances.
         Updates strategy state through simulated time periods.
         """
-        self.logger.info("Starting full backtest execution")
+        self.logger.info("Starting full backtest execution.")
+        self.logger.debug(f"Backtest parameters: period={period}, interval={interval}")
 
         try:
             # Auto-download data if missing
-            data_path = Path(self.data_path)
-            if not data_path.exists():
+            if not self.data_file_path.exists():
+                if not self.strategy.active_positions:
+                    self.logger.error("Strategy active_positions is empty. Cannot download sample data.")
+                    raise ValueError("Strategy not initialized with active positions for data download.")
                 pair = next(iter(self.strategy.active_positions.values())).token_pair
-                self.logger.warning(f"Data file {self.data_path} not found - downloading sample data for {pair}")
-                await self.download_sample_data(self.data_path, pair)
+                self.logger.warning(
+                    f"Data file {self.data_file_path} not found - downloading sample data for {pair} with period={period}, interval={timeframe}")
+                await self.download_sample_data(self.data_file_path, pair,
+                                                interval=timeframe)  # Use global timeframe here
+            else:
+                self.logger.info(f"Data file {self.data_file_path} found, skipping download.")
 
-            self.logger.debug("Loading historical data")
+            self.logger.debug("Loading historical data.")
+            self.logger.info(f"Loading historical data from file: {self.data_file_path}")
             await self.load_historical_data()
 
-            if self.historical_data is None:
-                self.logger.error("No historical data loaded - aborting backtest")
-                raise ValueError("Historical data not loaded successfully")
+            if self.historical_data is None or self.historical_data.empty:
+                self.logger.error("No historical data loaded or data is empty - aborting backtest.")
+                raise ValueError("Historical data not loaded successfully or is empty.")
+            self.logger.info(f"Historical data loaded successfully with {len(self.historical_data)} records.")
 
-            self.logger.debug(f"Historical data contains {len(self.historical_data)} records")
-            self.logger.debug("Sample data:\n" + str(self.historical_data.head(3)))
+            # Store initial price
+            self.initial_price = self.historical_data['close'].iloc[0]
+            self.logger.info(f"Initial price: {self.initial_price:.4f}")
 
-            self.current_balances = (initial_balances or {}).copy()
+            self.initial_balances = (initial_balances or {}).copy()
+            self.current_balances = self.initial_balances.copy()
 
             if not self.current_balances:
-                self.logger.info("No initial balances provided - generating defaults")
+                self.logger.info("No initial balances provided - generating defaults.")
+                if not self.strategy.active_positions:
+                    self.logger.error("Cannot generate default balances: strategy active_positions is empty.")
+                    raise ValueError("Cannot generate default balances without active positions.")
                 tokens = list(self.strategy.active_positions.keys())[0].split('/')
-                self.current_balances = {token: 1000.0 for token in tokens}
-                self.logger.debug(f"Generated initial balances: {self.current_balances}")
+                self.initial_balances = {token: 1000.0 for token in tokens}
+                self.current_balances = self.initial_balances.copy()
+                self.logger.info(f"Generated initial balances: {self.initial_balances}")
+            else:
+                self.logger.debug("Using provided initial balances.")
 
-            self.logger.info("Resetting simulation state")
+            self._setup_mock_pairs()
+            if not self.strategy.pairs:
+                self.logger.error("Mock pairs not set up. Aborting backtest.")
+                raise ValueError("Mock pairs not set up.")
+            self.logger.info("Mock pairs setup complete.")
+
+            # Initialize the order grid before starting the simulation
+            if not self.strategy.active_positions:
+                self.logger.error("Strategy active_positions is empty. Cannot initialize order grid.")
+                raise ValueError("Strategy not initialized with active positions for order grid.")
+            pair_name = next(iter(self.strategy.active_positions.keys()))
+            pair_instance = self.strategy.pairs.get(pair_name)
+            if not pair_instance:
+                self.logger.error(f"Pair instance for {pair_name} not found in strategy.pairs. Aborting.")
+                raise ValueError(f"Pair instance for {pair_name} not found.")
+            position = self.strategy.active_positions.get(pair_name)
+            if not position:
+                self.logger.error(f"Position for {pair_name} not found in strategy.active_positions. Aborting.")
+                raise ValueError(f"Position for {pair_name} not found.")
+
+            self.logger.info(f"Initializing order grid for {pair_name}.")
+            await self.strategy.initialize_order_grid(pair_instance, position)
+            self.logger.info(f"Order grid initialized for {pair_name}.")
+
+            self.logger.info("Resetting simulation state.")
             self._reset_simulation_state()
+            self.logger.debug("Simulation state reset.")
 
-            self.logger.info(f"Beginning simulation of {len(self.historical_data)} time periods")
+            self.logger.info(f"Beginning simulation of {len(self.historical_data)} time periods.")
+            self.logger.debug(f"Historical data head:\n{self.historical_data.head()}")
 
             try:
                 for idx, row in self.historical_data.iterrows():
-                    self.logger.debug(f"\n=== Processing period {idx + 1}/{len(self.historical_data)} ===")
-                    self.logger.debug(f"Row data: {row.to_dict()}")
-
                     current_price = row['close']
-                    self.logger.debug(f"Current price: {current_price}")
-
                     timestamp = row['timestamp']
-                    self.logger.debug(f"Timestamp: {timestamp}")
-
                     self.price_history.append(current_price)
-                    self.logger.debug("Price history updated")
 
-                    self.logger.debug("Executing strategy logic for time period")
+                    # Log key events, not every single step
+                    if idx % 100 == 0 or idx == len(self.historical_data) - 1:  # Log every 100 periods or at the end
+                        self.logger.debug(
+                            f"Simulating period {idx + 1}/{len(self.historical_data)} at price: {current_price:.6f} (Timestamp: {timestamp})")
+
                     await self.simulate_time_step(current_price, timestamp)
-
-                    self.logger.debug("Recording simulation state")
                     self._record_simulation_state(timestamp)
 
-                    if idx % 100 == 0:
-                        self.logger.info(f"Progress: {idx + 1}/{len(self.historical_data)} periods completed")
-                        self.logger.debug(f"Current balances: {self.current_balances}")
+                    if animate_graph:
+                        # Capture data for animation
+                        pair_name = next(iter(self.strategy.active_positions.keys()))
+                        position = self.strategy.active_positions[pair_name]
+
+                        self.animation_data.append({
+                            'timestamp': timestamp,
+                            'current_price': current_price,
+                            'active_buy_orders': [o for o in self.strategy.order_grids[pair_name]['active_orders'] if
+                                                  o['type'] == 'buy'],
+                            'active_sell_orders': [o for o in self.strategy.order_grids[pair_name]['active_orders'] if
+                                                   o['type'] == 'sell'],
+                            'balances': self.current_balances.copy(),
+                            'min_price': position.min_price,
+                            'max_price': position.max_price
+                        })
+
+                    if idx > 0 and idx % 100 == 0:  # Changed to 100 for more frequent updates
+                        self.logger.info(
+                            f"Progress: {idx + 1}/{len(self.historical_data)} periods completed. Current price: {current_price:.6f}")
+                        self.logger.info(f"Current balances: {self.current_balances}")
 
             except Exception as e:
                 self.logger.error(f"Error during simulation loop: {str(e)}", exc_info=True)
                 raise
 
+            # Store final price
+            self.final_price = self.historical_data['close'].iloc[-1]
+            self.logger.info(f"Final price: {self.final_price:.4f}")
+
             # Calculate final metrics
+            self.final_balances = self.current_balances.copy()
+            self.logger.info("Calculating final performance metrics.")
             self._calculate_performance_metrics()
+
+            self.logger.info("Generating analysis report.")
             self._generate_analysis_report()
 
-            self.logger.info("Historical simulation completed")
+            self.logger.info("Historical simulation completed successfully.")
 
         except Exception as e:
-            self.logger.error(f"Critical error during backtest: {str(e)}", exc_info=True)
-            self.logger.error("Backtest aborted - could not download required historical data")
+            self.logger.critical(f"Critical error during backtest: {str(e)}", exc_info=True)
+            self.logger.critical("Backtest aborted due to critical error.")
             return  # Exit gracefully instead of re-raising
 
     async def simulate_time_step(self, current_price: float, timestamp: datetime):
         """Simulate strategy behavior for a single time step"""
-        # Get active pair instance (assuming single pair for simplicity)
-        pair = next(iter(self.strategy.active_positions.values()))
+        # Only log this if it's a significant step (e.g., every 50 periods, or if fills occur)
+        # self.logger.debug(f"Simulating time step at {timestamp} with price {current_price:.6f}. Balances: {self.current_balances}")
+        pair_name = next(iter(self.strategy.active_positions.keys()))
+        pair_instance = self.strategy.pairs[pair_name]
 
-        # Run strategy's order processing
-        await self.strategy.process_order_updates(None, current_price)
+        filled_orders = await self.strategy.process_order_updates(pair_instance, current_price)
 
-        # Check and simulate order fills
-        filled_orders = self.simulate_order_fills(pair, current_price)
+        if filled_orders:
+            self.logger.debug(f"Simulated {len(filled_orders)} fills at {timestamp} with price {current_price:.6f}.")
+            for order in filled_orders:
+                self._process_simulated_fill(order, timestamp)
 
-        # Handle filled orders
-        for order in filled_orders:
-            self._process_simulated_fill(order, timestamp)
+        self._update_mock_balances(pair_instance)
 
-        # Check for rebalancing needs
-        if self.strategy.needs_rebalance(pair):
-            await self.strategy.rebalance_position(pair, self.strategy.active_positions[pair.token_pair])
-
-    def simulate_order_fills(self, pair, current_price: float) -> List[dict]:
-        """Determine which orders would be filled at current market price"""
-        filled = []
-        symbol = pair.token_pair
-
-        if symbol not in self.strategy.order_grids:
-            return filled
-
-        for order in self.strategy.order_grids[symbol]['active_orders']:
-            if order['type'] == 'buy' and current_price <= order['price']:
-                filled.append(order)
-            elif order['type'] == 'sell' and current_price >= order['price']:
-                filled.append(order)
-
-        return filled
+    def _update_mock_balances(self, pair_instance):
+        """Update the mock free_balance on the pair's tokens."""
+        t1_sym, t2_sym = pair_instance.symbol.split('/')
+        # self.logger.debug(f"Updating mock balances for {t1_sym} and {t2_sym}.") # Too spammy
+        pair_instance.t1.dex.free_balance = self.current_balances.get(t1_sym, 0)
+        pair_instance.t2.dex.free_balance = self.current_balances.get(t2_sym, 0)
+        # self.logger.debug(f"Mock balances set: {t1_sym}={pair_instance.t1.dex.free_balance}, {t2_sym}={pair_instance.t2.dex.free_balance}") # Too spammy
 
     def _process_simulated_fill(self, order: dict, timestamp: datetime):
         """Update balances and track metrics for filled orders"""
-        # Extract order details
-        maker_amt = order['maker_size']
-        taker_amt = order['taker_size']
-        maker_token = order['maker']
-        taker_token = order['taker']
-        fee = order.get('fee', 0)
+        # self.logger.debug(f"Processing simulated fill for order ID: {order.get('id', 'simulated')}") # Too spammy
+        fee_rate = 0.001
+        fee = order['taker_size'] * fee_rate
+        # self.logger.debug(f"Calculated fee: {fee:.6f} (rate: {fee_rate})") # Too spammy
 
-        # Update balances
-        self.current_balances[maker_token] -= maker_amt
-        self.current_balances[taker_token] += taker_amt - fee
+        self.current_balances[order['maker']] -= order['maker_size']
+        self.current_balances[order['taker']] += order['taker_size'] - fee
 
-        # Record trade
         trade = {
             'timestamp': timestamp,
-            'pair': f"{maker_token}/{taker_token}",
-            'side': 'sell' if order['type'] == 'sell' else 'buy',
+            'pair': f"{order['maker']}/{order['taker']}",
+            'side': order['type'],
             'price': order['price'],
-            'size': maker_amt,
+            'size': order['maker_size'],
             'fee': fee,
-            'taker_received': taker_amt - fee
+            'taker_received': order['taker_size'] - fee
         }
         self.order_history.append(trade)
         self.fee_history.append(fee)
+        if order.get('is_counter'):
+            # Calculate P&L for counter orders
+            # Assuming 'original_price' and 'taker_size' (which is base_amount for sell, quote_amount for buy)
+            # are correctly passed in the order dict from range_maker_strategy
+            if order['type'] == 'sell':  # Original was a buy, counter is a sell
+                # Profit = (sell_price - original_buy_price) * base_amount_sold
+                profit = (order['price'] - order['original_price']) * order['maker_size']
+            elif order['type'] == 'buy':  # Original was a sell, counter is a buy
+                # Profit = (original_sell_price - buy_price) * base_amount_bought
+                # Note: taker_size for buy order is in quote, maker_size is in base
+                profit = (order['original_price'] - order['price']) * order['maker_size']
+            self.counter_pnl_history.append(profit)
+        # self.logger.debug(f"Trade recorded: {trade}") # Too spammy
 
     def _reset_simulation_state(self):
         """Initialize fresh simulation tracking"""
+        self.logger.info("Resetting simulation state variables.")
         self.order_history = []
         self.price_history = []
         self.inventory_history = []
         self.fee_history = []
         self.metrics = {}
+        self.counter_pnl_history = []  # Initialize counter P&L history
+        self.logger.debug("Simulation state variables cleared.")
 
     def _record_simulation_state(self, timestamp: datetime):
         """Capture snapshot of current state"""
+        portfolio_value = self._calculate_portfolio_value()
         self.inventory_history.append({
             'timestamp': timestamp,
             'balances': self.current_balances.copy(),
-            'portfolio_value': self._calculate_portfolio_value()
+            'portfolio_value': portfolio_value
         })
+        # self.logger.debug(f"Recorded simulation state at {timestamp}. Portfolio value: {portfolio_value:.6f}") # Too spammy
 
     def _calculate_portfolio_value(self) -> float:
-        """Calculate total portfolio value in quote currency"""
-        # For simplicity, assume first pair's quote currency
+        """Calculate total portfolio value in the quote currency."""
         if not self.strategy.active_positions:
+            self.logger.debug("No active positions in strategy, portfolio value is 0.")
+            return 0
+        if not self.price_history:
+            self.logger.debug("No price history available, portfolio value is 0.")
             return 0
 
-        pair = next(iter(self.strategy.active_positions.values()))
-        quote_token = pair.token_pair.split('/')[1]
-        return sum(
-            amt * self._get_current_price_for_asset(token, quote_token)
-            for token, amt in self.current_balances.items()
-        )
+        pair_name = next(iter(self.strategy.active_positions.keys()))
+        base_token, quote_token = pair_name.split('/')
+        current_price = self.price_history[-1]
+
+        base_value = self.current_balances.get(base_token, 0) * current_price
+        quote_value = self.current_balances.get(quote_token, 0)
+        total_value = base_value + quote_value
+        return total_value
 
     def _get_current_price_for_asset(self, base: str, quote: str) -> float:
         """Get current price of base/quote pair"""
         if base == quote:
+            self.logger.debug(f"Base and quote tokens are the same ({base}), returning 1.0.")
             return 1.0
         # For simplicity, assume direct conversion
-        return self.price_history[-1] if base + '/' + quote == next(iter(self.strategy.active_positions)) else 1 / \
-                                                                                                               self.price_history[
-                                                                                                                   -1]
+        pair_name = next(iter(self.strategy.active_positions))
+        if base + '/' + quote == pair_name:
+            price = self.price_history[-1]
+            self.logger.debug(f"Returning current price for {pair_name}: {price:.6f}")
+            return price
+        else:
+            price = 1 / self.price_history[-1]
+            self.logger.debug(f"Returning inverse current price for {pair_name}: {price:.6f}")
+            return price
 
     def _calculate_performance_metrics(self):
         """Calculate key performance indicators"""
+        self.logger.info("Calculating performance metrics.")
         if not self.inventory_history:
+            self.logger.warning("No inventory history to calculate metrics from.")
             return
 
         # Calculate P&L
         initial_value = self.inventory_history[0]['portfolio_value']
-        final_value = self.inventory_history[-1]['portfolio_value']
+        self.logger.debug(f"Initial portfolio value: {initial_value:.6f}")
+
+        # Calculate final portfolio value using the average price of the last few trades
+        num_last_trades = min(10, len(self.order_history))
+        if num_last_trades > 0:
+            last_trades = self.order_history[-num_last_trades:]
+            avg_price = sum(t['price'] for t in last_trades) / num_last_trades
+            self.logger.debug(f"Calculated average price from last {num_last_trades} trades: {avg_price:.6f}")
+        else:
+            avg_price = self.price_history[-1] if self.price_history else self.initial_price
+            self.logger.debug(
+                f"Using last price ({avg_price:.6f}) or initial price ({self.initial_price:.6f}) for final value calculation.")
+
+        base_token, quote_token = next(iter(self.strategy.active_positions.keys())).split('/')
+        final_base_value = self.final_balances.get(base_token, 0) * avg_price
+        final_quote_value = self.final_balances.get(quote_token, 0)
+        final_value = final_base_value + final_quote_value
+        self.logger.debug(f"Final portfolio value: {final_value:.6f}")
+
+        # Calculate Win Rate only on counter-orders based on P&L
+        wins = []  # Initialize wins to an empty list
+        if self.counter_pnl_history:
+            wins = [pnl for pnl in self.counter_pnl_history if pnl > 0]
+            win_rate = (len(wins) / len(self.counter_pnl_history)) * 100
+        else:
+            win_rate = 0
+        self.logger.debug(
+            f"Total counter orders (P&L entries): {len(self.counter_pnl_history)}, Wins: {len(wins)}, Win Rate: {win_rate:.2f}%")
 
         self.metrics = {
-            'total_return_pct': ((final_value - initial_value) / initial_value) * 100,
+            'total_return_pct': ((final_value - initial_value) / initial_value) * 100 if initial_value != 0 else 0.0,
             'sharpe_ratio': self._calculate_sharpe_ratio(),
-            'max_drawdown': self._calculate_max_drawdown(),
+            'max_drawdown_pct': self._calculate_max_drawdown() * 100,
+            'annualized_volatility_pct': self._calculate_volatility() * 100,
             'total_fees': sum(self.fee_history),
             'num_trades': len(self.order_history),
-            'volatility': self._calculate_volatility(),
-            'win_rate': self._calculate_win_rate()
+            'win_rate_pct': win_rate,
+            'initial_portfolio_value': initial_value,
+            'final_portfolio_value': final_value,
+            'initial_price': self.initial_price,  # Add initial_price to metrics
+            'final_price': self.final_price,  # Add final_price to metrics
         }
+        self.logger.info(f"Performance metrics calculated: {self.metrics}")
 
     def _calculate_sharpe_ratio(self, risk_free_rate: float = 0.0) -> float:
         """Calculate annualized Sharpe ratio"""
-        returns = np.diff([iv['portfolio_value'] for iv in self.inventory_history])
+        returns = pd.Series([iv['portfolio_value'] for iv in self.inventory_history]).pct_change().dropna()
         if len(returns) < 2:
+            self.logger.debug("Not enough returns to calculate Sharpe ratio.")
             return 0.0
-        excess_returns = returns - risk_free_rate
-        return np.mean(excess_returns) / np.std(excess_returns) * np.sqrt(365 * 24)
+        excess_returns = returns - risk_free_rate / (365 * 24)  # Adjust for hourly data
+        sharpe = np.mean(excess_returns) / np.std(excess_returns) * np.sqrt(365 * 24)
+        self.logger.debug(f"Calculated Sharpe Ratio: {sharpe:.2f}")
+        return sharpe
 
     def _calculate_max_drawdown(self) -> float:
         """Calculate maximum drawdown during simulation"""
-        values = [iv['portfolio_value'] for iv in self.inventory_history]
-        peak = values[0]
-        max_dd = 0.0
-
-        for value in values:
-            if value > peak:
-                peak = value
-            dd = (peak - value) / peak
-            if dd > max_dd:
-                max_dd = dd
-
+        values = pd.Series([iv['portfolio_value'] for iv in self.inventory_history])
+        if values.empty:
+            self.logger.debug("No values to calculate max drawdown.")
+            return 0.0
+        peak = values.expanding(min_periods=1).max()
+        drawdown = (values - peak) / peak
+        max_dd = drawdown.min()
+        self.logger.debug(f"Calculated Max Drawdown: {max_dd:.2f}")
         return max_dd
 
     def _calculate_volatility(self) -> float:
         """Calculate annualized portfolio volatility"""
-        returns = np.diff([iv['portfolio_value'] for iv in self.inventory_history])
+        returns = pd.Series([iv['portfolio_value'] for iv in self.inventory_history]).pct_change().dropna()
         if len(returns) < 2:
+            self.logger.debug("Not enough returns to calculate volatility.")
             return 0.0
-        return np.std(returns) * np.sqrt(365 * 24)
-
-    def _calculate_win_rate(self) -> float:
-        """Calculate percentage of profitable trades"""
-        if not self.order_history:
-            return 0.0
-        profitable = sum(1 for t in self.order_history if t['taker_received'] > t['size'] * t['price'])
-        return profitable / len(self.order_history)
+        volatility = returns.std() * np.sqrt(365 * 24)  # Annualized from hourly
+        self.logger.debug(f"Calculated Annualized Volatility: {volatility:.2f}")
+        return volatility
 
     def _generate_analysis_report(self):
         """Generate summary report of simulation results"""
+        self.logger.info("Generating analysis report.")
         report = f"""
         Range Maker Backtest Report
         ---------------------------
         Simulation Period: {self.historical_data['timestamp'].iloc[0]} to {self.historical_data['timestamp'].iloc[-1]}
-        Total Return: {self.metrics['total_return_pct']:.2f}%
-        Sharpe Ratio: {self.metrics['sharpe_ratio']:.2f}
-        Max Drawdown: {self.metrics['max_drawdown'] * 100:.2f}%
-        Volatility: {self.metrics['volatility'] * 100:.2f}%
-        Total Fees Paid: {self.metrics['total_fees']:.6f}
-        Trades Executed: {self.metrics['num_trades']}
-        Win Rate: {self.metrics['win_rate'] * 100:.2f}%
+        Total Return: {self.metrics.get('total_return_pct', 0.0):.2f}%
+        Sharpe Ratio: {self.metrics.get('sharpe_ratio', 0.0):.2f}
+        Max Drawdown: {self.metrics.get('max_drawdown_pct', 0.0):.2f}%
+        Annualized Volatility: {self.metrics.get('annualized_volatility_pct', 0.0):.2f}%
+        Total Fees Paid: {self.metrics.get('total_fees', 0.0):.6f}
+        Trades Executed: {self.metrics.get('num_trades', 0)}
+        Win Rate (Counter Orders): {self.metrics.get('win_rate_pct', 0.0):.2f}%
+        Initial Portfolio Value: {self.metrics.get('initial_portfolio_value', 0.0):.6f}
+        Final Portfolio Value: {self.metrics.get('final_portfolio_value', 0.0):.6f}
+        Initial Balances: {self.initial_balances}
+        Final Balances: {self.final_balances}
+        Initial Price: {self.metrics.get('initial_price', 0.0):.6f}
+        Final Price: {self.metrics.get('final_price', 0.0):.6f}
+        LTC Balance Change: {self.final_balances.get('LTC', 0) - self.initial_balances.get('LTC', 0):.6f}
+        DOGE Balance Change: {self.final_balances.get('DOGE', 0) - self.initial_balances.get('DOGE', 0):.6f}
         """
         self.logger.info(report)
 
     def plot_pnl(self):
         """Plot portfolio value over time"""
+        self.logger.info("Generating P&L plot.")
+        if not self.inventory_history:
+            self.logger.warning("No inventory history to plot P&L.")
+            return
         values = [iv['portfolio_value'] for iv in self.inventory_history]
         timestamps = [iv['timestamp'] for iv in self.inventory_history]
 
@@ -446,9 +587,14 @@ class RangeMakerBacktester:
         plt.ylabel("Portfolio Value (Quote)")
         plt.grid(True)
         plt.show()
+        self.logger.info("P&L plot generated.")
 
     def plot_price_with_orders(self):
         """Plot price history with order entry points"""
+        self.logger.info("Generating price with orders plot.")
+        if not self.price_history or self.historical_data.empty:  # Corrected condition
+            self.logger.warning("No price history or historical data to plot price with orders.")
+            return
         prices = self.price_history
         timestamps = self.historical_data['timestamp'].tolist()
 
@@ -467,8 +613,186 @@ class RangeMakerBacktester:
         plt.legend()
         plt.grid(True)
         plt.show()
+        self.logger.info("Price with orders plot generated.")
+
+    def plot_animated_order_book(self, save_path: str = None):
+        """
+        Generates an animated plot of the order book, current price, and balances.
+        If save_path is provided, saves the animation to the specified file.
+        """
+        self.logger.info("Generating animated order book plot.")
+        if not self.animation_data:
+            self.logger.warning("No animation data available to plot.")
+            return
+
+        fig, ax = plt.subplots(figsize=(14, 8))
+        fig.suptitle("Range Maker Strategy Simulation", fontsize=16)
+
+        # Initial plot elements
+        # Historical price line (background)
+        historical_timestamps = [d['timestamp'] for d in self.animation_data]
+        historical_prices = [d['current_price'] for d in self.animation_data]
+        ax.plot(historical_timestamps, historical_prices, color='gray', alpha=0.5, label='Historical Price')
+
+        # Current price line
+        current_price_line, = ax.plot([], [], color='blue', linestyle='--', label='Current Price')
+
+        # Buy and Sell orders
+        buy_scatter = ax.scatter([], [], color='green', marker='^', s=50, label='Buy Orders (BID)')
+        sell_scatter = ax.scatter([], [], color='red', marker='v', s=50, label='Sell Orders (ASK)')
+
+        # Balance and Timestamp text
+        balance_text = ax.text(0.02, 0.98, '', transform=ax.transAxes, verticalalignment='top', fontsize=8,
+                               bbox=dict(boxstyle='round,pad=0.3', fc='yellow', alpha=0.5))
+        timestamp_text = ax.text(0.02, 0.94, '', transform=ax.transAxes, verticalalignment='top', fontsize=8,
+                                 bbox=dict(boxstyle='round,pad=0.3', fc='lightblue', alpha=0.5))
+
+        ax.set_xlabel("Time")
+        ax.set_ylabel("Price")
+        ax.grid(True)
+        ax.legend(loc='upper right')
+
+        # Get pair symbols for balance display
+        pair_name = next(iter(self.strategy.active_positions.keys()))
+        base_token, quote_token = pair_name.split('/')
+
+        def update_frame(frame_data):
+            timestamp = frame_data['timestamp']
+            current_price = frame_data['current_price']
+            buy_orders = frame_data['active_buy_orders']
+            sell_orders = frame_data['active_sell_orders']
+            balances = frame_data['balances']
+            min_price = frame_data['min_price']
+            max_price = frame_data['max_price']
+
+            # Update current price line
+            current_price_line.set_data([timestamp, timestamp], [ax.get_ylim()[0], ax.get_ylim()[1]])
+            current_price_line.set_xdata([timestamp, timestamp])
+            current_price_line.set_ydata([min_price * 0.9, max_price * 1.1])  # Extend across the y-axis
+
+            # Update buy orders
+            buy_prices = [o['price'] for o in buy_orders]
+            buy_amounts = [o['maker_size'] for o in buy_orders]  # Use maker_size for amount
+            buy_scatter.set_offsets(np.c_[np.full(len(buy_prices), timestamp), buy_prices])
+
+            # Update sell orders
+            sell_prices = [o['price'] for o in sell_orders]
+            sell_amounts = [o['maker_size'] for o in sell_orders]  # Use maker_size for amount
+            sell_scatter.set_offsets(np.c_[np.full(len(sell_prices), timestamp), sell_prices])
+
+            # Update balances text
+            balance_str = f"Balances: {base_token}: {balances.get(base_token, 0):.4f}, {quote_token}: {balances.get(quote_token, 0):.4f}"
+            balance_text.set_text(balance_str)
+
+            # Update timestamp text
+            timestamp_text.set_text(f"Time: {timestamp.strftime('%Y-%m-%d %H:%M')}")
+
+            # Adjust x-axis to show a rolling window of time
+            window_size = 50  # Number of data points to show in the window
+            current_idx = self.animation_data.index(frame_data)
+            if current_idx > window_size:
+                ax.set_xlim(historical_timestamps[current_idx - window_size], historical_timestamps[current_idx])
+            else:
+                ax.set_xlim(historical_timestamps[0], historical_timestamps[window_size])
+
+            # Adjust y-axis limits dynamically based on min/max price of the strategy
+            padding = (max_price - min_price) * 0.1
+            ax.set_ylim(min_price - padding, max_price + padding)
+
+            return buy_scatter, sell_scatter, current_price_line, balance_text, timestamp_text
+
+        ani = animation.FuncAnimation(
+            fig,
+            update_frame,
+            frames=self.animation_data,
+            interval=100,  # Milliseconds per frame
+            blit=True,
+            repeat=False
+        )
+        plt.tight_layout(rect=[0, 0.03, 1, 0.95])  # Adjust layout to prevent title overlap
+        if save_path:
+            self.logger.info(f"Saving animation to {save_path}...")
+            try:
+                import shutil
+                if shutil.which("ffmpeg"):
+                    self.logger.info("Using ffmpeg writer for animation.")
+                    writer = animation.FFMpegWriter(fps=10, metadata=dict(artist='Me'), codec='libx264')
+                    ani.save(save_path, writer=writer, dpi=150) # Explicitly set DPI
+                else:
+                    self.logger.warning("ffmpeg not found. Falling back to pillow writer for GIF. For MP4, install ffmpeg.")
+                    ani.save(save_path, writer='pillow', fps=10, dpi=150) # Use pillow writer for GIF
+                self.logger.info(f"Animation saved successfully to {save_path}")
+            except Exception as e:
+                self.logger.error(f"Error saving animation to {save_path}: {e}", exc_info=True)
+                self.logger.warning("Animation could not be saved. Check ffmpeg installation and dependencies.")
+                return # Exit to prevent further hanging
+        else:
+            self.logger.info("Animated order book plot generated (not saved or displayed interactively as no save_path was provided).")
 
     async def optimize_parameters(self, param_grid: Dict[str, list], cv=5):
         """Perform grid search optimization of strategy parameters"""
+        self.logger.info("Starting parameter optimization (not implemented in this version).")
         # Implementation for parameter optimization would go here
         pass
+
+
+if __name__ == '__main__':
+    # Example usage
+    from definitions.config_manager import ConfigManager
+
+    # Setup strategy
+    config_manager = ConfigManager(strategy="range_maker")
+    config_manager.initialize(
+        loadxbridgeconf=False
+    )
+    # Manually initialize strategy specifics for each pair in the example usage
+    example_pairs = [
+        {"pair": "LTC/DOGE", "min_price": 0.0001, "max_price": 0.001, "grid_density": 20, "curve": "linear",
+         "curve_strength": 10}]
+    for pair_cfg in example_pairs:
+        config_manager.strategy_instance.initialize_strategy_specifics(**pair_cfg)
+
+    strategy = config_manager.strategy_instance
+
+    # Setup backtester
+    # No data_path argument needed, as it's constructed internally using globals
+    backtester = RangeMakerBacktester(strategy)
+
+    # Run backtest
+    # Pass global period and timeframe to execute_fullbacktest
+    asyncio.run(backtester.execute_fullbacktest(initial_balances={"LTC": 100, "DOGE": 100000}, period=period,
+                                                interval=timeframe, animate_graph=True))
+    # backtester.plot_pnl()
+    # backtester.plot_price_with_orders()
+    if backtester.animation_data and animate_graph:
+        backtester.logger.info(f"Animation data collected: {len(backtester.animation_data)} frames.")
+        backtester.logger.info(f"Animate graph flag is: {animate_graph}")
+
+        # Generate a unique filename for the animation based on strategy parameters
+        pair_cfg = example_pairs[0]
+        pair_symbol = pair_cfg['pair'].replace('/', '_')
+        min_p = str(pair_cfg['min_price']).replace('.', '_')
+        max_p = str(pair_cfg['max_price']).replace('.', '_')
+        grid_d = pair_cfg['grid_density']
+        curve_type = pair_cfg['curve']
+        curve_s = pair_cfg['curve_strength']
+
+        animation_filename = f"animation_{pair_symbol}_min{min_p}_max{max_p}_grid{grid_d}_curve{curve_type}_strength{curve_s}.gif"
+
+        # Save the animation in the current script's directory
+        script_dir = Path(__file__).parent
+        save_path = script_dir / animation_filename
+
+        backtester.plot_animated_order_book(save_path=str(save_path))
+
+        if save_path.exists():
+            backtester.logger.info(f"Confirmed: Animation file created at {save_path}")
+        else:
+            backtester.logger.error(f"Error: Animation file was NOT created at {save_path}")
+            backtester.logger.warning(
+                "Please ensure you have 'ImageMagick' installed for GIF support or 'ffmpeg' for MP4 support.")
+            backtester.logger.warning(
+                "For Debian/Ubuntu: `sudo apt-get install imagemagick` or `sudo apt-get install ffmpeg`")
+            backtester.logger.warning("For macOS (with Homebrew): `brew install imagemagick` or `brew install ffmpeg`")
+            backtester.logger.warning(
+                "For Windows (with Chocolatey): `choco install imagemagick` or `choco install ffmpeg`")
