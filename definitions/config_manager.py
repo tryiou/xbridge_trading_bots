@@ -14,6 +14,7 @@ from strategies.arbitrage_strategy import ArbitrageStrategy
 from strategies.base_strategy import BaseStrategy
 from strategies.basicseller_strategy import BasicSellerStrategy
 from strategies.pingpong_strategy import PingPongStrategy
+from strategies.range_maker_strategy import RangeMakerStrategy
 
 
 class ConfigManager:
@@ -258,6 +259,7 @@ class ConfigManager:
             "pingpong": PingPongStrategy,
             "basic_seller": BasicSellerStrategy,
             "arbitrage": ArbitrageStrategy,
+            "range_maker": RangeMakerStrategy,
             "gui": None,  # 'gui' strategy doesn't have a strategy instance
         }
         strategy_class = strategy_map.get(self.strategy)
