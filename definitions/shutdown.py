@@ -77,7 +77,7 @@ class ShutdownCoordinator:
         for strategy in running_strategies:
             try:
                 self.config_manager.general_log.info(f"Attempting to stop {strategy.strategy_name} strategy")
-                strategy.stop(blocking=True, reload_config=False)
+                strategy.stop(reload_config=False)
                 
                 # Additional check if strategy thread is still alive
                 if strategy.send_process and strategy.send_process.is_alive():

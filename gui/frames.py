@@ -46,6 +46,8 @@ class BaseStrategyFrame(ttk.Frame):
         self.orders_update_queue = queue.Queue()
         self.orders_updater_thread: threading.Thread | None = None
         self.orders_updater_running = False
+        self.stop_check_id = None # New attribute for periodic stop check
+        self.force_stop_timeout_id = None # New attribute for failsafe force-stop timeout
 
         self.initialize_config()
         self.create_widgets()
@@ -75,7 +77,7 @@ class BaseStrategyFrame(ttk.Frame):
 
     def _critical_error_handler(self, error):
         """Handle critical errors in GUI-safe context"""
-        self.stop(blocking=True)
+        self.stop() # Call stop without blocking argument
         self.main_app.status_var.set(f"CRITICAL ERROR: {str(error)}")
         if self.config_manager:  # Ensure config_manager exists before accessing its logger
             self.config_manager.general_log.error(f"Thread crashed: {str(error)}", exc_info=True)
@@ -109,12 +111,66 @@ class BaseStrategyFrame(ttk.Frame):
 
             if self.send_process.is_alive():
                 if self.config_manager: # Ensure config_manager exists before logging
-                    self.config_manager.general_log.warning("Force shutdown of stuck thread")
+                    self.config_manager.general_log.warning("Bot thread did not terminate gracefully.")
                     if (self.config_manager.controller and
                             self.config_manager.controller.loop and
                             not self.config_manager.controller.loop.is_closed()):
                         self.config_manager.controller.loop.call_soon_threadsafe(
                             self.config_manager.controller.shutdown_event.set)
+
+    def _start_stop_monitoring(self, reload_config: bool):
+        """Starts periodic monitoring of the bot thread's status."""
+        # Cancel any existing monitoring to prevent duplicates
+        if self.stop_check_id:
+            self.after_cancel(self.stop_check_id)
+        if self.force_stop_timeout_id:
+            self.after_cancel(self.force_stop_timeout_id)
+
+        # Schedule periodic check for thread termination
+        self.stop_check_id = self.after(250, self._check_bot_thread_status, reload_config)
+        # Schedule a failsafe force-stop after a longer timeout (e.g., 10 seconds)
+        self.force_stop_timeout_id = self.after(10000, self._force_finalize_stop, reload_config)
+
+    def _check_bot_thread_status(self, reload_config: bool):
+        """Periodically checks if the bot thread has terminated."""
+        if not self.winfo_exists(): # Check if GUI element still exists
+            self._cancel_stop_monitoring()
+            return
+
+        if self.send_process and not self.send_process.is_alive():
+            # Thread has terminated, proceed with finalization
+            if self.config_manager:
+                self.config_manager.general_log.info(f"Detected {self.strategy_name} bot thread terminated. Finalizing stop.")
+            self._finalize_stop(reload_config)
+            self._cancel_stop_monitoring()
+        else:
+            # Thread is still alive, reschedule check
+            self.stop_check_id = self.after(250, self._check_bot_thread_status, reload_config)
+
+    def _force_finalize_stop(self, reload_config: bool):
+        """Failsafe to finalize stop if the bot thread doesn't terminate gracefully."""
+        if not self.winfo_exists(): # Check if GUI element still exists
+            self._cancel_stop_monitoring()
+            return
+
+        if self.send_process and self.send_process.is_alive():
+            if self.config_manager:
+                self.config_manager.general_log.warning(
+                    f"{self.strategy_name} bot thread did not terminate gracefully after timeout. Forcing cleanup.")
+            # Attempt to join one last time with a very short timeout, then proceed
+            self.send_process.join(0.1)
+        
+        self._finalize_stop(reload_config)
+        self._cancel_stop_monitoring()
+
+    def _cancel_stop_monitoring(self):
+        """Cancels any pending stop monitoring and force-stop timeouts."""
+        if self.stop_check_id:
+            self.after_cancel(self.stop_check_id)
+            self.stop_check_id = None
+        if self.force_stop_timeout_id:
+            self.after_cancel(self.force_stop_timeout_id)
+            self.force_stop_timeout_id = None
 
     def start(self):
         """Starts the bot in a separate thread."""
@@ -149,9 +205,9 @@ class BaseStrategyFrame(ttk.Frame):
                 logger.error(error_msg, exc_info=True)
             self.stop(blocking=True, reload_config=False)
 
-    def stop(self, blocking: bool = False, reload_config: bool = True):
+    def stop(self, reload_config: bool = True):
         """
-        Signals the bot to stop. If blocking is True, waits for the thread to finish.
+        Signals the bot to stop. This method is non-blocking for the GUI.
         """
         if not self.config_manager or not self.started or self.stopping:
             if self.config_manager:
@@ -165,25 +221,23 @@ class BaseStrategyFrame(ttk.Frame):
         self.config_manager.general_log.info(f"Attempting to stop {self.strategy_name} bot...")
 
         self._signal_controller_shutdown()
-
-        if blocking:
-            self._join_bot_thread(2) # Use 2 seconds timeout as in original code
-
-        self._finalize_stop(reload_config)
+        self._start_stop_monitoring(reload_config)
         # HTTP session is managed by async context, no need for explicit close
 
     def _finalize_stop(self, reload_config: bool = True):
         """Cleans up the state after the bot thread has stopped."""
+        self._cancel_stop_monitoring() # Ensure monitoring is stopped
+
         if self.config_manager:
             self.config_manager.general_log.debug(
                 f"GUI: Finalizing stop for {self.strategy_name}. Reload config: {reload_config}")
-        if self.send_process:
-            if self.send_process.is_alive():
-                self.config_manager.general_log.warning("Bot thread did not terminate gracefully.")
-                self.main_app.status_var.set("Bot stopped (forcefully).")
-            else:
-                self.main_app.status_var.set("Bot stopped.")
-                self.config_manager.general_log.info("Bot stopped successfully.")
+        
+        if self.send_process and self.send_process.is_alive():
+            self.config_manager.general_log.warning("Bot thread did not terminate gracefully.")
+            self.main_app.status_var.set("Bot stopped (forcefully).")
+        else:
+            self.main_app.status_var.set("Bot stopped.")
+            self.config_manager.general_log.info("Bot stopped successfully.")
 
         self.send_process = None
         self.started = False
@@ -191,9 +245,9 @@ class BaseStrategyFrame(ttk.Frame):
         self.cleaned = True  # Mark that cleanup is complete
         self.update_button_states()
 
-        # Purge and recreate orders display                                                                                                                                                                            
+        # Purge and recreate orders display
         self.purge_and_recreate_widgets()
-        self.refresh_gui()  # Force immediate refresh                                                                                                                                                                  
+        self.refresh_gui()  # Force immediate refresh
 
         if reload_config:
             self.reload_configuration(loadxbridgeconf=False)
@@ -255,20 +309,12 @@ class BaseStrategyFrame(ttk.Frame):
         # The orders display is now updated asynchronously via _process_orders_updates
         # No direct call to _update_orders_display here
 
-        # Handle expected shutdown complete
-        if self.stopping and self.send_process and not self.send_process.is_alive() and not self.cleaned:
-            log.info(f"Detected stopped thread for {self.strategy_name}. Finalizing...")
-            self._finalize_stop()
-            return  # End this refresh cycle
+        # The orders display is now updated asynchronously via _process_orders_updates
+        # No direct call to _update_orders_display here
 
-        # Handle crash detection (thread died unexpectedly)
-        if self.started and not self.stopping and self.send_process and not self.send_process.is_alive() and not self.cleaned:
-            log.error(f"{self.strategy_name} bot thread died unexpectedly (crashed)!")
-            self.main_app.status_var.set(f"{self.strategy_name} bot CRASHED!")
-            self._finalize_stop(reload_config=False)
-            log.info("GUI: Issuing cancel_all after crash detection.")
-            self.cancel_all()
-            return  # End this refresh cycle
+        # The logic for handling thread termination (graceful or crashed) is now
+        # handled by _check_bot_thread_status and _force_finalize_stop.
+        # This method should primarily focus on refreshing the GUI display.
 
         # If we get here, the bot is running normally, so schedule the next check.
         self.refresh_id = self.after(1500, self.refresh_gui)
@@ -373,7 +419,7 @@ class BaseStrategyFrame(ttk.Frame):
         btn_width = 12
         self.btn_start = ttk.Button(button_frame, text="START", command=self.start, width=btn_width)
         self.btn_start.grid(column=0, row=0, padx=5, pady=5)
-        self.btn_stop = ttk.Button(button_frame, text="STOP", command=lambda: self.stop(blocking=False),
+        self.btn_stop = ttk.Button(button_frame, text="STOP", command=lambda: self.stop(),
                                    width=btn_width)
         self.btn_stop.grid(column=1, row=0, padx=5, pady=5)
         self.btn_cancel_all = ttk.Button(button_frame, text="CANCEL ALL", command=self.cancel_all, width=btn_width)
@@ -955,8 +1001,6 @@ class LogFrame(ttk.Frame):
         """
         Thread-safe entry point to add a log message to the queue.
         """
-        if not self.winfo_exists():
-            return
         try:
             self.log_update_queue.put((message, level))
         except RuntimeError:

@@ -273,14 +273,6 @@ def run_async_main(config_manager, loop=None, startup_tasks=None):
             except asyncio.CancelledError:
                 pass  # This is expected
 
-        # Run final cleanup with timeout
-        try:
-            loop.run_until_complete(asyncio.wait_for(
-                config_manager.xbridge_manager.cancelallorders(),
-                timeout=5.0
-            ))
-        except (asyncio.TimeoutError, Exception) as e:
-            config_manager.general_log.error(f"Cleanup error: {str(e)}")
 
         # Force close all async generators and the event loop
         if loop and not loop.is_closed():
