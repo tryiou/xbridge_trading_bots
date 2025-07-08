@@ -8,3 +8,4 @@ aiohttp
 pyyaml
 ruamel.yaml
 pytest
+numpy

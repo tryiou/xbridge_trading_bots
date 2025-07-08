@@ -934,6 +934,9 @@ class LogFrame(ttk.Frame):
         self.prune_interval = 30 * 60 * 1000  # Check every 30 minutes
         self.after(self.prune_interval, self.prune_old_logs)
 
+        self.log_update_queue = queue.Queue() # Add this line
+        self.after(100, self._process_log_updates) # Schedule the new processing method
+
         self.log_text = tk.Text(self, wrap='word', state='disabled', height=10, background="#222", foreground="white")
         scrollbar = ttk.Scrollbar(self, orient="vertical", command=self.log_text.yview)
         self.log_text.configure(yscrollcommand=scrollbar.set)
@@ -950,7 +953,20 @@ class LogFrame(ttk.Frame):
 
     def add_log(self, message: str, level: str):
         """
-        Adds a pre-formatted log message to the text widget. Thread-safe.
+        Thread-safe entry point to add a log message to the queue.
+        """
+        if not self.winfo_exists():
+            return
+        try:
+            self.log_update_queue.put((message, level))
+        except RuntimeError:
+            # LogFrame being destroyed - ignore
+            pass
+
+    def _safe_add_log(self, message: str, level: str): # Renamed from add_log
+        """
+        Adds a pre-formatted log message to the text widget.
+        This method should only be called from the main Tkinter thread.
         """
         self.log_text.config(state='normal')
 
@@ -973,6 +989,25 @@ class LogFrame(ttk.Frame):
 
         self.log_text.see(tk.END)
         self.log_text.config(state='disabled')
+
+    def _process_log_updates(self):
+        """
+        Processes queued log updates in the main Tkinter thread.
+        """
+        if not self.winfo_exists():
+            return
+
+        try:
+            while not self.log_update_queue.empty():
+                message, level = self.log_update_queue.get_nowait()
+                self._safe_add_log(message, level)
+        except queue.Empty:
+            pass # No updates yet
+        except Exception as e:
+            logger.error(f"Error processing log updates in main thread: {e}", exc_info=True)
+        finally:
+            if self.winfo_exists():
+                self.after(250, self._process_log_updates) # Schedule next check
 
     def prune_old_logs(self):
         if not self.winfo_exists():
@@ -1017,7 +1052,7 @@ class TextLogHandler(logging.Handler):
     def emit(self, record):
         # The handler's formatter (set in gui.py) creates the string.
         # We pass the formatted string and the original levelname to the LogFrame.
-        self.log_frame.after(0, self.log_frame.add_log, self.format(record), record.levelname)
+        self.log_frame.add_log(self.format(record), record.levelname) # Direct call to new add_log
 
 
 class StdoutRedirector:
@@ -1036,7 +1071,7 @@ class StdoutRedirector:
 
         # Then write to the GUI log frame
         if message.strip():
-            self.log_frame.after(0, self.log_frame.add_log, message, self.level)
+            self.log_frame.add_log(message, self.level) # Direct call to new add_log
 
     def flush(self):
         if self.original_stream:
