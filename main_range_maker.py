@@ -14,7 +14,7 @@ def start():
     )
 
     parser.add_argument("--pairs", type=json.loads, required=True,
-                        help='JSON array of pair configs. Example: [{"pair":"LTC/DOGE","min_price":400,"max_price":600,"grid_density":20}]')
+                        help='JSON array of pair configs. Example: [{"pair":"LTC/DOGE","min_price":400,"max_price":600,"grid_density":20, "percent_min_size":0.01}]')
 
     parser.add_argument("--backtest", action='store_true',
                         help='Run in backtest mode with historical data')
@@ -56,8 +56,9 @@ def start():
             grid_d = pair_cfg['grid_density']
             curve_type = pair_cfg.get('curve', 'linear')
             curve_s = pair_cfg.get('curve_strength', 10)
+            percent_min_s = pair_cfg.get('percent_min_size', 0.0001) # New line
 
-            animation_filename = f"animation_{pair_symbol}_min{min_p}_max{max_p}_grid{grid_d}_curve{curve_type}_strength{curve_s}.mp4"
+            animation_filename = f"animation_{pair_symbol}_min{min_p}_max{max_p}_grid{grid_d}_curve{curve_type}_strength{curve_s}_min_size{str(percent_min_s).replace('.', '_')}.mp4"
 
             # Save the animation in the current script's directory
             from pathlib import Path

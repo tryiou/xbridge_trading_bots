@@ -1,5 +1,7 @@
 # gui/gui.py
 import logging
+import queue
+import threading
 import os
 import sys
 import tkinter as tk
@@ -77,8 +79,11 @@ class GUI_Main:
         self.setup_gui_logging()
         self.start_watchdog()
 
-        # Start periodic task to update shared balances panel
-        self.update_shared_balances()
+        # Start asynchronous task to update shared balances panel
+        self.balance_update_queue = queue.Queue()
+        self.balance_updater_thread = threading.Thread(target=self._run_balance_updater, daemon=True)
+        self.balance_updater_thread.start()
+        self.root.after(100, self._process_balance_updates)
 
         self.create_status_bar()
 
@@ -163,9 +168,9 @@ class GUI_Main:
         """Handles application closing event by signaling shutdown coordinator"""
         from definitions.shutdown import ShutdownCoordinator
 
-        # Cancel the periodic balance updates immediately
-        if hasattr(self, '_balances_update_id'):
-            self.root.after_cancel(self._balances_update_id)
+        # Signal the balance updater thread to stop
+        if hasattr(self, 'balance_updater_thread') and self.balance_updater_thread.is_alive():
+            self.balance_update_queue.put(None) # Signal to stop
 
         # Update status and signal all components to stop
         self.status_var.set("Shutting down... Please wait.")
@@ -181,35 +186,60 @@ class GUI_Main:
         self.root.grab_set()  # Prevent interactions with other windows
         self.root.focus_force()  # Maintain focus
 
-    def update_shared_balances(self):
-        """Centralized balance refresh using tokens from strategy frames"""
-        if not self.root.winfo_exists():  # Prevent updates after destruction
+    def _run_balance_updater(self):
+        """Runs in a separate thread to collect balance data."""
+        while True:
+            try:
+                # Collect balance data
+                data = []
+                tokens_seen = set()
+
+                # Use lock to safely access tokens_dict
+                with self.master_config_manager.resource_lock:
+                    for frame in self.strategy_frames.values():
+                        if getattr(frame, 'config_manager', None) and hasattr(frame.config_manager, 'tokens'):
+                            tokens = frame.config_manager.tokens
+                            for token_symbol, token_obj in tokens.items():
+                                if getattr(token_obj, 'cex', None) and getattr(token_obj, 'dex',
+                                                                               None) and token_symbol not in tokens_seen:
+                                    balance_total = token_obj.dex_total_balance or 0.0
+                                    balance_free = token_obj.dex_free_balance or 0.0
+                                    usd_price = token_obj.cex_usd_price or 0.0
+                                    data.append({
+                                        "symbol": token_symbol,
+                                        "usd_price": usd_price,
+                                        "total": balance_total,
+                                        "free": balance_free
+                                    })
+                                    tokens_seen.add(token_symbol)
+                
+                self.balance_update_queue.put(data)
+                
+                # Check for stop signal
+                if not self.balance_update_queue.empty() and self.balance_update_queue.queue[0] is None:
+                    self.balance_update_queue.get() # Consume the None
+                    break
+
+                threading.Event().wait(2) # Wait for 2 seconds
+
+            except Exception as e:
+                logger.error(f"Error in balance updater thread: {e}", exc_info=True)
+                threading.Event().wait(5) # Wait longer on error
+
+    def _process_balance_updates(self):
+        """Processes queued balance updates in the main Tkinter thread."""
+        if not self.root.winfo_exists():
             return
-        # logger.debug("Updating shared balances panel")
-        data = []
-        tokens_seen = set()
 
-        # Use lock to safely access tokens_dict
-        with self.master_config_manager.resource_lock:
-            # Collect tokens from all strategy frames
-            for frame in self.strategy_frames.values():
-                if getattr(frame, 'config_manager', None) and hasattr(frame.config_manager, 'tokens'):
-                    tokens = frame.config_manager.tokens
-                    for token_symbol, token_obj in tokens.items():
-                        if getattr(token_obj, 'cex', None) and getattr(token_obj, 'dex',
-                                                                       None) and token_symbol not in tokens_seen:
-                            balance_total = token_obj.dex_total_balance or 0.0
-                            balance_free = token_obj.dex_free_balance or 0.0
-                            usd_price = token_obj.cex_usd_price or 0.0
-                            data.append({
-                                "symbol": token_symbol,
-                                "usd_price": usd_price,
-                                "total": balance_total,
-                                "free": balance_free
-                            })
-                            tokens_seen.add(token_symbol)
-
-        # Update the single shared balances panel
-        self.balances_panel.update_data(data)
-
-        self._balances_update_id = self.root.after(2000, self.update_shared_balances)
+        try:
+            while not self.balance_update_queue.empty():
+                data = self.balance_update_queue.get_nowait()
+                if data is None: # Stop signal
+                    return
+                self.balances_panel.update_data(data)
+        except queue.Empty:
+            pass # No updates yet
+        except Exception as e:
+            logger.error(f"Error processing balance updates in main thread: {e}", exc_info=True)
+        finally:
+            self.root.after(250, self._process_balance_updates) # Schedule next check

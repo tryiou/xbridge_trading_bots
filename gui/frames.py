@@ -7,6 +7,7 @@ import threading
 import time
 import tkinter as tk
 from tkinter import ttk
+import queue
 
 # Get module-specific logger
 logger = logging.getLogger(__name__)
@@ -42,6 +43,9 @@ class BaseStrategyFrame(ttk.Frame):
         self.btn_cancel_all: ttk.Button | None = None
         self.btn_configure: ttk.Button | None = None
         self.refresh_id = None
+        self.orders_update_queue = queue.Queue()
+        self.orders_updater_thread: threading.Thread | None = None
+        self.orders_updater_running = False
 
         self.initialize_config()
         self.create_widgets()
@@ -82,6 +86,35 @@ class BaseStrategyFrame(ttk.Frame):
             func(*args)
         except Exception as e:
             self.main_app.root.after(0, self._critical_error_handler, e)
+
+    def _signal_controller_shutdown(self):
+        """Signals the strategy controller's asyncio loop to shut down."""
+        if self.config_manager and self.config_manager.controller and self.config_manager.controller.loop:
+            shutdown_event = self.config_manager.controller.shutdown_event
+            lconf = self.config_manager
+            loop = self.config_manager.controller.loop
+
+            if not loop.is_closed():
+                def set_event():
+                    with lconf.resource_lock:
+                        shutdown_event.set()
+
+                if loop.is_running():
+                    loop.call_soon_threadsafe(set_event)
+
+    def _join_bot_thread(self, timeout: float):
+        """Waits for the bot thread to terminate, with a timeout."""
+        if self.send_process:
+            self.send_process.join(timeout)
+
+            if self.send_process.is_alive():
+                if self.config_manager: # Ensure config_manager exists before logging
+                    self.config_manager.general_log.warning("Force shutdown of stuck thread")
+                    if (self.config_manager.controller and
+                            self.config_manager.controller.loop and
+                            not self.config_manager.controller.loop.is_closed()):
+                        self.config_manager.controller.loop.call_soon_threadsafe(
+                            self.config_manager.controller.shutdown_event.set)
 
     def start(self):
         """Starts the bot in a separate thread."""
@@ -131,43 +164,13 @@ class BaseStrategyFrame(ttk.Frame):
         self.main_app.status_var.set(f"Stopping {self.strategy_name} bot...")
         self.config_manager.general_log.info(f"Attempting to stop {self.strategy_name} bot...")
 
-        if self.config_manager.controller and self.config_manager.controller.loop:
-            # Thread-safe shutdown with locking
-            shutdown_event = self.config_manager.controller.shutdown_event
-            lconf = self.config_manager
-            loop = self.config_manager.controller.loop
-
-            # Check loop is still valid and operational
-            if not loop.is_closed():
-                def set_event():
-                    with lconf.resource_lock:
-                        shutdown_event.set()
-
-                # Only schedule if loop is actually running
-                if loop.is_running():
-                    loop.call_soon_threadsafe(set_event)
+        self._signal_controller_shutdown()
 
         if blocking:
-            # Used for application shutdown where we need to wait
-            if self.send_process:
-                # First try orderly shutdown
-                if self.config_manager.controller:
-                    self.config_manager.controller.shutdown_event.set()
+            self._join_bot_thread(2) # Use 2 seconds timeout as in original code
 
-                # Wait with timeout and force exit if needed
-                self.send_process.join(2)  # Reduced from 10 to 2 seconds
-
-                if self.send_process.is_alive():
-                    self.config_manager.general_log.warning("Force shutdown of stuck thread")
-                    # Cleanly cancel remaining tasks instead of force-stopping loop
-                    if (self.config_manager.controller and 
-                            self.config_manager.controller.loop and
-                            not self.config_manager.controller.loop.is_closed()):
-                        self.config_manager.controller.loop.call_soon_threadsafe(
-                            self.config_manager.controller.shutdown_event.set)
-
-            self._finalize_stop(reload_config)
-            # HTTP session is managed by async context, no need for explicit close
+        self._finalize_stop(reload_config)
+        # HTTP session is managed by async context, no need for explicit close
 
     def _finalize_stop(self, reload_config: bool = True):
         """Cleans up the state after the bot thread has stopped."""
@@ -223,14 +226,23 @@ class BaseStrategyFrame(ttk.Frame):
         thread.start()
 
     def start_refresh(self):
-        """Starts the periodic GUI refresh loop."""
-        self.refresh_gui()
+        """Starts the periodic GUI refresh loop and orders updater thread."""
+        if not self.orders_updater_running:
+            self.orders_updater_running = True
+            self.orders_updater_thread = threading.Thread(target=self._run_orders_updater, daemon=True)
+            self.orders_updater_thread.start()
+            self.after(100, self._process_orders_updates) # Start processing updates
+        self.refresh_gui() # Keep existing GUI refresh for other elements
 
     def stop_refresh(self):
-        """Stops the periodic GUI refresh loop."""
+        """Stops the periodic GUI refresh loop and orders updater thread."""
         if self.refresh_id:
             self.after_cancel(self.refresh_id)
             self.refresh_id = None
+        if self.orders_updater_running:
+            self.orders_updater_running = False
+            self.orders_update_queue.put(None) # Signal to stop
+            # No need to join here, daemon thread will exit with app
 
     def refresh_gui(self):
         """Refreshes the GUI display periodically. To be overridden."""
@@ -240,10 +252,8 @@ class BaseStrategyFrame(ttk.Frame):
 
         log = self.config_manager.general_log if self.config_manager else logger
 
-        # Only update if the orders panel and its parent frame exist
-        if (hasattr(self, 'orders_panel') and self.orders_panel.winfo_exists() and
-                hasattr(self, 'orders_frame') and self.orders_frame.winfo_exists()):
-            self._update_orders_display()
+        # The orders display is now updated asynchronously via _process_orders_updates
+        # No direct call to _update_orders_display here
 
         # Handle expected shutdown complete
         if self.stopping and self.send_process and not self.send_process.is_alive() and not self.cleaned:
@@ -270,41 +280,78 @@ class BaseStrategyFrame(ttk.Frame):
             'open', 'new', 'created', 'accepting', 'hold', 'initialized', 'committed', 'finished'
         } else 'X'
 
-    def _update_orders_display(self):
-        """Collects current order data and updates display"""
-        if not self.config_manager or not hasattr(self.config_manager, 'pairs'):
+    def _run_orders_updater(self):
+        """Runs in a separate thread to collect order data."""
+        while self.orders_updater_running:
+            try:
+                if not self.config_manager or not hasattr(self.config_manager, 'pairs'):
+                    time.sleep(1) # Wait before retrying if config not ready
+                    continue
+
+                orders = []
+                # Use lock to safely access pairs data
+                with self.config_manager.resource_lock:
+                    for pair_obj in self.config_manager.pairs.values():
+                        pair = pair_obj.cfg
+                        status = 'None'
+                        current_order_side = 'None'
+
+                        if self.started and pair_obj.dex.order and 'status' in pair_obj.dex.order:
+                            status = pair_obj.dex.order.get('status', 'None')
+                            current_order_side = pair_obj.dex.current_order.get('side', 'None') if pair_obj.dex.current_order else 'None'
+                        elif pair_obj.dex.disabled:
+                            status = 'Disabled'
+                        
+                        variation_display = 'None'
+                        if self.started and pair_obj.dex.order and 'status' in pair_obj.dex.order:
+                            variation_display = str(pair_obj.dex.variation)
+
+                        orders.append({
+                            "pair": pair.get("name", "Unnamed"),
+                            "status": status,
+                            "side": current_order_side,
+                            "flag": self._get_flag(status),
+                            "variation": variation_display
+                        })
+                
+                self.orders_update_queue.put(orders)
+                
+                # Check for stop signal
+                if not self.orders_update_queue.empty() and self.orders_update_queue.queue[0] is None:
+                    self.orders_update_queue.get() # Consume the None
+                    break
+
+                time.sleep(1.5) # Refresh every 1.5 seconds
+
+            except Exception as e:
+                logger.error(f"Error in orders updater thread for {self.strategy_name}: {e}", exc_info=True)
+                time.sleep(5) # Wait longer on error
+
+    def _process_orders_updates(self):
+        """Processes queued order updates in the main Tkinter thread."""
+        if not self.winfo_exists():
             return
-        orders = []
-        for pair_obj in self.config_manager.pairs.values():
-            pair = pair_obj.cfg
-            status = 'None'
-            if self.started and pair_obj.dex.order and 'status' in pair_obj.dex.order:
-                status = pair_obj.dex.order.get('status', 'None')
-                current_order_side = pair_obj.dex.current_order.get('side',
-                                                                    'None') if pair_obj.dex.current_order else 'None'
-            elif pair_obj.dex.disabled:
-                status = 'Disabled'
-                current_order_side = 'None'
-            else:
-                current_order_side = 'None'
 
-            variation_display = 'None'
-            if self.started and pair_obj.dex.order and 'status' in pair_obj.dex.order:
-                variation_display = str(pair_obj.dex.variation)
-
-            orders.append({
-                "pair": pair.get("name", "Unnamed"),
-                "status": status,
-                "side": current_order_side,
-                "flag": self._get_flag(status),
-                "variation": variation_display
-            })
-        self.orders_panel.update_data(orders)
+        try:
+            while not self.orders_update_queue.empty():
+                orders_data = self.orders_update_queue.get_nowait()
+                if orders_data is None: # Stop signal
+                    return
+                if hasattr(self, 'orders_panel') and self.orders_panel.winfo_exists():
+                    self.orders_panel.update_data(orders_data)
+        except queue.Empty:
+            pass # No updates yet
+        except Exception as e:
+            logger.error(f"Error processing orders updates in main thread for {self.strategy_name}: {e}", exc_info=True)
+        finally:
+            if self.orders_updater_running and self.winfo_exists():
+                self.after(250, self._process_orders_updates) # Schedule next check
 
     def on_closing(self):
         """Handles the application closing event."""
         if self.config_manager:
             self.config_manager.general_log.info(f"Closing {self.strategy_name} strategy...")
+        self.stop_refresh() # Ensure orders updater thread is signaled to stop
         self.stop(reload_config=False)
 
     def reload_configuration(self, loadxbridgeconf: bool = True):
@@ -517,22 +564,43 @@ class BaseConfigWindow:
             raise
 
     def save_config(self) -> None:
-        """Save configuration with transaction safety"""
+        """Save configuration asynchronously with transaction safety"""
         try:
             new_config = self._get_config_data_to_save()
             if new_config is None:
+                self.update_status("Save operation cancelled or failed validation.", 'orange')
                 return  # Save operation was cancelled or failed validation
+
+            self.update_status("Saving configuration...", 'blue')
+            
+            # Start a new thread for saving
+            save_thread = threading.Thread(target=self._async_save_worker, args=(new_config,))
+            save_thread.daemon = True
+            save_thread.start()
+
+        except Exception as e:
+            self.update_status(f"Failed to initiate save: {e}", 'lightcoral')
+            if self.parent.config_manager:
+                self.parent.config_manager.general_log.error(f"Failed to initiate config save: {e}", exc_info=True)
+
+    def _async_save_worker(self, new_config: dict):
+        """Worker function for asynchronous configuration saving."""
+        try:
             self._atomic_save(new_config)
             # Reload the master configuration manager to pick up changes from the file.
             if self.parent.master_config_manager:
                 self.parent.master_config_manager.load_configs()
-            self.update_status("Configuration saved and reloaded successfully.", 'lightgreen')
+            
+            # Schedule GUI update on the main thread
+            self.parent.main_app.root.after(0, lambda: self.update_status("Configuration saved and reloaded successfully.", 'lightgreen'))
+            
             # Now, reload the strategy frame's specific configuration from the master.
-            self.parent.reload_configuration(loadxbridgeconf=True)
+            self.parent.main_app.root.after(0, lambda: self.parent.reload_configuration(loadxbridgeconf=True))
+
         except Exception as e:
-            self.update_status(f"Failed to save configuration: {e}", 'lightcoral')
+            self.parent.main_app.root.after(0, lambda: self.update_status(f"Failed to save configuration: {e}", 'lightcoral'))
             if self.parent.config_manager:
-                self.parent.config_manager.general_log.error(f"Failed to save config: {e}")
+                self.parent.config_manager.general_log.error(f"Failed to save config in background: {e}", exc_info=True)
 
     def _get_config_data_to_save(self) -> dict | None:
         """Placeholder for subclass to return the config dictionary to be saved."""

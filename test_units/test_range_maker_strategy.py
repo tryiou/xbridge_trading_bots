@@ -14,8 +14,26 @@ import pandas as pd
 from definitions.logger import setup_logging
 
 timeframe = '1h'
-period = "30d"
+period = "1d"
 
+formatter = logging.Formatter(
+    fmt='[%(asctime)s] [%(name)-20s] %(levelname)-8s - %(message)s',
+    datefmt='%H:%M:%S'
+)
+
+def override_all_formatters():
+    # Start with root logger
+    loggers = [logging.getLogger()]
+    # Add all other loggers registered so far
+    loggers += [
+        logging.getLogger(name)
+        for name in logging.root.manager.loggerDict.keys()
+        if isinstance(logging.getLogger(name), logging.Logger)
+    ]
+
+    for logger in loggers:
+        for handler in logger.handlers:
+            handler.setFormatter(formatter)
 
 class RangeMakerBacktester:
     """Backtesting engine for RangeMaker strategy simulations"""
@@ -31,6 +49,10 @@ class RangeMakerBacktester:
             __file__).parent / f"{self.get_pair_symbol()}_historical_data_{period}_{timeframe}.csv"
 
         self.logger = setup_logging(name="range_maker_backtester", level=logging.INFO, console=True)
+
+        override_all_formatters()
+
+                    
         self.strategy.logger.setLevel(logging.DEBUG)  # Increase verbosity for troubleshooting
         self.logger.info("RangeMakerBacktester initialized.")
         # Simulation state
@@ -44,6 +66,9 @@ class RangeMakerBacktester:
         self.initial_price = 0
         self.final_price = 0
         self.animation_data = []  # Store data for animation frames
+        self.impermanent_loss_history = [] # New: Store Impermanent Loss over time
+        self.initial_hold_base_amount = 0.0 # New: For IL calculation
+        self.initial_hold_quote_amount = 0.0 # New: For IL calculation
         self.logger.debug(f"Backtester initialized. Data will be loaded/saved from: {self.data_file_path}")
 
     def get_pair_symbol(self) -> str:
@@ -244,6 +269,14 @@ class RangeMakerBacktester:
             self.initial_balances = (initial_balances or {}).copy()
             self.current_balances = self.initial_balances.copy()
 
+            # For Impermanent Loss calculation
+            if self.strategy.active_positions:
+                pair_name = next(iter(self.strategy.active_positions.keys()))
+                base_token, quote_token = pair_name.split('/')
+                self.initial_hold_base_amount = self.initial_balances.get(base_token, 0)
+                self.initial_hold_quote_amount = self.initial_balances.get(quote_token, 0)
+                self.logger.debug(f"Initial hold amounts for IL: {base_token}={self.initial_hold_base_amount}, {quote_token}={self.initial_hold_quote_amount}")
+
             if not self.current_balances:
                 self.logger.info("No initial balances provided - generating defaults.")
                 if not self.strategy.active_positions:
@@ -353,7 +386,7 @@ class RangeMakerBacktester:
         pair_name = next(iter(self.strategy.active_positions.keys()))
         pair_instance = self.strategy.pairs[pair_name]
 
-        filled_orders = await self.strategy.process_order_updates(pair_instance, current_price)
+        filled_orders = await self.strategy.thread_loop_async_action(pair_instance, current_price=current_price)
 
         if filled_orders:
             self.logger.debug(f"Simulated {len(filled_orders)} fills at {timestamp} with price {current_price:.6f}.")
@@ -372,11 +405,9 @@ class RangeMakerBacktester:
 
     def _process_simulated_fill(self, order: dict, timestamp: datetime):
         """Update balances and track metrics for filled orders"""
-        # self.logger.debug(f"Processing simulated fill for order ID: {order.get('id', 'simulated')}") # Too spammy
-        fee_rate = 0.001
-        fee = order['taker_size'] * fee_rate
-        # self.logger.debug(f"Calculated fee: {fee:.6f} (rate: {fee_rate})") # Too spammy
+        fee = 0.0  # XBridge fees are negligible and should be ignored for now
 
+        # Update balances based on the fill
         self.current_balances[order['maker']] -= order['maker_size']
         self.current_balances[order['taker']] += order['taker_size'] - fee
 
@@ -387,23 +418,31 @@ class RangeMakerBacktester:
             'price': order['price'],
             'size': order['maker_size'],
             'fee': fee,
-            'taker_received': order['taker_size'] - fee
+            'taker_received': order['taker_size'] - fee,
+            'order_id': order.get('id', 'simulated') # Include order ID for better traceability
         }
         self.order_history.append(trade)
         self.fee_history.append(fee)
+
+        # Calculate P&L for counter orders (if applicable)
+        profit = 0.0
         if order.get('is_counter'):
-            # Calculate P&L for counter orders
-            # Assuming 'original_price' and 'taker_size' (which is base_amount for sell, quote_amount for buy)
-            # are correctly passed in the order dict from range_maker_strategy
             if order['type'] == 'sell':  # Original was a buy, counter is a sell
                 # Profit = (sell_price - original_buy_price) * base_amount_sold
                 profit = (order['price'] - order['original_price']) * order['maker_size']
             elif order['type'] == 'buy':  # Original was a sell, counter is a buy
                 # Profit = (original_sell_price - buy_price) * base_amount_bought
-                # Note: taker_size for buy order is in quote, maker_size is in base
-                profit = (order['original_price'] - order['price']) * order['maker_size']
+                # For a buy counter-order, maker_size is quote (amount spent), taker_size is base (amount received).
+                # Profit should be calculated on the base amount received.
+                profit = (order['original_price'] - order['price']) * order['taker_size'] # Corrected P&L calculation
             self.counter_pnl_history.append(profit)
-        # self.logger.debug(f"Trade recorded: {trade}") # Too spammy
+            self.logger.info(
+                f"  Counter-order filled: ID={trade['order_id']} | Type={trade['side']} | Price={trade['price']:.6f} | Size={trade['size']:.6f} | P&L={profit:.6f}")
+        else:
+            self.logger.info(
+                f"  Initial order filled: ID={trade['order_id']} | Type={trade['side']} | Price={trade['price']:.6f} | Size={trade['size']:.6f}")
+
+        self.logger.info(f"  Balances after fill: {self.current_balances}") # Log balances after every trade
 
     def _reset_simulation_state(self):
         """Initialize fresh simulation tracking"""
@@ -419,12 +458,17 @@ class RangeMakerBacktester:
     def _record_simulation_state(self, timestamp: datetime):
         """Capture snapshot of current state"""
         portfolio_value = self._calculate_portfolio_value()
+        current_price = self.price_history[-1]
+        buy_and_hold_value = (self.initial_hold_base_amount * current_price) + self.initial_hold_quote_amount
         self.inventory_history.append({
             'timestamp': timestamp,
             'balances': self.current_balances.copy(),
-            'portfolio_value': portfolio_value
+            'portfolio_value': portfolio_value,
+            'buy_and_hold_value': buy_and_hold_value,  # Store for more detailed analysis
+            'impermanent_loss': buy_and_hold_value - portfolio_value  # Calculate and store IL
         })
-        # self.logger.debug(f"Recorded simulation state at {timestamp}. Portfolio value: {portfolio_value:.6f}") # Too spammy
+        self.impermanent_loss_history.append(buy_and_hold_value - portfolio_value)  # Append IL to history
+       # self.logger.debug(f"Recorded simulation state at {timestamp}. Portfolio value: {portfolio_value:.6f}, IL: {buy_and_hold_value - portfolio_value:.6f}")
 
     def _calculate_portfolio_value(self) -> float:
         """Calculate total portfolio value in the quote currency."""
@@ -438,6 +482,9 @@ class RangeMakerBacktester:
         pair_name = next(iter(self.strategy.active_positions.keys()))
         base_token, quote_token = pair_name.split('/')
         current_price = self.price_history[-1]
+
+        # Calculate buy and hold portfolio value for Impermanent Loss tracking
+        buy_and_hold_value = (self.initial_hold_base_amount * current_price) + self.initial_hold_quote_amount
 
         base_value = self.current_balances.get(base_token, 0) * current_price
         quote_value = self.current_balances.get(quote_token, 0)
@@ -510,6 +557,10 @@ class RangeMakerBacktester:
             'final_portfolio_value': final_value,
             'initial_price': self.initial_price,  # Add initial_price to metrics
             'final_price': self.final_price,  # Add final_price to metrics
+            'final_impermanent_loss': self.impermanent_loss_history[-1] if self.impermanent_loss_history else 0.0, # Final IL
+            'average_impermanent_loss': np.mean(self.impermanent_loss_history) if self.impermanent_loss_history else 0.0, # Average IL
+            'max_impermanent_loss': np.max(self.impermanent_loss_history) if self.impermanent_loss_history else 0.0, # Max IL
+            'min_impermanent_loss': np.min(self.impermanent_loss_history) if self.impermanent_loss_history else 0.0, # Min IL
         }
         self.logger.info(f"Performance metrics calculated: {self.metrics}")
 
@@ -568,6 +619,10 @@ class RangeMakerBacktester:
         Final Price: {self.metrics.get('final_price', 0.0):.6f}
         LTC Balance Change: {self.final_balances.get('LTC', 0) - self.initial_balances.get('LTC', 0):.6f}
         DOGE Balance Change: {self.final_balances.get('DOGE', 0) - self.initial_balances.get('DOGE', 0):.6f}
+        Impermanent Loss (Final): {self.metrics.get('final_impermanent_loss', 0.0):.6f}
+        Impermanent Loss (Average): {self.metrics.get('average_impermanent_loss', 0.0):.6f}
+        Impermanent Loss (Max): {self.metrics.get('max_impermanent_loss', 0.0):.6f}
+        Impermanent Loss (Min): {self.metrics.get('min_impermanent_loss', 0.0):.6f}
         """
         self.logger.info(report)
 
@@ -629,13 +684,8 @@ class RangeMakerBacktester:
         fig.suptitle("Range Maker Strategy Simulation", fontsize=16)
 
         # Initial plot elements
-        # Historical price line (background)
-        historical_timestamps = [d['timestamp'] for d in self.animation_data]
-        historical_prices = [d['current_price'] for d in self.animation_data]
-        ax.plot(historical_timestamps, historical_prices, color='gray', alpha=0.5, label='Historical Price')
-
-        # Current price line
-        current_price_line, = ax.plot([], [], color='blue', linestyle='--', label='Current Price')
+        # Mid-price indicator
+        mid_price_line, = ax.plot([], [], color='purple', linestyle='-', label='Shifting Mid Price')
 
         # Buy and Sell orders
         buy_scatter = ax.scatter([], [], color='green', marker='^', s=50, label='Buy Orders (BID)')
@@ -647,8 +697,8 @@ class RangeMakerBacktester:
         timestamp_text = ax.text(0.02, 0.94, '', transform=ax.transAxes, verticalalignment='top', fontsize=8,
                                  bbox=dict(boxstyle='round,pad=0.3', fc='lightblue', alpha=0.5))
 
-        ax.set_xlabel("Time")
-        ax.set_ylabel("Price")
+        ax.set_xlabel("Price")
+        ax.set_ylabel("Amount")
         ax.grid(True)
         ax.legend(loc='upper right')
 
@@ -665,20 +715,18 @@ class RangeMakerBacktester:
             min_price = frame_data['min_price']
             max_price = frame_data['max_price']
 
-            # Update current price line
-            current_price_line.set_data([timestamp, timestamp], [ax.get_ylim()[0], ax.get_ylim()[1]])
-            current_price_line.set_xdata([timestamp, timestamp])
-            current_price_line.set_ydata([min_price * 0.9, max_price * 1.1])  # Extend across the y-axis
+            # The current_price from frame_data is the "mid price" for this step
+            current_mid_price = current_price
 
-            # Update buy orders
+            # Buy orders (X=price, Y=amount) - plot all active buy orders
             buy_prices = [o['price'] for o in buy_orders]
-            buy_amounts = [o['maker_size'] for o in buy_orders]  # Use maker_size for amount
-            buy_scatter.set_offsets(np.c_[np.full(len(buy_prices), timestamp), buy_prices])
+            buy_amounts = [o['maker_size'] for o in buy_orders] # Already in quote currency
+            buy_scatter.set_offsets(np.c_[buy_prices, buy_amounts])
 
-            # Update sell orders
+            # Sell orders (X=price, Y=amount) - plot all active sell orders
             sell_prices = [o['price'] for o in sell_orders]
-            sell_amounts = [o['maker_size'] for o in sell_orders]  # Use maker_size for amount
-            sell_scatter.set_offsets(np.c_[np.full(len(sell_prices), timestamp), sell_prices])
+            sell_amounts = [o['maker_size'] * o['price'] for o in sell_orders] # Convert base amount to quote amount
+            sell_scatter.set_offsets(np.c_[sell_prices, sell_amounts])
 
             # Update balances text
             balance_str = f"Balances: {base_token}: {balances.get(base_token, 0):.4f}, {quote_token}: {balances.get(quote_token, 0):.4f}"
@@ -687,19 +735,21 @@ class RangeMakerBacktester:
             # Update timestamp text
             timestamp_text.set_text(f"Time: {timestamp.strftime('%Y-%m-%d %H:%M')}")
 
-            # Adjust x-axis to show a rolling window of time
-            window_size = 50  # Number of data points to show in the window
-            current_idx = self.animation_data.index(frame_data)
-            if current_idx > window_size:
-                ax.set_xlim(historical_timestamps[current_idx - window_size], historical_timestamps[current_idx])
-            else:
-                ax.set_xlim(historical_timestamps[0], historical_timestamps[window_size])
+            # Adjust x-axis limits to be static based on min/max price of the strategy
+            padding_x = (max_price - min_price) * 0.1
+            ax.set_xlim(min_price - padding_x, max_price + padding_x)
 
-            # Adjust y-axis limits dynamically based on min/max price of the strategy
-            padding = (max_price - min_price) * 0.1
-            ax.set_ylim(min_price - padding, max_price + padding)
+            # Adjust y-axis limits dynamically based on max amount in current orders
+            all_amounts = buy_amounts + sell_amounts
+            max_amount = max(all_amounts) if all_amounts else 0.1 # Prevent division by zero
+            padding_y = max_amount * 0.1
+            ax.set_ylim(0, max_amount + padding_y)
 
-            return buy_scatter, sell_scatter, current_price_line, balance_text, timestamp_text
+            # Update mid-price line (vertical line at current_mid_price on the X-axis)
+            # This must be done AFTER ax.set_ylim to ensure it spans the current dynamic Y-axis limits
+            mid_price_line.set_data([current_mid_price, current_mid_price], ax.get_ylim())
+
+            return buy_scatter, sell_scatter, mid_price_line, balance_text, timestamp_text
 
         ani = animation.FuncAnimation(
             fig,
@@ -747,8 +797,8 @@ if __name__ == '__main__':
     )
     # Manually initialize strategy specifics for each pair in the example usage
     example_pairs = [
-        {"pair": "LTC/DOGE", "min_price": 0.0001, "max_price": 0.001, "grid_density": 20, "curve": "linear",
-         "curve_strength": 10}]
+        {"pair": "LTC/DOGE", "min_price": 400, "max_price": 600, "grid_density": 20, "curve": "linear",
+         "curve_strength": 25, "percent_min_size": 0.0001}] # Updated example_pairs
     for pair_cfg in example_pairs:
         config_manager.strategy_instance.initialize_strategy_specifics(**pair_cfg)
 
@@ -776,8 +826,9 @@ if __name__ == '__main__':
         grid_d = pair_cfg['grid_density']
         curve_type = pair_cfg['curve']
         curve_s = pair_cfg['curve_strength']
+        percent_min_s = pair_cfg.get('percent_min_size', 0.0001) # New line
 
-        animation_filename = f"animation_{pair_symbol}_min{min_p}_max{max_p}_grid{grid_d}_curve{curve_type}_strength{curve_s}.gif"
+        animation_filename = f"animation_{pair_symbol}_min{min_p}_max{max_p}_grid{grid_d}_curve{curve_type}_strength{curve_s}_min_size{str(percent_min_s).replace('.', '_')}.gif"
 
         # Save the animation in the current script's directory
         script_dir = Path(__file__).parent
