@@ -3,8 +3,10 @@ import configparser
 import logging
 import os
 import socket
+import time
 import uuid
 import weakref
+import threading
 
 from definitions.detect_rpc import detect_rpc
 from definitions.logger import setup_logging
@@ -21,6 +23,9 @@ class XBridgeManager:
         self.blocknet_user_rpc, self.blocknet_port_rpc, self.blocknet_password_rpc, self.blocknet_datadir_path = detect_rpc()
         self.xbridge_conf = None
         self.xbridge_fees_estimate = {}
+        self._utxo_cache = {}  # Cache for dxgetutxos results: {token_symbol: (timestamp, utxos_data)}
+        self._cache_lock = threading.Lock()  # Lock for thread-safe cache access
+        self.UTXO_CACHE_DURATION = 2.0  # Cache expiration time in seconds
 
         # Optional: Test RPC connection during initialization
         if not self.test_rpc():
@@ -219,7 +224,22 @@ class XBridgeManager:
         return await self.rpc_wrapper("dxgettokenbalances")
 
     async def gettokenutxo(self, token, used=False):
-        return await self.rpc_wrapper("dxgetutxos", [token, used])
+        cache_key = f"{token}_{used}"
+        with self._cache_lock:
+            cached_data = self._utxo_cache.get(cache_key)
+            current_time = time.time()
+
+            if cached_data and (current_time - cached_data[0]) < self.UTXO_CACHE_DURATION:
+                self.logger.debug(f"Returning cached UTXO data for {token} (used={used})")
+                return cached_data[1]
+
+        # If not cached or expired, make the RPC call
+        result = await self.rpc_wrapper("dxgetutxos", [token, used])
+
+        with self._cache_lock:
+            self._utxo_cache[cache_key] = (current_time, result)
+            self.logger.debug(f"Cached new UTXO data for {token} (used={used})")
+        return result
 
     async def getlocaltokens(self):
         return await self.rpc_wrapper("dxgetlocaltokens")
