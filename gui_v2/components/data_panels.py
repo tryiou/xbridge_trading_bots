@@ -19,9 +19,26 @@ class BaseDataPanel(ttk.Frame):
         self.tree.tag_configure('evenrow', background='#333333')
         self.tree.tag_configure('oddrow', background='#404040')
 
-        # Configure tree columns                                                                                                                                                          
+        # Configure tree columns with percentage-based weights
+        self.columns = columns  # Store columns for resize handling
+        total_weight = sum(col[2] for col in columns)
+        
+        # Set initial widths based on current window size
+        def set_column_weights(event=None):
+            width = self.tree.winfo_width()
+            for col_id, _, weight in self.columns:
+                self.tree.column(col_id,
+                               width=int(width * weight/total_weight),
+                               stretch=True)
+
+        # Bind resize event and do initial configuration
+        self.tree.bind('<Configure>', set_column_weights)
         for col_id, col_name, _ in columns:
             self.tree.heading(col_id, text=col_name)
+            self.tree.column(col_id, stretch=True)  # Enable proportional resizing
+            
+        # Trigger initial layout
+        self.after(100, lambda: set_column_weights(None))
 
         self.tree.configure(yscrollcommand=self.scroll.set)
 
@@ -67,11 +84,18 @@ class BaseDataPanel(ttk.Frame):
 class OrdersPanel(BaseDataPanel):
     """Replacement for original GUI_Orders"""
     COLUMNS = [
-        ('pair', 'Pair', 25),
-        ('status', 'Status', 25),
-        ('side', 'Side', 20),
-        ('flag', 'Flag', 10),
-        ('variation', 'Variation', 20)
+        ('name', 'Name', 11),
+        ('pair', 'Pair', 10),
+        ('status', 'Status', 5), 
+        ('side', 'Side', 5),
+        ('flag', 'Flag', 4),
+        ('variation', 'Variation', 6),
+        ('maker_size', 'Maker Amount', 10),
+        ('maker', 'Maker', 5),
+        ('taker_size', 'Taker Amount', 10),
+        ('taker', 'Taker', 5),
+        ('dex_price', 'Price', 9),
+        ('order_id', 'Order ID', 20)
     ]
 
     def __init__(self, parent):
@@ -83,14 +107,21 @@ class OrdersPanel(BaseDataPanel):
         """Main thread only - actual UI update"""
         self.tree.delete(*self.tree.get_children())
         display_height = max(min(len(orders), 15), 5)
-
+        
         for i, order in enumerate(orders):
             self.tree.insert('', 'end', values=(
-                order['pair'],
+                order['name'],
+                order['symbol'],
                 order.get('status', 'None'),
                 order.get('side', 'None'),
                 order.get('flag', 'X'),
-                order.get('variation', 'None')
+                order.get('variation', 'None'),
+                order.get('maker_size', 'None'),
+                order.get('maker', 'None'),
+                order.get('taker_size', 'None'),
+                order.get('taker', 'None'),
+                order.get('dex_price', 'None'),
+                order.get('order_id', 'None'),
             ), tags=('evenrow' if i % 2 == 0 else 'oddrow',))
 
         self.tree.configure(height=display_height)

@@ -24,14 +24,36 @@ class MainApplication:
     """Main GUI application class that hosts different strategy frames."""
 
     def __init__(self):
+        # Initialize console logging FIRST
+        setup_console_logging()
+        
         title = "XBridge Trading Bots"
         self.root = tk.Tk(className=title) 
+
+        # Get screen dimensions
+        screen_width = self.root.winfo_screenwidth()
+        screen_height = self.root.winfo_screenheight()
+
+        # Desired default size
+        default_width = 1300
+        default_height = 600
+
+        # Fallback to 90% of screen if too small
+        window_width = min(default_width, int(screen_width * 0.9))
+        window_height = min(default_height, int(screen_height * 0.9))
+
+        # Set window size and minsize
+        self.root.geometry(f"{window_width}x{window_height}")
+        self.root.minsize(min(1000, screen_width), min(400, screen_height))
+
+        logger.info(f"Screen size detected: {screen_width}x{screen_height}")
+        logger.info(f"Window initialized with size: {window_width}x{window_height}")
+
         self.root.title(title)
         self._watchdog_count = 0
         self.running_strategies = set() 
 
-        # Initialize console logging FIRST
-        setup_console_logging()
+
         logger.info("Initializing GUI application")
 
         # Handle Ctrl+C/KeyboardInterrupt signals for clean shutdown
@@ -40,7 +62,6 @@ class MainApplication:
 
         if hasattr(signal, 'SIGINT'):
             signal.signal(signal.SIGINT, handle_signal)
-
         self.style = Style(theme="darkly")
         self.style.theme_use("darkly")
         # NEW LINE ADDED BELOW:
@@ -90,14 +111,12 @@ class MainApplication:
         self.balance_updater_thread.start()
         self.root.after(100, self._process_balance_updates)
 
+
         self.create_status_bar()
 
-        # Start the refresh loop for the initially selected tab
-        self.notebook.bind("<<NotebookTabChanged>>", self.on_tab_changed)
-        # Ensure the initially selected tab's refresh starts
-        self.root.after(100, self.on_tab_changed)
-
-
+        # Start refresh loops for all strategy frames
+        for frame in self.strategy_frames.values():
+            frame.start_refresh()
     def start_watchdog(self):
         """Periodic check to maintain GUI responsiveness"""
 
@@ -117,22 +136,6 @@ class MainApplication:
         status_frame.pack(side="bottom", fill="x", padx=5, pady=5)
         status_label = ttk.Label(status_frame, textvariable=self.status_var, anchor='w')
         status_label.pack(fill="x")
-
-    def on_tab_changed(self, event=None):
-        """Handle tab changes to start/stop the appropriate refresh loops."""
-        tab_name = self.notebook.tab('current')['text']
-        logger.info(f"Tab changed to: {tab_name}")
-
-        # Stop all refresh loops first
-        logger.debug("Stopping all strategy refresh loops")
-        for frame in self.strategy_frames.values():
-            frame.stop_refresh()
-
-        # Start the refresh loop for the selected tab
-        selected_widget = self.root.nametowidget(self.notebook.select())
-        if hasattr(selected_widget, 'start_refresh'):
-            logger.debug(f"Starting refresh loop for {tab_name}")
-            selected_widget.start_refresh()
 
     def on_closing(self) -> None:
         """Handles application closing event by signaling shutdown coordinator"""

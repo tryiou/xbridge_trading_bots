@@ -32,6 +32,7 @@ class BaseStrategyFrame(ttk.Frame):
         self.strategy_name = strategy_name
         self.config_manager: ConfigManager | None = None
         self.send_process: threading.Thread | None = None
+        self.cancel_all_thread: threading.Thread | None = None
         self.started = False
         self.stopping = False
         self.cleaned = True  # initialize as True; no cleanup needed on init
@@ -263,6 +264,7 @@ class BaseStrategyFrame(ttk.Frame):
             return
 
         log = self.config_manager.general_log
+        log.debug("GUI: cancel_all called - START")
         log.debug("GUI: cancel_all called. Creating worker thread.")
         self.main_app.status_var.set("Cancelling all open orders...")
 
@@ -270,7 +272,9 @@ class BaseStrategyFrame(ttk.Frame):
             log.debug("GUI: cancel_all worker thread started.")
             try:
                 # This now runs in a dedicated thread, so asyncio.run is safe.
+                log.debug("GUI: cancel_all - calling cancelallorders()")
                 asyncio.run(self.config_manager.xbridge_manager.cancelallorders())
+                log.debug("GUI: cancel_all - cancelallorders() returned")
                 # We need to schedule the GUI update back on the main thread.
                 self.main_app.root.after(0, lambda: self.main_app.status_var.set("Cancelled all open orders."))
                 log.info("cancel_all: All orders cancelled successfully.")
@@ -280,20 +284,20 @@ class BaseStrategyFrame(ttk.Frame):
                                          lambda err=e: self.main_app.status_var.set(f"Error cancelling orders: {err}"))
                 log.error(f"Error during cancel_all worker: {e}", exc_info=True)
             log.debug("GUI: cancel_all worker thread finished.")
+            # Restart the orders updater to refresh the orders panel
+            if self.orders_updater:
+                self.orders_updater.start()
 
-        thread = threading.Thread(target=worker, daemon=True)
-        thread.start()
+        self.cancel_all_thread = threading.Thread(target=worker, daemon=True)
+        self.cancel_all_thread.start()
+        log.debug("GUI: cancel_all called - END")
 
     def start_refresh(self):
         """Starts the periodic GUI refresh loop and orders updater."""
         if self.orders_updater:
             self.orders_updater.start()
 
-    def stop_refresh(self):
-        """Stops the periodic GUI refresh loop and orders updater."""
-        if self.orders_updater:
-            self.orders_updater.stop()
-
+    
     @staticmethod
     def _get_flag(status: str) -> str:
         """Returns a flag ('V' or 'X') based on the order status."""
@@ -305,17 +309,33 @@ class BaseStrategyFrame(ttk.Frame):
         """Fetches order data for the AsyncUpdater."""
         orders = []
         if not self.config_manager or not hasattr(self.config_manager, 'pairs'):
+            logger.debug("GUI: _fetch_orders_data - config_manager or pairs not initialized")
             return orders
 
         with self.config_manager.resource_lock:
+            # logger.debug("GUI: _fetch_orders_data - acquired config_manager.resource_lock")
             for pair_obj in self.config_manager.pairs.values():
-                pair = pair_obj.cfg
+                name = pair_obj.name
+                symbol = pair_obj.symbol
+                # pair = pair_obj.cfg
                 status = 'None'
                 current_order_side = 'None'
+                maker_size = 'None'
+                maker = 'None'
+                taker_size = 'None'
+                taker = 'None'
+                dex_price = 'None'
+                order_id = 'None'
 
                 if self.started and pair_obj.dex.order and 'status' in pair_obj.dex.order:
                     status = pair_obj.dex.order.get('status', 'None')
                     current_order_side = pair_obj.dex.current_order.get('side', 'None') if pair_obj.dex.current_order else 'None'
+                    maker_size = pair_obj.dex.current_order.get('maker_size', 'None') if pair_obj.dex.current_order else 'None'
+                    maker = pair_obj.dex.current_order.get('maker', 'None') if pair_obj.dex.current_order else 'None'
+                    taker_size = pair_obj.dex.current_order.get('taker_size', 'None') if pair_obj.dex.current_order else 'None'
+                    taker = pair_obj.dex.current_order.get('taker', 'None') if pair_obj.dex.current_order else 'None'
+                    dex_price = pair_obj.dex.current_order.get('dex_price', 'None') if pair_obj.dex.current_order else 'None'
+                    order_id = pair_obj.dex.order.get('id', 'None') if pair_obj.dex.current_order else 'None'
                 elif pair_obj.dex.disabled:
                     status = 'Disabled'
                 
@@ -324,12 +344,20 @@ class BaseStrategyFrame(ttk.Frame):
                     variation_display = str(pair_obj.dex.variation)
 
                 orders.append({
-                    "pair": pair.get("name", "Unnamed"),
+                    "name": name,
+                    "symbol": symbol,
                     "status": status,
                     "side": current_order_side,
                     "flag": self._get_flag(status),
-                    "variation": variation_display
+                    "variation": variation_display,
+                    "maker_size": maker_size,
+                    "maker": maker,
+                    "taker_size": taker_size,
+                    "taker": taker,
+                    "dex_price": dex_price,
+                    "order_id": order_id
                 })
+        # logger.debug(f"GUI: _fetch_orders_data - orders: {orders}")
         return orders
 
 
@@ -382,8 +410,6 @@ class BaseStrategyFrame(ttk.Frame):
 
     def cleanup(self):
         """Perform final cleanup including canceling periodic tasks and detaching events."""
-        # Cancel any pending refresh loop
-        self.stop_refresh()
         # Unbind all event listeners
         self.unbind_all("<Motion>")  # Example for all motion events
         self.unbind_all("<Button>")  # Example for all button events
@@ -459,4 +485,3 @@ class StandardStrategyFrame(BaseStrategyFrame, metaclass=abc.ABCMeta):
 
     def cleanup(self):
         """Unbind events to prevent errors during teardown."""
-        super().cleanup()

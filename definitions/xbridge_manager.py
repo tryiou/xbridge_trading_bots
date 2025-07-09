@@ -25,7 +25,7 @@ class XBridgeManager:
         self.xbridge_fees_estimate = {}
         self._utxo_cache = {}  # Cache for dxgetutxos results: {token_symbol: (timestamp, utxos_data)}
         self._cache_lock = threading.Lock()  # Lock for thread-safe cache access
-        self.UTXO_CACHE_DURATION = 2.0  # Cache expiration time in seconds
+        self.UTXO_CACHE_DURATION = 3.0  # Cache expiration time in seconds
 
         # Optional: Test RPC connection during initialization
         if not self.test_rpc():

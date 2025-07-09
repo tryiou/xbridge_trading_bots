@@ -63,9 +63,12 @@ class GUIShutdownCoordinator:
                 if frame.started or frame.stopping:
                     logger.info(f"Signaling {name} bot to stop...")
                     frame.stop(reload_config=False) # Do not reload config during shutdown
-            
+                    if frame.cancel_all_thread and frame.cancel_all_thread.is_alive():
+                        logger.info(f"Waiting for {name} cancel_all thread to finish...")
+                        frame.cancel_all_thread.join()
+
             # Give bots some time to stop gracefully
-            time.sleep(2) 
+            time.sleep(2)
 
             # 2. Ensure all bot threads are joined or forcefully terminated
             logger.info("Waiting for bot threads to terminate...")
@@ -78,8 +81,8 @@ class GUIShutdownCoordinator:
             
             # 3. Stop all GUI refreshers (orders and balances)
             logger.info("Stopping GUI refreshers...")
-            for name, frame in self.strategy_frames.items():
-                frame.stop_refresh()
+            # for name, frame in self.strategy_frames.items():
+            #     frame.stop_refresh()
             
             # Stop the main balance updater
             if hasattr(self.gui_root, 'balance_updater') and self.gui_root.balance_updater:

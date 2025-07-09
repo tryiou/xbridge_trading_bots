@@ -35,6 +35,7 @@ class AsyncUpdater:
         self.update_interval_sec = update_interval_ms / 1000.0
         self.process_interval_ms = process_interval_ms
         self.name = name
+        self._lock = threading.Lock()
 
         self._update_queue = queue.Queue()
         self._updater_thread: threading.Thread | None = None
@@ -42,26 +43,28 @@ class AsyncUpdater:
         self._process_id = None # For scheduling _process_updates
 
     def start(self):
-        """Starts the background data fetching thread and GUI update processing."""
-        if self._running:
-            logger.debug(f"{self.name}: Already running, ignoring start call.")
-            return
+        with self._lock:
+            """Starts the background data fetching thread and GUI update processing."""
+            if self._running:
+                logger.debug(f"{self.name}: Already running, ignoring start call.")
+                return
 
-        logger.info(f"{self.name}: Starting updater.")
-        self._running = True
-        self._updater_thread = threading.Thread(target=self._run_fetcher, daemon=True, name=f"{self.name}Fetcher")
-        self._updater_thread.start()
-        self._process_id = self.tk_widget.after(self.process_interval_ms, self._process_updates)
+            logger.info(f"{self.name}: Starting updater.")
+            self._running = True
+            self._updater_thread = threading.Thread(target=self._run_fetcher, daemon=True, name=f"{self.name}Fetcher")
+            self._updater_thread.start()
+            self._process_id = self.tk_widget.after(self.process_interval_ms, self._process_updates)
 
     def stop(self):
-        """Signals the updater to stop and waits for the background thread to finish."""
-        if not self._running:
-            logger.debug(f"{self.name}: Not running, ignoring stop call.")
-            return
+        with self._lock:
+            """Signals the updater to stop and waits for the background thread to finish."""
+            if not self._running:
+                logger.debug(f"{self.name}: Not running, ignoring stop call.")
+                return
 
-        logger.info(f"{self.name}: Stopping updater.")
-        self._running = False
-        self._update_queue.put(None) # Signal the fetcher thread to stop
+            logger.info(f"{self.name}: Stopping updater.")
+            self._running = False
+            self._update_queue.put(None) # Signal the fetcher thread to stop
         
         if self._process_id:
             self.tk_widget.after_cancel(self._process_id)
@@ -69,8 +72,10 @@ class AsyncUpdater:
 
         # It's a daemon thread, so no need to explicitly join in most GUI shutdown scenarios,
         # but for completeness or if non-daemon, one might add:
-        # if self._updater_thread and self._updater_thread.is_alive():
-        #     self._updater_thread.join(timeout=self.update_interval_sec * 2 + 1) # Give it some time
+        if self._updater_thread and self._updater_thread.is_alive():
+            logger.debug(f"{self.name}: Waiting for fetcher thread to terminate.")
+            self._updater_thread.join(timeout=self.update_interval_sec * 2 + 1) # Give it some time
+            logger.debug(f"{self.name}: Fetcher thread terminated.")
 
     def _run_fetcher(self):
         """
