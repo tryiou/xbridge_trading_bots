@@ -153,7 +153,7 @@ class MainApplication:
         shutdown_coordinator.initiate_shutdown()
 
     def _run_balance_updater(self):
-        """Runs in a separate thread to collect balance data (mimicking gui/gui.py)."""
+        """Runs in a separate thread to collect balance data."""
         while True:
             try:
                 # Collect balance data
@@ -196,7 +196,7 @@ class MainApplication:
 
                 # Only update if there are running strategies, else display initial state
                 if not self.running_strategies:
-                    logger.debug("No strategies running, displaying initial balances.")
+                    # logger.debug("No strategies running, displaying initial balances.")
                     data = self._get_initial_balances_data()
                 
                 self.balance_update_queue.put(data)

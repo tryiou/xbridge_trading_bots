@@ -33,8 +33,13 @@ class BaseDataPanel(ttk.Frame):
 
         # Bind resize event and do initial configuration
         self.tree.bind('<Configure>', set_column_weights)
+
+        # Initialize sorting state
+        self.sort_column = None
+        self.sort_ascending = True
+
         for col_id, col_name, _ in columns:
-            self.tree.heading(col_id, text=col_name)
+            self.tree.heading(col_id, text=col_name, command=lambda col=col_id: self._sort_column(col))
             self.tree.column(col_id, stretch=True)  # Enable proportional resizing
             
         # Trigger initial layout
@@ -54,6 +59,26 @@ class BaseDataPanel(ttk.Frame):
         self._update_queue = queue.Queue()
         self.after(100, self._process_updates)
 
+    def _sort_column(self, col_id):
+        """Handle header button click; sort the column."""
+        if self.sort_column == col_id:
+            self.sort_ascending = not self.sort_ascending
+        else:
+            self.sort_column = col_id
+            self.sort_ascending = True
+
+        # Update column heading with sort indicator
+        for col_id_, col_name, _ in self.columns:
+            if col_id_ == col_id:
+                if self.sort_ascending:
+                    self.tree.heading(col_id_, text=col_name + " ▲")
+                else:
+                    self.tree.heading(col_id_, text=col_name + " ▼")
+            else:
+                self.tree.heading(col_id_, text=col_name)
+
+        self._process_updates()
+
     def update_data(self, items: List[Dict]):
         """Thread-safe entry point for all updates"""
         if not self.winfo_exists():
@@ -69,6 +94,7 @@ class BaseDataPanel(ttk.Frame):
         try:
             while not self._update_queue.empty():
                 items = self._update_queue.get_nowait()
+                items = self._sort_data(items)
                 self._safe_update(items)
         except Exception as e:
             # Logging handled through parent frame's config manager 
@@ -80,22 +106,32 @@ class BaseDataPanel(ttk.Frame):
         """To be implemented by subclasses"""
         pass
 
+    def _sort_data(self, items: List[Dict]) -> List[Dict]:
+        """Sort data based on current sort column and order."""
+        if not self.sort_column:
+            return items  # No sort column selected
 
+        reverse = not self.sort_ascending
+        # result = sorted(items, key=lambda k: (print(f"DEBUG!!: key: {k.get(self.sort_column, '')!r}"), str(k.get(self.sort_column, '')).strip())[1], reverse=reverse)
+        result = sorted(items, key=lambda k: str(k.get(self.sort_column, '')).strip(), reverse=reverse)
+
+
+        return result
 class OrdersPanel(BaseDataPanel):
     """Replacement for original GUI_Orders"""
     COLUMNS = [
         ('name', 'Name', 11),
-        ('pair', 'Pair', 10),
-        ('status', 'Status', 5), 
+        ('symbol', 'Symbol', 10),
+        ('status', 'Status', 6), 
         ('side', 'Side', 5),
-        ('flag', 'Flag', 4),
-        ('variation', 'Variation', 6),
+        ('flag', 'Flag', 5),
+        ('variation', 'Variation', 7),
         ('maker_size', 'Maker Amount', 10),
-        ('maker', 'Maker', 5),
+        ('maker', 'Maker', 6),
         ('taker_size', 'Taker Amount', 10),
-        ('taker', 'Taker', 5),
+        ('taker', 'Taker', 6),
         ('dex_price', 'Price', 9),
-        ('order_id', 'Order ID', 20)
+        ('order_id', 'Order ID', 15)
     ]
 
     def __init__(self, parent):
