@@ -124,19 +124,45 @@ class BaseDataPanel(ttk.Frame):
 
     def _get_sort_value(self, value):
         """
-        Attempt to convert value to float for sorting. Returns tuple with type indicator and value
+        Attempt to convert value to float for sorting. Returns tuple with type indicator and value.
+        Handles None, empty strings, list values, direct float conversion, cleaned float conversion,
+        then falls back to string.
         :param value: any cell value from data
         """
-        s_value = str(value).strip()
+        # Handle None and empty strings first, sort them as negative infinity for numerical columns
+        if value is None or value == '':
+            return (0, float('-inf'))
 
-        # Regular expression to remove common unwanted characters while keeping numbers
-        cleaned_value = re.sub(r'[^0-9\-+.Ee]', '', s_value)
+        # Handle list values (e.g., for 'variation' column which can be [float_value])
+        if isinstance(value, list) and len(value) > 0:
+            value = value[0]
+        elif isinstance(value, list) and len(value) == 0:
+            return (0, float('-inf')) # Treat empty lists like None/empty string
+
+        s_value = str(value).strip().lower()
+
+        # Handle the string "None" explicitly, sort as negative infinity
+        if s_value == "none":
+            return (0, float('-inf'))
+
         try:
-            # Type indicator 0 for numbers, cleaned value as float
-            return (0, float(cleaned_value))
+            # Attempt 1: Direct conversion to float (handles "123.45", "nan", "inf")
+            float_value = float(s_value)
+            return (0, float_value)
         except ValueError:
-            # Type indicator 1 for strings, lowercase value for case-insensitive sorting
-            return (1, s_value.lower())
+            pass # Fall through to next attempt
+
+        # Attempt 2: Clean specific non-numeric symbols and try again
+        # This regex is precise, only removing currency symbols, commas, and brackets.
+        cleaned_value = re.sub(r'[$%,\[\]]', '', s_value)
+        try:
+            float_value = float(cleaned_value)
+            return (0, float_value)
+        except ValueError:
+            # Fallback: If both numerical conversions fail, treat as a string
+            # This ensures that non-numerical strings (like "BTC", "N/A", or "" from "$")
+            # are correctly sorted alphabetically, not numerically.
+            return (1, s_value) # Return original case for string sorting after numerical attempts
 
     def _redraw_tree(self):
         """To be implemented by subclasses"""
@@ -190,7 +216,7 @@ class OrdersPanel(BaseDataPanel):
 class BalancesPanel(BaseDataPanel):
     """Replacement for original GUI_Balances"""
     COLUMNS = [
-        ('coin', 'Coin', 25),
+        ('symbol', 'Coin', 25), # Changed 'coin' to 'symbol'
         ('usd_price', 'USD Price', 20),
         ('total', 'Total', 20),
         ('free', 'Free', 20),
@@ -202,18 +228,30 @@ class BalancesPanel(BaseDataPanel):
         # Set initial height to 5 rows
         self.tree.configure(height=5)
 
+    def _safe_update(self, items: List[Dict]):
+        """Sorts the items, stores them and redraws the tree."""
+        # Calculate total_usd and add it to each item before sorting
+        for item in items:
+            if 'total' in item and 'usd_price' in item:
+                item['total_usd'] = item['total'] * item['usd_price']
+            else:
+                item['total_usd'] = 0.0 # Default to 0 or handle as appropriate
+
+        super()._safe_update(items) # Call parent's _safe_update to sort and redraw
+
     def _redraw_tree(self):
         """Main thread only - actual UI update"""
         self.tree.delete(*self.tree.get_children())
         display_height = max(min(len(self.current_data), 15), 5)
 
         for i, balance in enumerate(self.current_data):
+            # total_usd is now pre-calculated in _safe_update
             self.tree.insert('', 'end', values=(
-                balance['symbol'],
+                str(balance['symbol']),
                 f"${balance['usd_price']:.3f}",
                 f"{balance['total']:.4f}",
                 f"{balance['free']:.4f}",
-                f"${balance['total'] * balance['usd_price']:.2f}"
+                f"${balance.get('total_usd', 0.0):.2f}" # Use the pre-calculated value
             ), tags=('evenrow' if i % 2 == 0 else 'oddrow',))
 
         self.tree.configure(height=display_height)
