@@ -27,7 +27,8 @@ class Validators:
 
 
 if TYPE_CHECKING:
-    from gui.frames import GUI_Config_PingPong, GUI_Config_BasicSeller
+    from gui.config_windows.pingpong_config import GUI_Config_PingPong
+    from gui.config_windows.basicseller_config import GUI_Config_BasicSeller
 
 
 class BaseDialog(tk.Toplevel):

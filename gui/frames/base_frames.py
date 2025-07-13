@@ -1,4 +1,4 @@
-# gui_v2/frames/base_frames.py
+# gui/frames/base_frames.py
 import abc
 import asyncio
 import logging
@@ -12,12 +12,12 @@ from ruamel.yaml import YAML
 
 from definitions.config_manager import ConfigManager
 from definitions.starter import run_async_main
-from gui_v2.components.data_panels import OrdersPanel
-from gui_v2.utils.async_updater import AsyncUpdater
+from gui.components.data_panels import OrdersPanel
+from gui.utils.async_updater import AsyncUpdater
 
 if TYPE_CHECKING:
-    from gui_v2.main_app import MainApplication
-    from gui_v2.config_windows.base_config_window import BaseConfigWindow
+    from gui.main_app import MainApplication
+    from gui.config_windows.base_config_window import BaseConfigWindow
 
 logger = logging.getLogger(__name__)
 

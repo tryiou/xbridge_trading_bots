@@ -1,14 +1,14 @@
-# gui_v2/config_windows/pingpong_config.py
+# gui/config_windows/pingpong_config.py
 import tkinter as tk
 from tkinter import ttk
 from typing import TYPE_CHECKING, Dict, Any, List, Optional
 
-from gui_v2.config_windows.base_config_window import BaseConfigWindow
-from gui_v2.config_windows.common_config_widgets import TreeviewMixin
-from gui_v2.components.dialogs import AddPairDialog, PairConfigDialog
+from gui.config_windows.base_config_window import BaseConfigWindow
+from gui.config_windows.common_config_widgets import TreeviewMixin
+from gui.components.dialogs import AddPairDialog, PairConfigDialog
 
 if TYPE_CHECKING:
-    from gui_v2.frames.base_frames import BaseStrategyFrame
+    from gui.frames.base_frames import BaseStrategyFrame
 
 
 class GUI_Config_PingPong(BaseConfigWindow, TreeviewMixin):

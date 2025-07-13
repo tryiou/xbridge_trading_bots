@@ -1,4 +1,4 @@
-# gui_v2/config_windows/common_config_widgets.py
+# gui/config_windows/common_config_widgets.py
 import tkinter as tk
 from tkinter import ttk
 from typing import List, Dict, Tuple, Callable, Any

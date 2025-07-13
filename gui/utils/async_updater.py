@@ -1,4 +1,4 @@
-# gui_v2/utils/async_updater.py
+# gui/utils/async_updater.py
 import queue
 import threading
 import time

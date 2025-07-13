@@ -1,17 +1,17 @@
-# gui_v2/frames/strategy_frames.py
+# gui/frames/strategy_frames.py
 import abc
 import logging
 from typing import TYPE_CHECKING
 
 from definitions.config_manager import ConfigManager
-from gui_v2.frames.base_frames import StandardStrategyFrame
+from gui.frames.base_frames import StandardStrategyFrame
 
-from gui_v2.config_windows.pingpong_config import GUI_Config_PingPong
-from gui_v2.config_windows.basicseller_config import GUI_Config_BasicSeller
+from gui.config_windows.pingpong_config import GUI_Config_PingPong
+from gui.config_windows.basicseller_config import GUI_Config_BasicSeller
 
 if TYPE_CHECKING:
-    from gui_v2.main_app import MainApplication
-    from gui_v2.config_windows.base_config_window import BaseConfigWindow
+    from gui.main_app import MainApplication
+    from gui.config_windows.base_config_window import BaseConfigWindow
 
 logger = logging.getLogger(__name__)
 

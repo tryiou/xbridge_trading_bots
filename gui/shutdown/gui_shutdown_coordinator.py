@@ -1,4 +1,4 @@
-# gui_v2/shutdown/gui_shutdown_coordinator.py
+# gui/shutdown/gui_shutdown_coordinator.py
 import logging
 import threading
 import time
@@ -7,8 +7,8 @@ from typing import TYPE_CHECKING, Dict, Any
 from definitions.config_manager import ConfigManager
 
 if TYPE_CHECKING:
-    from gui_v2.frames.base_frames import BaseStrategyFrame
-    from gui_v2.main_app import MainApplication
+    from gui.frames.base_frames import BaseStrategyFrame
+    from gui.main_app import MainApplication
 
 logger = logging.getLogger(__name__)
 

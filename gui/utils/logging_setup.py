@@ -1,10 +1,10 @@
-# gui_v2/utils/logging_setup.py
+# gui/utils/logging_setup.py
 import logging
 import os
 import sys
 
 from definitions.logger import ColoredFormatter, setup_logging as setup_file_logging
-from gui_v2.components.logging_components import TextLogHandler, StdoutRedirector
+from gui.components.logging_components import TextLogHandler, StdoutRedirector
 
 def setup_console_logging():
     """Initializes console logging before GUI components are ready"""

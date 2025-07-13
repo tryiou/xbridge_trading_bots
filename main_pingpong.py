@@ -1,56 +1,55 @@
-# LOGIC:
-# 1/BOT SELL T1 ON DEX AT {CEX MARKETPRICE * (1 + SPREAD)}
-# 2/BOT BUY T1 ON DEX AT (min(live_price),max(SOLD PRICE * (1 - SPREAD)))
-# 3/LOOP
-#
-# ONLY ONE AT A TIME, BOT RECORD THE LAST SELL ORDER ON A FILE, LOAD AT START
 import argparse
-import asyncio
+import signal
+import sys
 
-from definitions.config_manager import ConfigManager
-from definitions.starter import run_async_main  # Import run_async_main
-from test_units.test_pingpong_strategy import PingPongStrategyTester
+from definitions.logger import set_gui_mode
+from gui.main_app import MainApplication
+
+app = None
 
 
-def start():
-    """Initialize ConfigManager and run the centralized main loop."""
-
-    parser = argparse.ArgumentParser(
-        prog="main_pingpong",
-        description="A market-making bot that places buy and sell orders around a CEX price feed.",
-        formatter_class=argparse.RawTextHelpFormatter,
-        add_help=False
-    )
-
-    parser.add_argument(
-        "-h", "-help", "--help",
-        action="help",
-        default=argparse.SUPPRESS,
-        help="Show this help message and exit."
-    )
-
-    parser.add_argument("--run-tests", action="store_true",
-                        help="Run the internal test suite for the PingPong strategy logic.")
-
-    args = parser.parse_args()
-
-    config_manager = ConfigManager(strategy="pingpong")
-    config_manager.initialize(test_mode=args.run_tests)
-
-    if args.run_tests:
-        if config_manager.strategy_instance:
-            tester = PingPongStrategyTester(config_manager.strategy_instance)
-            asyncio.run(tester.run_all_tests())
-        else:
-            config_manager.general_log.error("Failed to initialize strategy instance for testing.")
-        return
-
-    # Get strategy-specific startup tasks
-    startup_tasks = config_manager.strategy_instance.get_startup_tasks()
-
-    # Run the main bot logic, which will create and manage its own event loop.
-    run_async_main(config_manager, startup_tasks=startup_tasks)
+def signal_handler(sig, frame):
+    """
+    Handles keyboard interrupt signals (Ctrl+C) for graceful application shutdown.
+    Schedules the GUI's on_closing method to be called on the main Tkinter thread.
+    """
+    print("\nKeyboard interrupt detected. Scheduling application shutdown...")
+    if app and app.root:
+        app.root.after(0, app.on_closing)
+    else:
+        sys.exit(0)  # Fallback if root is somehow already destroyed (unlikely during normal operation)
 
 
 if __name__ == '__main__':
-    start()
+    parser = argparse.ArgumentParser(description="XBridge Trading Bots GUI (v2)")
+    parser.add_argument("--run-tests", action="store_true", help="Run the GUI unit test suite.")
+    args = parser.parse_args()
+
+    # Signal that the application is running in GUI mode.
+    # This allows other modules to adjust their behavior (e.g., logging).
+    set_gui_mode(True)
+
+    if args.run_tests:
+        # Note: The original test_units.test_gui_app needs to be updated to test gui
+        # For now, this path is kept as is, assuming the user will update tests later.
+        from test_units.test_gui_app import GUITester
+
+        print("Running GUI unit tests...")
+        tester = GUITester()
+        tester.run_all_tests()
+        # Exit with 1 if any tests failed, 0 otherwise
+        sys.exit(0 if all(r['passed'] for r in tester.test_results) else 1)
+    else:
+        app = MainApplication()
+        # Set up protocol for window close button
+        app.root.protocol("WM_DELETE_WINDOW", app.on_closing)
+        # Set up signal handler for Ctrl+C
+        signal.signal(signal.SIGINT, signal_handler)
+        try:
+            app.root.mainloop()
+        except KeyboardInterrupt:
+            print("\nKeyboard interrupt detected. Shutting down...")
+            # The signal_handler should have already scheduled on_closing,
+            # but this acts as a fallback if the signal is caught directly here.
+            if app:
+                app.on_closing()

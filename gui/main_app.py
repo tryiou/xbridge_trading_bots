@@ -1,4 +1,4 @@
-# gui_v2/main_app.py
+# gui/main_app.py
 import logging
 import os
 import sys
@@ -11,11 +11,11 @@ import threading
 from ttkbootstrap import Style
 
 from definitions.config_manager import ConfigManager
-from gui_v2.frames.strategy_frames import ArbitrageFrame, BasicSellerFrame, PingPongFrame
-from gui_v2.components.data_panels import BalancesPanel
-from gui_v2.components.logging_components import LogFrame
-from gui_v2.utils.logging_setup import setup_console_logging, setup_gui_logging
-from gui_v2.shutdown.gui_shutdown_coordinator import GUIShutdownCoordinator
+from gui.frames.strategy_frames import ArbitrageFrame, BasicSellerFrame, PingPongFrame
+from gui.components.data_panels import BalancesPanel
+from gui.components.logging_components import LogFrame
+from gui.utils.logging_setup import setup_console_logging, setup_gui_logging
+from gui.shutdown.gui_shutdown_coordinator import GUIShutdownCoordinator
 
 logger = logging.getLogger(__name__)
 

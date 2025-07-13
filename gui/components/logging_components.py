@@ -1,4 +1,4 @@
-# gui_v2/components/logging_components.py
+# gui/components/logging_components.py
 import logging
 import queue
 import time

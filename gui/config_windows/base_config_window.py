@@ -1,4 +1,4 @@
-# gui_v2/config_windows/base_config_window.py
+# gui/config_windows/base_config_window.py
 import os
 import threading
 import tkinter as tk
@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, Dict, Optional
 from ruamel.yaml import YAML
 
 if TYPE_CHECKING:
-    from gui_v2.frames.base_frames import BaseStrategyFrame
+    from gui.frames.base_frames import BaseStrategyFrame
 
 
 class BaseConfigWindow:
