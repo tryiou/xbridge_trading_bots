@@ -1,3 +1,4 @@
+import re
 import queue
 from tkinter import ttk
 from typing import List, Dict, Tuple
@@ -119,7 +120,22 @@ class BaseDataPanel(ttk.Frame):
             return items  # No sort column selected
 
         reverse = not self.sort_ascending
-        return sorted(items, key=lambda k: str(k.get(self.sort_column, '')).strip(), reverse=reverse)
+        return sorted(items, key=lambda k: self._get_sort_value(k.get(self.sort_column, '')), reverse=reverse)
+
+    def _get_sort_value(self, value):
+        """
+        Attempt to convert value to float for sorting. Falls back to string if not possible
+        :param value: any cell value from data
+        """
+        s_value = str(value).strip()
+
+        # Regular expression to remove common unwanted characters while keeping numbers
+        cleaned_value = re.sub(r'[^0-9\-+.Ee]', '', s_value)
+        try:
+            return float(cleaned_value)
+        except ValueError:
+            # Return original string for proper alphabetical sorting of status/text fields
+            return s_value
 
     def _redraw_tree(self):
         """To be implemented by subclasses"""
