@@ -9,3 +9,4 @@ pyyaml
 ruamel.yaml
 pytest
 numpy
+async_timeout
