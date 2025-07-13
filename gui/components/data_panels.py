@@ -124,7 +124,7 @@ class BaseDataPanel(ttk.Frame):
 
     def _get_sort_value(self, value):
         """
-        Attempt to convert value to float for sorting. Falls back to string if not possible
+        Attempt to convert value to float for sorting. Returns tuple with type indicator and value
         :param value: any cell value from data
         """
         s_value = str(value).strip()
@@ -132,10 +132,11 @@ class BaseDataPanel(ttk.Frame):
         # Regular expression to remove common unwanted characters while keeping numbers
         cleaned_value = re.sub(r'[^0-9\-+.Ee]', '', s_value)
         try:
-            return float(cleaned_value)
+            # Type indicator 0 for numbers, cleaned value as float
+            return (0, float(cleaned_value))
         except ValueError:
-            # Return original string for proper alphabetical sorting of status/text fields
-            return s_value
+            # Type indicator 1 for strings, lowercase value for case-insensitive sorting
+            return (1, s_value.lower())
 
     def _redraw_tree(self):
         """To be implemented by subclasses"""
