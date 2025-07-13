@@ -45,7 +45,7 @@ class BaseDataPanel(ttk.Frame):
             self.tree.column(col_id, stretch=True)  # Enable proportional resizing
             
         # Trigger initial layout
-        self.after(100, lambda: set_column_weights(None))
+        self.after(250, lambda: set_column_weights(None))
 
         self.tree.configure(yscrollcommand=self.scroll.set)
 
@@ -59,7 +59,7 @@ class BaseDataPanel(ttk.Frame):
 
         # Prepare update queue
         self._update_queue = queue.Queue()
-        self.after(100, self._process_updates)
+        self.after(250, self._process_updates)
 
     def _sort_column(self, col_id):                                                                                                                                                  
         """Handle header button click; sort the column immediately"""                                                                                                                
@@ -106,7 +106,7 @@ class BaseDataPanel(ttk.Frame):
             pass  # Errors are already logged in the strategy thread
         finally:
             if self.winfo_exists():
-                self.after(100, self._process_updates)
+                self.after(250, self._process_updates)
 
     def _safe_update(self, items: List[Dict]):
         """Sorts the items, stores them and redraws the tree."""

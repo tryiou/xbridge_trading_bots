@@ -20,7 +20,7 @@ class LogFrame(ttk.Frame):
         self.after(self.prune_interval, self.prune_old_logs)
 
         self.log_update_queue = queue.Queue()
-        self.after(100, self._process_log_updates)
+        self.after(250, self._process_log_updates)
 
         self.log_text = tk.Text(self, wrap='word', state='disabled', height=10, background="#222", foreground="white")
         scrollbar = ttk.Scrollbar(self, orient="vertical", command=self.log_text.yview)
