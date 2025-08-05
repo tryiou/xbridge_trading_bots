@@ -45,7 +45,7 @@ class XBridgeManager:
             s.connect((ip, int(port)))
             s.shutdown(2)
             return True
-        except:
+        except Exception:
             return False
 
     async def rpc_wrapper(self, method, params=None):

@@ -5,9 +5,10 @@ import sys
 import tkinter as tk
 from tkinter import ttk
 import signal
-import asyncio 
-import queue 
-import threading 
+import asyncio
+import queue
+import threading
+import time
 from ttkbootstrap import Style
 
 from definitions.config_manager import ConfigManager
@@ -16,19 +17,71 @@ from gui.components.data_panels import BalancesPanel
 from gui.components.logging_components import LogFrame
 from gui.utils.logging_setup import setup_console_logging, setup_gui_logging
 from gui.shutdown.gui_shutdown_coordinator import GUIShutdownCoordinator
+from definitions.error_handler import OperationalError, ConfigurationError
 
 logger = logging.getLogger(__name__)
 
 
 class MainApplication:
-    """Main GUI application class that hosts different strategy frames."""
+    """Main GUI application class that hosts different strategy frames with centralized error handling."""
 
-    def __init__(self):
-        # Initialize console logging FIRST
-        setup_console_logging()
-        
+    def __init__(self, root=None):
+        try:
+            # Initialize console logging
+            setup_console_logging()
+            
+            # Initialize the root window
+            self._init_root_window(root)
+            
+            # Create master config manager
+            self.master_config_manager = ConfigManager(strategy="gui")
+            self.running_strategies = set()
+            
+            # Create main application structure
+            self._create_main_structure()
+            
+            # Initialize strategy frames
+            self._init_strategy_frames()
+            
+            # Setup logging components
+            self._setup_logging()
+            
+            # Set up watchdog for UI responsiveness
+            self.start_watchdog()
+            
+            # Initialize and start balance updater
+            self._init_balance_updater()
+            
+            # Create status bar
+            self.create_status_bar()
+            
+            # Start refresh loops for all strategy frames
+            for frame in self.strategy_frames.values():
+                frame.start_refresh()
+
+        except Exception as e:
+            error_msg = f"Critical error during application initialization: {str(e)}"
+            logger.critical(error_msg, exc_info=True)
+            # Use error handler if available
+            if hasattr(self, 'master_config_manager') and self.master_config_manager:
+                self.master_config_manager.error_handler.handle(
+                    OperationalError(error_msg),
+                    context={"stage": "application_init"},
+                    exc_info=True
+                )
+            # Show error in UI if root exists
+            if hasattr(self, 'root') and self.root.winfo_exists():
+                self.status_var.set(error_msg)
+            else:
+                print(error_msg)
+    
+    def _init_root_window(self, root):
+        """Initialize root window properties and signals."""
         title = "XBridge Trading Bots"
-        self.root = tk.Tk(className=title) 
+        if root is None:
+            self.root = tk.Tk(className=title)
+        else:
+            self.root = root
 
         # Get screen dimensions
         screen_width = self.root.winfo_screenwidth()
@@ -51,10 +104,6 @@ class MainApplication:
 
         self.root.title(title)
         self._watchdog_count = 0
-        self.running_strategies = set() 
-
-
-        logger.info("Initializing GUI application")
 
         # Handle Ctrl+C/KeyboardInterrupt signals for clean shutdown
         def handle_signal(signum, frame):
@@ -62,21 +111,19 @@ class MainApplication:
 
         if hasattr(signal, 'SIGINT'):
             signal.signal(signal.SIGINT, handle_signal)
+        
+        # Setup UI theme
         self.style = Style(theme="darkly")
         self.style.theme_use("darkly")
-        # NEW LINE ADDED BELOW:
-        self.root.configure(background=self.style.lookup("TFrame", "background")) 
-
+        self.root.configure(background=self.style.lookup("TFrame", "background"))
         self.status_var = tk.StringVar(value="Idle")
-
-        # Create a master ConfigManager to hold shared resources
-        self.master_config_manager = ConfigManager(strategy="gui")
-
-        # Create main panels
+    
+    def _create_main_structure(self):
+        """Create main panels and layout structure."""
         main_panel = ttk.Frame(self.root)
         main_panel.pack(fill='both', expand=True, padx=10, pady=10)
 
-        # Create notebook first
+        # Create notebook for tabs
         self.notebook = ttk.Notebook(main_panel)
         self.notebook.pack(fill='both', expand=True, pady=10)
 
@@ -85,8 +132,9 @@ class MainApplication:
         balances_frame.pack(fill='x', padx=5, pady=(0, 5))
         self.balances_panel = BalancesPanel(balances_frame)
         self.balances_panel.pack(fill='both', expand=True)
-
-        # Create and add frames for each strategy
+    
+    def _init_strategy_frames(self):
+        """Initialize and add all strategy frames to the notebook."""
         self.strategy_frames = {
             'PingPong': PingPongFrame(self.notebook, self, self.master_config_manager),
             'Basic Seller': BasicSellerFrame(self.notebook, self, self.master_config_manager),
@@ -95,28 +143,32 @@ class MainApplication:
         for text, frame in self.strategy_frames.items():
             logger.debug(f"Initializing {text} strategy frame")
             self.notebook.add(frame, text=text)
-
+    
+    def _setup_logging(self):
+        """Finalize logging setup after UI components are ready."""
         # Create and add the log frame as the last tab
         logger.debug("Initializing log frame")
         self.log_frame = LogFrame(self.notebook)
         self.notebook.add(self.log_frame, text='Logs')
-
-        # Finalize logging setup AFTER GUI components are ready
         setup_gui_logging(self.log_frame)
-        self.start_watchdog()
-
-        # Start asynchronous task to update shared balances panel (using threading like original gui)
+    
+    def _init_balance_updater(self):
+        """Initialize and start the balance updater thread."""
+        # Initialize queue and event
         self.balance_update_queue = queue.Queue()
-        self.balance_updater_thread = threading.Thread(target=self._run_balance_updater, daemon=True)
+        self.balance_update_interval = 5.0  # seconds
+        self.balance_stop_event = threading.Event()
+        
+        # Create and start balance updater thread
+        self.balance_updater_thread = threading.Thread(
+            target=self._run_balance_updater,
+            name=f"BalanceUpdater-{str(time.time())}",
+            daemon=True
+        )
         self.balance_updater_thread.start()
+        
+        # Schedule balance updates processing
         self.root.after(100, self._process_balance_updates)
-
-
-        self.create_status_bar()
-
-        # Start refresh loops for all strategy frames
-        for frame in self.strategy_frames.values():
-            frame.start_refresh()
     def start_watchdog(self):
         """Periodic check to maintain GUI responsiveness"""
 
@@ -142,8 +194,10 @@ class MainApplication:
         self.status_var.set("Shutting down... Please wait.")
         
         # Signal the balance updater thread to stop
+        if hasattr(self, 'balance_stop_event'):
+            self.balance_stop_event.set()
         if hasattr(self, 'balance_updater_thread') and self.balance_updater_thread.is_alive():
-            self.balance_update_queue.put(None) # Signal to stop
+            self.balance_updater_thread.join(2.0)  # Give thread 2 seconds to exit
 
         shutdown_coordinator = GUIShutdownCoordinator(
             config_manager=self.master_config_manager,
@@ -153,67 +207,91 @@ class MainApplication:
         shutdown_coordinator.initiate_shutdown()
 
     def _run_balance_updater(self):
-        """Runs in a separate thread to collect balance data."""
-        while True:
-            try:
-                # Collect balance data
-                balances = {}  # Use a dictionary to aggregate balances
+        """Runs in a separate thread to collect balance data with event-based stopping."""
+        try:
+            while not self.balance_stop_event.is_set():
+                try:
+                    # Collect balance data
+                    balances = {}  # Use a dictionary to aggregate balances
 
-                # Use lock to safely access tokens_dict
-                with self.master_config_manager.resource_lock:
-                    for frame in self.strategy_frames.values():
-                        if getattr(frame, 'config_manager', None) and hasattr(frame.config_manager, 'tokens'):
-                            tokens = frame.config_manager.tokens
-                            for token_symbol, token_obj in tokens.items():
-                                # Only process tokens that have both CEX and DEX components
-                                if getattr(token_obj, 'cex', None) and getattr(token_obj, 'dex', None):
-                                    balance_total = token_obj.dex_total_balance or 0.0
-                                    balance_free = token_obj.dex_free_balance or 0.0
-                                    
-                                    # Ensure usd_price is not None before using it, default to 0.0
-                                    usd_price = token_obj.cex_usd_price if token_obj.cex_usd_price is not None else 0.0
+                    # Use lock to safely access tokens_dict
+                    with self.master_config_manager.resource_lock:
+                        for frame in self.strategy_frames.values():
+                            if getattr(frame, 'config_manager', None) and hasattr(frame.config_manager, 'tokens'):
+                                tokens = frame.config_manager.tokens
+                                for token_symbol, token_obj in tokens.items():
+                                    # Only process tokens that have both CEX and DEX components
+                                    if getattr(token_obj, 'cex', None) and getattr(token_obj, 'dex', None):
+                                        balance_total = token_obj.dex_total_balance or 0.0
+                                        balance_free = token_obj.dex_free_balance or 0.0
+                                        
+                                        # Ensure usd_price is not None before using it, default to 0.0
+                                        usd_price = token_obj.cex_usd_price if token_obj.cex_usd_price is not None else 0.0
 
-                                    if token_symbol not in balances:
-                                        # Add new token balance
-                                        balances[token_symbol] = {
-                                            "symbol": token_symbol,
-                                            "usd_price": usd_price,
-                                            "total": balance_total,
-                                            "free": balance_free
-                                        }
-                                    else:
-                                        # Update existing token balance, prioritizing positive values
-                                        existing_balance = balances[token_symbol]
+                                        if token_symbol not in balances:
+                                            # Add new token balance
+                                            balances[token_symbol] = {
+                                                "symbol": token_symbol,
+                                                "usd_price": usd_price,
+                                                "total": balance_total,
+                                                "free": balance_free
+                                            }
+                                        else:
+                                            # Update existing token balance, prioritizing positive values
+                                            existing_balance = balances[token_symbol]
 
-                                        # Prioritize positive or non-zero values
-                                        existing_balance["total"] = max(existing_balance["total"], balance_total)
-                                        existing_balance["free"] = max(existing_balance["free"], balance_free)
-                                        # Prioritize non-zero usd_price
-                                        existing_balance["usd_price"] = usd_price if usd_price > 0 else existing_balance["usd_price"]
-                
-                # Convert the dictionary to a list for the GUI
-                data = list(balances.values())
+                                            # Prioritize positive or non-zero values
+                                            existing_balance["total"] = max(existing_balance["total"], balance_total)
+                                            existing_balance["free"] = max(existing_balance["free"], balance_free)
+                                            # Prioritize non-zero usd_price
+                                            existing_balance["usd_price"] = usd_price if usd_price > 0 else existing_balance["usd_price"]
+                    
+                    # Convert the dictionary to a list for the GUI
+                    data = list(balances.values())
 
-                # Only update if there are running strategies, else display initial state
-                if not self.running_strategies:
-                    # logger.debug("No strategies running, displaying initial balances.")
-                    data = self._get_initial_balances_data()
-                
-                self.balance_update_queue.put(data)
-                
-                # Check for stop signal
-                if not self.balance_update_queue.empty() and self.balance_update_queue.queue[0] is None:
-                    self.balance_update_queue.get() # Consume the None
+                    # Only update if there are running strategies, else display initial state
+                    if not self.running_strategies:
+                        # logger.debug("No strategies running, displaying initial balances.")
+                        data = self._get_initial_balances_data()
+                    
+                    self.balance_update_queue.put(data)
+                    
+                    # Wait for interval or stop signal
+                    if self.balance_stop_event.wait(self.balance_update_interval):
+                        break
+
+                except Exception as e:
+                    logger.error(f"Error in balance updater thread: {e}", exc_info=True)
+                    # Use centralized error handling
+                    if self.master_config_manager:
+                        self.master_config_manager.error_handler.handle(
+                            OperationalError(f"Balance updater error: {str(e)}"),
+                            context={"stage": "balance_updater"},
+                            exc_info=True
+                        )
+                    # Wait 5 seconds or until stopped
+                    if self.balance_stop_event.wait(5):
+                        break
+        except Exception as e:
+            # Top-level exception handler for the thread
+            error_msg = f"Critical error in balance updater thread: {str(e)}"
+            logger.critical(error_msg, exc_info=True)
+            if self.master_config_manager:
+                self.master_config_manager.error_handler.handle(
+                    OperationalError(error_msg),
+                    context={"stage": "balance_updater_thread"}
+                )
+        finally:
+            # Always clear queue on thread exit
+            while not self.balance_update_queue.empty():
+                try:
+                    self.balance_update_queue.get_nowait()
+                except queue.Empty:
                     break
-
-                threading.Event().wait(2) # Wait for 2 seconds
-
-            except Exception as e:
-                logger.error(f"Error in balance updater thread: {e}", exc_info=True)
-                threading.Event().wait(5) # Wait longer on error
+            logger.info("Balance updater thread terminated")
 
     def _process_balance_updates(self):
-        """Processes queued balance updates in the main Tkinter thread (mimicking gui/gui.py)."""
+        """Processes queued balance updates in the main Tkinter thread with error handling."""
         if not self.root.winfo_exists():
             return
 
@@ -226,7 +304,14 @@ class MainApplication:
         except queue.Empty:
             pass # No updates yet
         except Exception as e:
-            logger.error(f"Error processing balance updates in main thread: {e}", exc_info=True)
+            logger.error(f"Error processing balance updates: {e}", exc_info=True)
+            # Use centralized error handling
+            if self.master_config_manager:
+                self.master_config_manager.error_handler.handle(
+                    OperationalError(f"Balance update processing error: {str(e)}"),
+                    context={"stage": "process_balance_updates"},
+                    exc_info=True
+                )
         finally:
             if self.root.winfo_exists(): # Only reschedule if still running
                 self.root.after(250, self._process_balance_updates) # Schedule next check

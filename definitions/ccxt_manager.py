@@ -11,6 +11,7 @@ from pathlib import Path
 import ccxt
 
 from definitions.rpc import rpc_call
+from definitions.error_handler import ErrorHandler, TransientError, OperationalError, CriticalError
 
 
 class CCXTManager:
@@ -22,18 +23,28 @@ class CCXTManager:
     def __init__(self, config_manager):
         self.config_manager = config_manager  # Store ConfigManager reference
         # Instance doesn't need its own proxy_process reference
+        self.error_handler = ErrorHandler(config_manager, logger=self.config_manager.ccxt_log)
 
     def init_ccxt_instance(self, exchange, hostname=None, private_api=False, debug_level=1):
         # CCXT instance
         api_key = None
         api_secret = None
         if private_api:
-            with open(self.config_manager.ROOT_DIR + '/config/api_keys.local.json') as json_file:
-                data_json = json.load(json_file)
-                for data in data_json['api_info']:
-                    if exchange in data['exchange']:
-                        api_key = data['api_key']
-                        api_secret = data['api_secret']
+            try:
+                with open(self.config_manager.ROOT_DIR + '/config/api_keys.local.json') as json_file:
+                    data_json = json.load(json_file)
+                    for data in data_json['api_info']:
+                        if exchange in data['exchange']:
+                            api_key = data['api_key']
+                            api_secret = data['api_secret']
+            except Exception as e:
+                self.error_handler.handle(
+                    OperationalError(f"API keys load failed: {str(e)}",
+                                    {"exchange": exchange, "file": "api_keys.local.json"}),
+                    context={"method": "init_ccxt_instance"}
+                )
+                return None
+                
         if exchange in ccxt.exchanges:
             exchange_class = getattr(ccxt, exchange)
             if hostname:
@@ -57,12 +68,19 @@ class CCXTManager:
                     # Run blocking load_markets in a thread pool executor
                     instance.load_markets()  # Directly call the blocking method
                 except Exception as e:
-                    self._manage_error(e)
-                    exit()
+                    self.error_handler.handle(
+                        TransientError(f"Exchange initialization failed: {str(e)}",
+                                      {"exchange": exchange}),
+                        context={"method": "init_ccxt_instance"}
+                    )
+                    # Continue retrying unless it's a critical error
+                    if isinstance(e, CriticalError):
+                        exit()
                 else:
                     done = True
             return instance
         else:
+            self.config_manager.ccxt_log.error(f"Unsupported exchange: {exchange}")
             return None
 
     async def ccxt_call_fetch_order_book(self, ccxt_o, symbol, limit=25, ignore_timer=False):
@@ -81,7 +99,17 @@ class CCXTManager:
                 result = await loop.run_in_executor(None, ccxt_o.fetch_order_book, symbol, limit)
             except Exception as error:
                 err_count += 1
-                self._manage_error(error, err_count)
+                context = {
+                    "method": "_fetch_order_book",
+                    "symbol": symbol,
+                    "limit": limit,
+                    "err_count": err_count
+                }
+                if not self.error_handler.handle(
+                    TransientError(str(error), {"type": type(error).__name__}),
+                    context=context
+                ):
+                    return None  # Abort on critical error
             else:
                 self._debug_display('ccxt_call_fetch_order_book', [symbol, limit], result)
                 return result
@@ -95,7 +123,15 @@ class CCXTManager:
                 result = await loop.run_in_executor(None, ccxt_o.fetch_free_balance)
             except Exception as error:
                 err_count += 1
-                self._manage_error(error, err_count)
+                context = {
+                    "method": "ccxt_call_fetch_free_balance",
+                    "err_count": err_count
+                }
+                if not self.error_handler.handle(
+                    TransientError(str(error), {"type": type(error).__name__}),
+                    context=context
+                ):
+                    return None
             else:
                 self._debug_display('ccxt_call_fetch_free_balance', [], result)
                 return result
@@ -129,7 +165,17 @@ class CCXTManager:
                     return result
             except Exception as error:
                 err_count += 1
-                self._manage_error(error, err_count)
+                context = {
+                    "method": "ccxt_call_fetch_tickers",
+                    "symbols": symbols_list,
+                    "proxy_used": proxy,
+                    "err_count": err_count
+                }
+                if not self.error_handler.handle(
+                    TransientError(str(error), {"type": type(error).__name__}),
+                    context=context
+                ):
+                    return None
 
     async def ccxt_call_fetch_ticker(self, ccxt_o, symbol):
         err_count = 0
@@ -139,7 +185,16 @@ class CCXTManager:
                 result = await loop.run_in_executor(None, ccxt_o.fetch_ticker, symbol)
             except Exception as error:
                 err_count += 1
-                self._manage_error(error, err_count)
+                context = {
+                    "method": "ccxt_call_fetch_ticker",
+                    "symbol": symbol,
+                    "err_count": err_count
+                }
+                if not self.error_handler.handle(
+                    TransientError(str(error), {"type": type(error).__name__}),
+                    context=context
+                ):
+                    return None
             else:
                 self._debug_display('ccxt_call_fetch_ticker', [symbol], result)
                 return result
@@ -150,7 +205,7 @@ class CCXTManager:
             s.connect((ip, int(port)))
             s.shutdown(2)
             return True
-        except:
+        except Exception:
             return False
 
     def _start_proxy(self):
@@ -194,23 +249,11 @@ class CCXTManager:
                     if stderr_output:
                         self.config_manager.ccxt_log.error(f"Proxy error output:\n{stderr_output}")
             except Exception as e:
-                self.config_manager.ccxt_log.error(f"Proxy startup failed: {str(e)}")
+                self.error_handler.handle(
+                    CriticalError(f"Proxy startup failed: {str(e)}", {"port": CCXTManager._proxy_port}),
+                    context={"method": "_start_proxy"}
+                )
                 CCXTManager._proxy_process = None
-
-    def _manage_error(self, error, err_count=1):
-        err_type = type(error).__name__
-        msg = f"parent: {str(sys._getframe(1).f_code.co_name)}, error: {str(type(error))}, {str(error)}, {str(err_type)}"
-        self.config_manager.ccxt_log.error(msg)
-        if err_type == "TimeoutError":  #
-            sleep_time = min(err_count * 2, 10)
-            self.config_manager.ccxt_log.warning(f"Timeout detected, retrying in {sleep_time}s")
-            time.sleep(sleep_time)
-        elif err_type in ["NetworkError", "DDoSProtection", "RateLimitExceeded", "InvalidNonce",
-                          "RequestTimeout", "ExchangeNotAvailable", "Errno -3", "AuthenticationError",
-                          "Temporary failure in name resolution", "ExchangeError", "BadResponse", "KeyError", "BadRequest"]:
-            time.sleep(err_count * 1)
-        else:
-            time.sleep(err_count * 1)
 
     def _debug_display(self, func, params, result, timer=None):
         debug_level = self.config_manager.config_ccxt.debug_level

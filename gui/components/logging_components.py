@@ -16,8 +16,6 @@ class LogFrame(ttk.Frame):
         self.grid_columnconfigure(0, weight=1)
 
         self.log_entries = []  # Track (timestamp, line_start, line_end)
-        self.prune_interval = 30 * 60 * 1000  # Check every 30 minutes
-        self.after(self.prune_interval, self.prune_old_logs)
 
         self.log_update_queue = queue.Queue()
         self.after(250, self._process_log_updates)
@@ -92,37 +90,6 @@ class LogFrame(ttk.Frame):
             if self.winfo_exists():
                 self.after(250, self._process_log_updates) # Schedule next check
 
-    def prune_old_logs(self):
-        if not self.winfo_exists():
-            return
-
-        cutoff = time.time() - 6 * 60 * 60  # 6 hours ago
-        keep = []
-
-        try:
-            self.log_text.config(state='normal')
-
-            # Iterate in reverse to maintain correct indices after deletions
-            for i in reversed(range(len(self.log_entries))):
-                entry = self.log_entries[i]
-                if entry[0] <= cutoff:
-                    self.log_text.delete(f'{entry[1]}.0', f'{entry[2]}.0')
-                    del self.log_entries[i]
-
-            # Rebase remaining entries with correct line numbers
-            new_entries = []
-            current_line = 1
-            for ts, _, _ in self.log_entries:
-                new_entries.append((ts, current_line, current_line + 1))
-                current_line += 1
-
-            self.log_entries = new_entries
-
-        finally:
-            self.log_text.config(state='disabled')
-            # Reschedule pruning only if window exists
-            if self.winfo_exists():
-                self.after(self.prune_interval, self.prune_old_logs)
 
 
 class TextLogHandler(logging.Handler):

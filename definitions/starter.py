@@ -52,14 +52,29 @@ class BalanceManager:
 
     async def update_balances(self):
         if self._should_update_bals():
-            xb_tokens = await self.config_manager.xbridge_manager.getlocaltokens()
+            try:
+                xb_tokens = await self.config_manager.xbridge_manager.getlocaltokens()
+            except Exception as e:
+                self.config_manager.error_handler.handle(
+                    OperationalError(f"Error getting local tokens: {e}"),
+                    context={"stage": "update_balances"},
+                    exc_info=True
+                )
+                return
 
             futures = []
             for token_data in self.tokens_dict.values():
                 futures.append(self._update_token_balance(token_data, xb_tokens))
 
             if futures:
-                await asyncio.gather(*futures)  # Wait for all balance updates to complete
+                try:
+                    await asyncio.gather(*futures)  # Wait for all balance updates to complete
+                except Exception as e:
+                    self.config_manager.error_handler.handle(
+                        OperationalError(f"Error in balance updates: {e}"),
+                        context={"stage": "update_balances"},
+                        exc_info=True
+                    )
 
             self.timer_main_dx_update_bals = time.time()
 
@@ -68,14 +83,21 @@ class BalanceManager:
 
     async def _update_token_balance(self, token_data, xb_tokens):
         with self.config_manager.resource_lock:
-            if xb_tokens and token_data.symbol in xb_tokens:
-                utxos = await self.config_manager.xbridge_manager.gettokenutxo(token_data.symbol, used=True)
-                bal, bal_free = self._calculate_balances(utxos)
-                token_data.dex.total_balance = bal
-                token_data.dex.free_balance = bal_free
-            else:
-                token_data.dex.total_balance = None
-                token_data.dex.free_balance = None
+            try:
+                if xb_tokens and token_data.symbol in xb_tokens:
+                    utxos = await self.config_manager.xbridge_manager.gettokenutxo(token_data.symbol, used=True)
+                    bal, bal_free = self._calculate_balances(utxos)
+                    token_data.dex.total_balance = bal
+                    token_data.dex.free_balance = bal_free
+                else:
+                    token_data.dex.total_balance = None
+                    token_data.dex.free_balance = None
+            except Exception as e:
+                self.config_manager.error_handler.handle(
+                    OperationalError(f"Error updating {token_data.symbol} balance: {e}"),
+                    context={"token": token_data.symbol},
+                    exc_info=True
+                )
 
     def _calculate_balances(self, utxos):
         bal = bal_free = 0
@@ -107,14 +129,25 @@ class PriceHandler:
                 await self._fetch_and_update_prices()  # Await the async call
                 self.ccxt_price_timer = time.time()
             except Exception as e:
-                self.config_manager.general_log.error(f"Error in update_ccxt_prices: {e}", exc_info=True)
+                self.config_manager.error_handler.handle(
+                    OperationalError(f"Error updating CEX prices: {e}"),
+                    context={"stage": "price_update"},
+                    exc_info=True
+                )
 
     async def _fetch_and_update_prices(self):
         custom_coins = vars(self.config_manager.config_coins.usd_ticker_custom).keys()
         keys = [self._construct_key(token) for token in self.tokens_dict if token not in custom_coins]
 
-        tickers = await self.config_manager.ccxt_manager.ccxt_call_fetch_tickers(self.ccxt_i, keys)
-        await self._update_token_prices(tickers)
+        try:
+            tickers = await self.config_manager.ccxt_manager.ccxt_call_fetch_tickers(self.ccxt_i, keys)
+            await self._update_token_prices(tickers)
+        except Exception as e:
+            self.config_manager.error_handler.handle(
+                OperationalError(f"Error fetching CEX tickers: {e}"),
+                context={"stage": "price_update"},
+                exc_info=True
+            )
 
     def _construct_key(self, token):
         return f"{token}/USDT" if token == 'BTC' else f"{token}/BTC"
@@ -126,14 +159,27 @@ class PriceHandler:
                 return
             symbol = f"{token_data.symbol}/USDT" if token_data.symbol == 'BTC' else f"{token_data.symbol}/BTC"
             if not hasattr(self.config_manager.config_coins.usd_ticker_custom, token) and symbol in self.ccxt_i.symbols:
-                # This is a blocking call
-                await self._update_token_price(tickers, symbol, lastprice_string, token_data)
+                try:
+                    await self._update_token_price(tickers, symbol, lastprice_string, token_data)
+                except Exception as e:
+                    self.config_manager.error_handler.handle(
+                        OperationalError(f"Error updating {token} price: {e}"),
+                        context={"token": token, "symbol": symbol},
+                        exc_info=True
+                    )
 
         for token in vars(self.config_manager.config_coins.usd_ticker_custom):
             if self.main_controller.shutdown_event.is_set():
                 return
             if token in self.tokens_dict:
-                await self.tokens_dict[token].cex.update_price()
+                try:
+                    await self.tokens_dict[token].cex.update_price()
+                except Exception as e:
+                    self.config_manager.error_handler.handle(
+                        OperationalError(f"Error updating custom {token} price: {e}"),
+                        context={"token": token},
+                        exc_info=True
+                    )
 
     def _get_last_price_string(self):
         return {
@@ -174,50 +220,65 @@ class MainController:
         self.config_manager.strategy_instance.controller = self  # Pass controller to strategy
 
     async def main_init_loop(self):
-        # Initialize token addresses, which was previously done in a sync constructor
-        token_init_futures = []
-        for token in self.tokens_dict.values():
-            if token.dex.enabled:
-                token_init_futures.append(token.dex.read_address())
-        if token_init_futures:
-            await asyncio.gather(*token_init_futures)
+        try:
+            # Initialize token addresses, which was previously done in a sync constructor
+            token_init_futures = []
+            for token in self.tokens_dict.values():
+                if token.dex.enabled:
+                    token_init_futures.append(token.dex.read_address())
+            if token_init_futures:
+                await asyncio.gather(*token_init_futures)
 
-        # Load XBridge configuration asynchronously if enabled
-        if self.config_manager.load_xbridge_conf_on_startup:
-            await self.config_manager.xbridge_manager.dxloadxbridgeconf()
+            # Load XBridge configuration asynchronously if enabled
+            if self.config_manager.load_xbridge_conf_on_startup:
+                await self.config_manager.xbridge_manager.dxloadxbridgeconf()
 
-        await self.balance_manager.update_balances()  # Await the async call
-        await self.price_handler.update_ccxt_prices()  # Await the async call
+            await self.balance_manager.update_balances()  # Await the async call
+            await self.price_handler.update_ccxt_prices()  # Await the async call
 
-        futures = []
-        for pair in self.pairs_dict.values():
-            if self.shutdown_event.is_set():
-                return
-            if self.config_manager.strategy_instance.should_update_cex_prices():
-                futures.append(pair.cex.update_pricing())
+            futures = []
+            for pair in self.pairs_dict.values():
+                if self.shutdown_event.is_set():
+                    return
+                if self.config_manager.strategy_instance.should_update_cex_prices():
+                    futures.append(pair.cex.update_pricing())
 
-        if futures:
-            await asyncio.gather(*futures)
+            if futures:
+                await asyncio.gather(*futures)
 
-        await self.processor.process_pairs(self.config_manager.strategy_instance.thread_init_async_action)
+            await self.processor.process_pairs(self.config_manager.strategy_instance.thread_init_async_action)
+        except Exception as e:
+            self.config_manager.error_handler.handle(
+                OperationalError(f"Initialization loop error: {e}"),
+                context={"stage": "main_init_loop"},
+                exc_info=True
+            )
+            raise
 
     async def main_loop(self):
-        start_time = time.perf_counter()
-        await self.balance_manager.update_balances()  # Await the async call
-        await self.price_handler.update_ccxt_prices()  # Await the async call
+        try:
+            start_time = time.perf_counter()
+            await self.balance_manager.update_balances()  # Await the async call
+            await self.price_handler.update_ccxt_prices()  # Await the async call
 
-        futures = []
+            futures = []
 
-        for pair in self.pairs_dict.values():
-            if self.shutdown_event.is_set():
-                return
-            if self.config_manager.strategy_instance.should_update_cex_prices():
-                futures.append(pair.cex.update_pricing())
-        if futures:
-            await asyncio.gather(*futures)
+            for pair in self.pairs_dict.values():
+                if self.shutdown_event.is_set():
+                    return
+                if self.config_manager.strategy_instance.should_update_cex_prices():
+                    futures.append(pair.cex.update_pricing())
+            if futures:
+                await asyncio.gather(*futures)
 
-        await self.processor.process_pairs(self.config_manager.strategy_instance.thread_loop_async_action)
-        self._report_time(start_time)
+            await self.processor.process_pairs(self.config_manager.strategy_instance.thread_loop_async_action)
+            self._report_time(start_time)
+        except Exception as e:
+            self.config_manager.error_handler.handle(
+                OperationalError(f"Main loop error: {e}"),
+                context={"stage": "main_loop"},
+                exc_info=True
+            )
 
     def _report_time(self, start_time):
         end_time = time.perf_counter()
@@ -227,7 +288,11 @@ class MainController:
         try:
             self.config_manager.strategy_instance.thread_loop_blocking_action(pair)
         except Exception as e:
-            self.config_manager.general_log.error(f"Error in thread_loop: {e}", exc_info=True)
+            self.config_manager.error_handler.handle(
+                OperationalError(f"Thread blocking action error: {e}"),
+                context={"pair": pair.symbol},
+                exc_info=True
+            )
 
 
 def run_async_main(config_manager, loop=None, startup_tasks=None):

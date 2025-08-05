@@ -3,7 +3,6 @@ import asyncio
 
 from definitions.config_manager import ConfigManager
 from definitions.starter import run_async_main
-from test_units.test_arbitrage_strategy import ArbitrageStrategyTester
 
 
 def start():
@@ -32,10 +31,6 @@ def start():
     parser.add_argument("--min-profit", type=float, default=None,
                         help="The minimum profit margin required to execute a trade (e.g., 0.01 for 1%%).\n"
                              "If not provided, the 'min_profit_margin' setting from config_arbitrage.yaml is used.")
-    parser.add_argument("--test-leg", type=int, choices=[1, 2],
-                        help="Run a specific arbitrage leg in test mode to verify the execution flow.\nLeg 1: Sell on XBridge, Buy on Thorchain.\nLeg 2: Buy on XBridge, Sell on Thorchain.")
-    parser.add_argument("--run-tests", action="store_true",
-                        help="Run the internal test suite for state management and recovery logic.")
 
     args = parser.parse_args()
 
@@ -48,26 +43,14 @@ def start():
     # Pass CLI args to be stored in strategy_config
     config_manager.initialize(
         dry_mode=final_dry_mode,
-        min_profit_margin=args.min_profit,  # Pass None if not provided, strategy will use its default
-        test_mode=(args.test_leg is not None or args.run_tests)
+        min_profit_margin=args.min_profit  # Pass None if not provided, strategy will use its default
     )
 
     if config_manager.strategy_instance:
         # The strategy will now automatically check for interrupted trades upon initialization.
-        # No explicit call is needed here if the logic is in initialize_strategy_specifics.
-
-        if args.test_leg:
-            tester = ArbitrageStrategyTester(config_manager.strategy_instance)
-            config_manager.general_log.info(f"--- Running Test for Arbitrage Leg {args.test_leg} ---")
-            asyncio.run(tester.run_arbitrage_test(args.test_leg))
-            config_manager.general_log.info(f"--- Test for Arbitrage Leg {args.test_leg} Finished ---")
-        elif args.run_tests:
-            tester = ArbitrageStrategyTester(config_manager.strategy_instance)
-            asyncio.run(tester.run_all_tests())
-        else:
-            startup_tasks = config_manager.strategy_instance.get_startup_tasks()
-            # run_async_main will handle the event loop creation and management.
-            run_async_main(config_manager, startup_tasks=startup_tasks)
+        startup_tasks = config_manager.strategy_instance.get_startup_tasks()
+        # run_async_main will handle the event loop creation and management.
+        run_async_main(config_manager, startup_tasks=startup_tasks)
     else:
         config_manager.general_log.error("Failed to initialize strategy instance.")
 

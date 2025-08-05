@@ -10,6 +10,7 @@ import aiohttp
 
 from definitions.trade_state import TradeState
 from strategies.base_strategy import BaseStrategy
+from definitions.error_handler import OperationalError, ConfigurationError
 
 if TYPE_CHECKING:
     from definitions.config_manager import ConfigManager
@@ -65,29 +66,35 @@ class ArbitrageStrategy(BaseStrategy):
 
     def _load_strategy_configs(self):
         """Loads strategy-specific configurations from the config files, with fallbacks."""
+        try:
+            def get_nested_attr(obj, attrs, default):
+                """Safely gets a nested attribute from an object."""
+                for attr in attrs:
+                    obj = getattr(obj, attr, None)
+                    if obj is None:
+                        return default
+                return obj
 
-        def get_nested_attr(obj, attrs, default):
-            """Safely gets a nested attribute from an object."""
-            for attr in attrs:
-                obj = getattr(obj, attr, None)
-                if obj is None:
-                    return default
-            return obj
-
-        self.xb_monitor_timeout = get_nested_attr(self.config_manager.config_xbridge, ['monitoring', 'timeout'],
-                                                  self.xb_monitor_timeout)
-        self.xb_monitor_poll = get_nested_attr(self.config_manager.config_xbridge, ['monitoring', 'poll_interval'],
-                                               self.xb_monitor_poll)
-        self.thor_monitor_timeout = get_nested_attr(self.config_manager.config_thorchain, ['monitoring', 'timeout'],
-                                                    self.thor_monitor_timeout)
-        self.thor_monitor_poll = get_nested_attr(self.config_manager.config_thorchain, ['monitoring', 'poll_interval'],
-                                                 self.thor_monitor_poll)
-        self.thor_api_url = get_nested_attr(self.config_manager.config_thorchain, ['api', 'thornode_url'],
-                                            self.thor_api_url)
-        self.thor_quote_url = get_nested_attr(self.config_manager.config_thorchain, ['api', 'thornode_quote_url'],
-                                              self.thor_quote_url)
-        self.thor_tx_url = get_nested_attr(self.config_manager.config_thorchain, ['api', 'thornode_tx_url'],
-                                           self.thor_tx_url)
+            self.xb_monitor_timeout = get_nested_attr(self.config_manager.config_xbridge, ['monitoring', 'timeout'],
+                                                      self.xb_monitor_timeout)
+            self.xb_monitor_poll = get_nested_attr(self.config_manager.config_xbridge, ['monitoring', 'poll_interval'],
+                                                   self.xb_monitor_poll)
+            self.thor_monitor_timeout = get_nested_attr(self.config_manager.config_thorchain, ['monitoring', 'timeout'],
+                                                        self.thor_monitor_timeout)
+            self.thor_monitor_poll = get_nested_attr(self.config_manager.config_thorchain, ['monitoring', 'poll_interval'],
+                                                     self.thor_monitor_poll)
+            self.thor_api_url = get_nested_attr(self.config_manager.config_thorchain, ['api', 'thornode_url'],
+                                                self.thor_api_url)
+            self.thor_quote_url = get_nested_attr(self.config_manager.config_thorchain, ['api', 'thornode_quote_url'],
+                                                  self.thor_quote_url)
+            self.thor_tx_url = get_nested_attr(self.config_manager.config_thorchain, ['api', 'thornode_tx_url'],
+                                               self.thor_tx_url)
+        except Exception as e:
+            self.config_manager.error_handler.handle(
+                OperationalError(f"Error loading strategy configs: {str(e)}"),
+                context={"stage": "_load_strategy_configs"}
+            )
+            raise
 
     def get_tokens_for_initialization(self, **kwargs) -> List[str]:
         """Gets the list of tokens from the arbitrage config file."""
@@ -147,7 +154,10 @@ class ArbitrageStrategy(BaseStrategy):
                     f"Bot is monitoring for refund. Trading will resume automatically."
                 )
             except (IOError, json.JSONDecodeError) as e:
-                self.config_manager.general_log.error(f"Could not read pause file at {self.pause_file_path}: {e}")
+                self.config_manager.error_handler.handle(
+                    OperationalError(f"Could not read pause file: {str(e)}"),
+                    context={"file": self.pause_file_path}
+                )
             return
 
         check_id = str(uuid.uuid4())
@@ -182,8 +192,13 @@ class ArbitrageStrategy(BaseStrategy):
             self.config_manager.general_log.debug(f"Sorted xbridge_asks: {xbridge_asks}")
             self.config_manager.general_log.debug(f"Sorted xbridge_bids: {xbridge_bids}")
         except Exception as e:
-            self.config_manager.general_log.error(
-                f"[{log_prefix}] Error fetching XBridge order book for {pair_instance.symbol}: {e}", exc_info=True)
+            self.config_manager.error_handler.handle(
+                OperationalError(f"Error fetching XBridge order book: {str(e)}"),
+                context={
+                    "pair": pair_instance.symbol,
+                    "log_prefix": log_prefix
+                }
+            )
             return
 
         # 2. Check both arbitrage legs
@@ -283,10 +298,15 @@ class ArbitrageStrategy(BaseStrategy):
             )
         except Exception as e:
             direction_desc = "Sell->Buy" if is_bid else "Buy->Sell"
-            self.config_manager.general_log.error(
-                f"[{log_prefix}] Exception during Thorchain quote fetch for {pair_instance.symbol} ({direction_desc}): {e}",
-                exc_info=True)
-            return None  # Stop on error
+            self.config_manager.error_handler.handle(
+                OperationalError(f"Thorchain quote fetch failed: {str(e)}"),
+                context={
+                    "pair": pair_instance.symbol,
+                    "direction": direction_desc,
+                    "log_prefix": log_prefix
+                }
+            )
+            return None
 
         if not (thorchain_quote and thorchain_quote.get('expected_amount_out')):
             direction_desc = "Sell->Buy" if is_bid else "Buy->Sell"
@@ -487,8 +507,13 @@ class ArbitrageStrategy(BaseStrategy):
             )
 
             if not xb_result or not xb_result.get('id'):
-                self.config_manager.general_log.error(
-                    f"[{log_prefix}] XBridge trade failed to initiate or was already taken. Aborting arbitrage.")
+                self.config_manager.error_handler.handle(
+                    OperationalError("XBridge trade failed to initiate or was already taken"),
+                    context={
+                        "order_id": exec_data['xbridge_order_id'],
+                        "log_prefix": log_prefix
+                    }
+                )
                 state.archive("xbridge-init-failed")
                 return
 
@@ -500,8 +525,12 @@ class ArbitrageStrategy(BaseStrategy):
             # --- Step 2: Monitor XBridge Trade ---
             xbridge_completed = await self._monitor_xbridge_order(xb_trade_id, check_id)
             if not xbridge_completed:
-                self.config_manager.general_log.error(
-                    f"[{log_prefix}] XBridge trade {xb_trade_id} did not complete successfully. Aborting arbitrage."
+                self.config_manager.error_handler.handle(
+                    OperationalError("XBridge trade did not complete successfully"),
+                    context={
+                        "xbridge_trade_id": xb_trade_id,
+                        "log_prefix": log_prefix
+                    }
                 )
                 state.archive("xbridge-monitor-failed")
                 return
@@ -517,13 +546,13 @@ class ArbitrageStrategy(BaseStrategy):
             await self._reevaluate_and_execute_thorchain(state, state.state_data)
 
         except Exception as e:
-            self.config_manager.general_log.error(
-                f"[{log_prefix}] An unexpected error occurred during arbitrage execution: {e}", exc_info=True
-            )
-            # The state data might not have thor_txid if the exception was early.
-            last_known_xb_id = state.state_data.get('xbridge_trade_id', 'N/A')
-            self.config_manager.general_log.critical(
-                f"[{log_prefix}] Arbitrage failed. Last known XBridge ID: {last_known_xb_id}. Manual intervention may be required."
+            self.config_manager.error_handler.handle(
+                OperationalError(f"Arbitrage execution failed: {str(e)}"),
+                context={
+                    "last_known_xb_id": state.state_data.get('xbridge_trade_id', 'N/A'),
+                    "log_prefix": log_prefix
+                },
+                exc_info=True
             )
             state.archive("execution-error")
 

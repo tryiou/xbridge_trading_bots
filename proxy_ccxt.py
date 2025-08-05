@@ -9,16 +9,13 @@ import ccxt.async_support as ccxt
 from aiohttp import ClientSession, web
 
 from definitions.yaml_mix import YamlToObject
+from definitions.logger import setup_logging
 
 if os.name == 'nt':
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 # Setup logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-)
+logger = setup_logging(name="service.proxy_ccxt", level=logging.INFO, console=True)
 
 
 # --- Retry Decorator ---
@@ -36,7 +33,7 @@ def async_retry(max_retries=5, delay=1, backoff=2):
                     return await f(*args, **kwargs)
                 except Exception as e:
                     # Log as warning for expected retry scenarios
-                    logging.warning(
+                    logger.warning(
                         f"Attempt {i + 1}/{max_retries} for {f.__name__} failed: {str(e)}"
                     )
                     if i == max_retries - 1:
@@ -89,14 +86,14 @@ class PriceFetcher:
 
     @async_retry()
     async def _load_markets_with_retry(self):
-        logging.info(f"Loading markets for exchange: {self.ccxt_i.id}")
+        logger.info(f"Loading markets for exchange: {self.ccxt_i.id}")
         await self.ccxt_i.load_markets()
-        logging.info(f"Markets loaded successfully for exchange: {self.ccxt_i.id}")
+        logger.info(f"Markets loaded successfully for exchange: {self.ccxt_i.id}")
 
     async def close(self):
         if self.ccxt_i:
             await self.ccxt_i.close()
-            logging.info("CCXT instance closed.")
+            logger.info("CCXT instance closed.")
 
     def _needs_refresh(self, symbols=None):
         """Check if a refresh is needed for the given symbols."""
@@ -110,7 +107,7 @@ class PriceFetcher:
         if not self.symbols_list:
             return
 
-        logging.info(f"Refreshing CCXT tickers for: {self.symbols_list}")
+        logger.info(f"Refreshing CCXT tickers for: {self.symbols_list}")
         
         try:
             # Group symbols by market type to avoid mixed spot/swap requests
@@ -131,25 +128,25 @@ class PriceFetcher:
                     )
                     # Handle invalid ticker responses (non-dict/non-iterable)
                     if not isinstance(tickers, dict) and not hasattr(tickers, '__iter__'):
-                        logging.error(f"Invalid tickers response type: {type(tickers)}")
+                        logger.error(f"Invalid tickers response type: {type(tickers)}")
                     else:
                         try:
                             self.tickers.update(tickers)
                         except (TypeError, ValueError) as e:
-                            logging.error(f"Error updating tickers: {e}")
-            logging.info("Successfully refreshed CCXT tickers.")
+                            logger.error(f"Error updating tickers: {e}")
+            logger.info("Successfully refreshed CCXT tickers.")
             
         except ccxt.BadRequest as e:
-            logging.error(f"Invalid symbol combination: {e}")
+            logger.error(f"Invalid symbol combination: {e}")
             raise
         except Exception as e:
-            logging.error(f"Error refreshing tickers: {e}")
+            logger.error(f"Error refreshing tickers: {e}")
             raise
 
     @async_retry(max_retries=3, delay=2)
     async def update_custom_ticker_block(self):
         """Updates the BLOCK ticker from CryptoCompare."""
-        logging.info("Fetching BLOCK ticker from external API...")
+        logger.info("Fetching BLOCK ticker from external API...")
         self.custom_ticker_call_count += 1
         url = 'https://min-api.cryptocompare.com/data/price?fsym=BLOCK&tsyms=BTC'
         async with self.session.get(url, timeout=10) as response:
@@ -158,9 +155,9 @@ class PriceFetcher:
             price = data.get('BTC')
             if price and isinstance(price, float):
                 self.custom_tickers['BLOCK'] = price
-                logging.info(f"Updated BLOCK ticker: {price} BTC")
+                logger.info(f"Updated BLOCK ticker: {price} BTC")
             else:
-                logging.error(f"Invalid data for BLOCK ticker: {data}")
+                logger.error(f"Invalid data for BLOCK ticker: {data}")
 
     async def refresh_all_tickers(self):
         """Refreshes all configured tickers."""
@@ -171,7 +168,7 @@ class PriceFetcher:
         results = await asyncio.gather(*tasks, return_exceptions=True)
         for i, result in enumerate(results):
             if isinstance(result, Exception):
-                logging.error(f"Error during periodic refresh of task {i}: {result}")
+                logger.error(f"Error during periodic refresh of task {i}: {result}")
 
         self.print_metrics()
 
@@ -184,7 +181,7 @@ class PriceFetcher:
         # Validate symbols and collect invalid ones
         for s in symbols:
             if s not in self.ccxt_i.markets:
-                logging.warning(f"Ignoring invalid symbol: {s}")
+                logger.warning(f"Ignoring invalid symbol: {s}")
                 request_invalid_symbols.append(s)
                 continue
             request_valid_symbols.append(s)
@@ -198,12 +195,12 @@ class PriceFetcher:
             async with self._refresh_lock:
                 # Double-check inside the lock
                 if self._needs_refresh(request_valid_symbols):
-                    logging.info("Triggering on-demand refresh for CCXT tickers.")
+                    logger.info("Triggering on-demand refresh for CCXT tickers.")
                     await self.refresh_ccxt_tickers()
                     self.print_metrics()
         else:
             self.ccxt_cache_hit += 1
-            logging.info("Returning cached CCXT tickers.")
+            logger.info("Returning cached CCXT tickers.")
         
         # Create the result dictionary
         result = {}
@@ -227,12 +224,12 @@ class PriceFetcher:
         if self.custom_tickers.get('BLOCK') is None:
             async with self._refresh_lock:
                 if self.custom_tickers.get('BLOCK') is None:
-                    logging.info("Triggering on-demand refresh for BLOCK ticker.")
+                    logger.info("Triggering on-demand refresh for BLOCK ticker.")
                     await self.update_custom_ticker_block()
                     self.print_metrics()
         else:
             self.custom_ticker_cache_hit += 1
-            logging.info("Returning cached BLOCK ticker.")
+            logger.info("Returning cached BLOCK ticker.")
 
         return self.custom_tickers['BLOCK']
 
@@ -246,7 +243,7 @@ class PriceFetcher:
                 f"BLOCK_call_count: {self.custom_ticker_call_count}",
                 f"BLOCK_cache_hit: {self.custom_ticker_cache_hit}",
             ])
-        logging.info(f"Metrics: {', '.join(msg_parts)}")
+        logger.info(f"Metrics: {', '.join(msg_parts)}")
 
 
 # --- Web Server ---
@@ -267,7 +264,7 @@ class WebServer:
             method = data.get('method')
             params = data.get('params', [])
 
-            logging.info(f"Received request for method: {method}")
+            logger.info(f"Received request for method: {method}")
 
             if method == 'ccxt_call_fetch_tickers':
                 response_data = await self.fetcher.get_ccxt_tickers(*params)
@@ -282,7 +279,7 @@ class WebServer:
                 "id": data.get("id")
             })
         except ccxt.BadRequest as e:
-            logging.warning(f"Invalid request parameters: {e}")
+            logger.warning(f"Invalid request parameters: {e}")
             error_msg = f"Symbol type conflict: {e}".split(':')[-1].strip()
             return web.json_response({
                 "jsonrpc": "2.0",
@@ -290,14 +287,14 @@ class WebServer:
                 "id": data.get("id") if 'data' in locals() else None
             }, status=400)
         except ccxt.BaseError as e:
-            logging.error(f"CCXT error: {e}")
+            logger.error(f"CCXT error: {e}")
             return web.json_response({
                 "jsonrpc": "2.0",
                 "error": {"code": 502, "message": f"Exchange error: {e}"},
                 "id": data.get("id") if 'data' in locals() else None
             }, status=502)
         except Exception as e:
-            logging.error(f"Error handling request: {e}", exc_info=True)
+            logger.error(f"Error handling request: {e}", exc_info=True)
             # Handle case where data couldn't be parsed
             error_id = data.get("id") if 'data' in locals() else None
             error_response = {
@@ -314,10 +311,10 @@ class WebServer:
                 await self.fetcher.refresh_all_tickers()
                 await asyncio.sleep(self.refresh_interval)
             except asyncio.CancelledError:
-                logging.info("Periodic refresh task cancelled.")
+                logger.info("Periodic refresh task cancelled.")
                 break
             except Exception as e:
-                logging.error(f"Error in periodic refresh: {e}", exc_info=True)
+                logger.error(f"Error in periodic refresh: {e}", exc_info=True)
                 # Wait before retrying to avoid spamming logs on persistent errors
                 await asyncio.sleep(self.refresh_interval)
 
@@ -327,13 +324,13 @@ class WebServer:
         await self.runner.setup()
         site = web.TCPSite(self.runner, self.host, self.port)
         await site.start()
-        logging.info(f"Web server running on http://{self.host}:{self.port}")
+        logger.info(f"Web server running on http://{self.host}:{self.port}")
 
         self.periodic_task = asyncio.create_task(self._run_periodically())
 
     async def stop(self):
         """Stops the web server and associated tasks gracefully."""
-        logging.info("Shutting down server...")
+        logger.info("Shutting down server...")
 
         if self.periodic_task and not self.periodic_task.done():
             self.periodic_task.cancel()
@@ -341,7 +338,7 @@ class WebServer:
 
         if self.runner:
             await self.runner.cleanup()
-            logging.info("Web server stopped.")
+            logger.info("Web server stopped.")
 
 
 # --- Main Service Class ---
@@ -368,7 +365,7 @@ class AsyncPriceService:
             loop = asyncio.get_running_loop()
 
             def _signal_handler():
-                logging.info("Shutdown signal received.")
+                logger.info("Shutdown signal received.")
                 self.stop_event.set()
 
             for sig in (signal.SIGINT, signal.SIGTERM):
@@ -382,7 +379,7 @@ class AsyncPriceService:
             await self.server.start()
             await self.stop_event.wait()
         except Exception as e:
-            logging.error(f"Critical error in main: {e}", exc_info=True)
+            logger.error(f"Critical error in main: {e}", exc_info=True)
         finally:
             await self.cleanup()
 
@@ -394,7 +391,7 @@ class AsyncPriceService:
             await self.fetcher.close()
         if self.session:
             await self.session.close()
-        logging.info("Shutdown complete.")
+        logger.info("Shutdown complete.")
 
 
 # --- Main execution ---
@@ -407,4 +404,4 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        logging.info("Keyboard interrupt received, shutting down.")
+        logger.info("Keyboard interrupt received, shutting down.")

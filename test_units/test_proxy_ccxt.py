@@ -16,8 +16,8 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 from definitions.bcolors import bcolors
 from proxy_ccxt import PriceFetcher, WebServer, async_retry
 
-
 import unittest
+
 
 class ProxyCCXTTester:
     """
@@ -95,7 +95,7 @@ class ProxyCCXTTester:
                     # Need to clear existing instances as ccxt maintains class-level state
                     if hasattr(ccxt.kraken, "_async_supported"):
                         delattr(ccxt.kraken, "_async_supported")
-                    
+
                     fetcher = PriceFetcher(config, session)
                     await fetcher.initialize()
 
@@ -154,7 +154,7 @@ class ProxyCCXTTester:
                 fetcher.tickers = {}  # Clear cache
                 all_tickers = await fetcher.get_ccxt_tickers("BTC/USD", "XMR/USD")
                 assert mock_ccxt.fetchTickers.await_count == 3
-                
+
                 print("[TEST PASSED] CCXT ticker fetching behavior correct.")
                 passed = True
         except Exception as e:
@@ -195,7 +195,7 @@ class ProxyCCXTTester:
             price = await fetcher.get_block_ticker()
             assert price == 0.0015
             session.get.assert_not_called()
-            
+
             print("[TEST PASSED] BLOCK ticker fetching behavior correct.")
             passed = True
         except Exception as e:
@@ -250,7 +250,7 @@ class ProxyCCXTTester:
             assert response.status == 500
             # Check for either possible error message
             assert b"Error parsing request" in response.body or b"Bad JSON" in response.body
-            
+
             print("[TEST PASSED] WebServer request handling correct.")
             passed = True
         except Exception as e:
@@ -322,7 +322,7 @@ class ProxyCCXTTester:
             # Set up mock CCXT instance
             mock_ccxt = AsyncMock()
             mock_ccxt.fetchTickers = AsyncMock(return_value={"BTC/USD": {"last": 50000}})
-            
+
             # Mock markets - only BTC/USD is valid
             mock_ccxt.markets = {
                 "BTC/USD": {"type": "spot"},
@@ -331,7 +331,7 @@ class ProxyCCXTTester:
 
             # Fetch with mix of valid and invalid symbols
             result = await fetcher.get_ccxt_tickers("BTC/USD", "ETH/USD", "INVALID")
-            
+
             # Verify results
             assert "BTC/USD" in result
             assert result["BTC/USD"] == {"last": 50000}
@@ -361,13 +361,15 @@ class ProxyCCXTTester:
 
                 # Clear cache to force refresh
                 fetcher.tickers = {}
-                
+
                 # Setup lock to delay mock fetch
                 # Setup mock to return a fixed value after a delay
                 return_value = {"BTC/USD": {"last": 50000}}
+
                 async def delayed_fetch(*args, **kwargs):
                     await asyncio.sleep(0.01)
                     return return_value
+
                 mock_ccxt.fetchTickers = AsyncMock(side_effect=delayed_fetch)
 
                 # Start 5 concurrent requests
@@ -379,7 +381,7 @@ class ProxyCCXTTester:
                 # All results should be valid
                 for res in results:
                     assert "BTC/USD" in res
-                
+
                 print("[TEST PASSED] Refresh lock prevents duplicate API calls.")
                 passed = True
         except Exception as e:
@@ -442,10 +444,10 @@ class ProxyCCXTTester:
                     ]
                 )
                 fetcher.ccxt_i = mock_ccxt
-                
+
                 # Register symbols
                 fetcher.symbols_list = ["BTC/USD", "ETH/USD", "XRP/USD:SWAP"]
-                
+
                 # Trigger refresh
                 await fetcher.refresh_ccxt_tickers()
 
@@ -453,12 +455,12 @@ class ProxyCCXTTester:
                 assert mock_ccxt.fetchTickers.call_count == 2
                 spot_call_args = mock_ccxt.fetchTickers.call_args_list[0]
                 swap_call_args = mock_ccxt.fetchTickers.call_args_list[1]
-                
+
                 # Spot group should have both spot symbols
                 assert sorted(spot_call_args[0][0]) == ["BTC/USD", "ETH/USD"]
                 # Swap group should have the swap symbol
                 assert swap_call_args[0][0] == ["XRP/USD:SWAP"]
-                
+
                 print("[TEST PASSED] Symbols grouped by market type during refresh.")
                 passed = True
         except Exception as e:
@@ -488,7 +490,7 @@ class ProxyCCXTTester:
                 # This should trigger retries and eventually fail
                 with pytest.raises(ccxt.RateLimitExceeded):
                     await fetcher.get_ccxt_tickers("BTC/USD")
-                
+
                 # Should have retried 3 times (default retry count)
                 assert mock_ccxt.fetchTickers.await_count == 3
                 print("[TEST PASSED] Properly handled rate limit exception.")
@@ -509,7 +511,7 @@ class ProxyCCXTTester:
             # Use a MagicMock for session to avoid real aiohttp.ClientSession
             session = MagicMock(spec=aiohttp.ClientSession)
             fetcher = PriceFetcher(config, session)
-            
+
             # Mock CCXT to return unexpected data
             mock_ccxt = AsyncMock()
             mock_ccxt.fetchTickers = AsyncMock(return_value="INVALID_STRING_RESPONSE")
@@ -527,14 +529,14 @@ class ProxyCCXTTester:
             context_manager = MagicMock()
             context_manager.__aenter__ = AsyncMock(return_value=response_mock)
             session.get.return_value = context_manager
-            
+
             # Should not crash but log an error
             await fetcher.get_ccxt_tickers("BTC/USD")
-            
+
             # Should raise KeyError for BLOCK ticker
             with pytest.raises(KeyError):
                 await fetcher.get_block_ticker()
-            
+
             print("[TEST PASSED] Properly handled invalid API responses.")
             passed = True
         except Exception as e:
@@ -553,7 +555,7 @@ class ProxyCCXTTester:
             # Mock session that simulates network failures
             session = AsyncMock(spec=aiohttp.ClientSession)
             session.get.side_effect = aiohttp.ClientError("Simulated network failure")
-            
+
             fetcher = PriceFetcher(config, session)
             mock_ccxt = AsyncMock()
             mock_ccxt.fetchTickers = AsyncMock(side_effect=aiohttp.ClientConnectionError)
@@ -563,11 +565,11 @@ class ProxyCCXTTester:
             # Test CCXT network failure
             with pytest.raises(aiohttp.ClientConnectionError):
                 await fetcher.get_ccxt_tickers("BTC/USD")
-            
+
             # Test BLOCK API network failure
             with pytest.raises(aiohttp.ClientError):
                 await fetcher.get_block_ticker()
-            
+
             print("[TEST PASSED] Properly handled network failures.")
             passed = True
         except Exception as e:
@@ -585,7 +587,7 @@ class ProxyCCXTTester:
 
             async with aiohttp.ClientSession() as session:
                 fetcher = PriceFetcher(config, session)
-                
+
                 # Mock CCXT authentication error
                 mock_ccxt = AsyncMock()
                 mock_ccxt.fetchTickers = AsyncMock(
@@ -596,7 +598,7 @@ class ProxyCCXTTester:
 
                 with pytest.raises(ccxt.AuthenticationError):
                     await fetcher.get_ccxt_tickers("BTC/USD")
-                
+
                 print("[TEST PASSED] Properly handled authentication errors.")
                 passed = True
         except Exception as e:
@@ -615,10 +617,10 @@ class ProxyCCXTTester:
 
             async with aiohttp.ClientSession() as session:
                 fetcher = PriceFetcher(config, session)
-                
+
                 with pytest.raises(ValueError) as excinfo:
                     await fetcher.initialize()
-                
+
                 assert "not supported by ccxt" in str(excinfo.value)
                 print("[TEST PASSED] Properly handled invalid exchange config.")
                 passed = True

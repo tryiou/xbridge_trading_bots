@@ -3,7 +3,7 @@ import os
 
 from .bcolors import bcolors
 
-formatter = logging.Formatter('[%(asctime)s] [%(module)s] %(levelname)s - %(message)s')
+formatter = logging.Formatter('[%(asctime)s] [%(name)-20s] %(levelname)-8s - %(message)s')
 
 _GUI_MODE_ACTIVE = False
 

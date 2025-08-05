@@ -1,15 +1,18 @@
 from abc import ABC, abstractmethod
+from definitions.error_handler import OperationalError, ConfigurationError
 
 
 class BaseStrategy(ABC):
     """
     Abstract base class for trading strategies.
-    Defines the interface for strategy-specific logic.
+    Defines the interface for strategy-specific logic with error handling.
     """
 
     def __init__(self, config_manager, controller=None):
         self.config_manager = config_manager
         self.controller = controller  # MainController instance, set later
+        # All derived strategies inherit access to the error handler
+        self.error_handler = config_manager.error_handler
 
     @abstractmethod
     def initialize_strategy_specifics(self, **kwargs):
@@ -66,6 +69,7 @@ class BaseStrategy(ABC):
     async def thread_loop_async_action(self, pair_instance):
         """
         Strategy-specific asynchronous action for the main loop processing.
+        Should implement error handling using self.error_handler.
         """
         pass
 

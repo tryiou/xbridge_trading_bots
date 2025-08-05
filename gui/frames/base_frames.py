@@ -14,6 +14,7 @@ from definitions.config_manager import ConfigManager
 from definitions.starter import run_async_main
 from gui.components.data_panels import OrdersPanel
 from gui.utils.async_updater import AsyncUpdater
+from definitions.error_handler import OperationalError, ConfigurationError
 
 if TYPE_CHECKING:
     from gui.main_app import MainApplication
@@ -23,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 
 class BaseStrategyFrame(ttk.Frame):
-    """Base class for strategy-specific frames in the GUI."""
+    """Base class for strategy-specific frames in the GUI with centralized error handling."""
 
     def __init__(self, parent, main_app: "MainApplication", strategy_name: str, master_config_manager: ConfigManager):
         super().__init__(parent)
@@ -57,9 +58,14 @@ class BaseStrategyFrame(ttk.Frame):
             self.config_manager = ConfigManager(strategy=self.strategy_name, master_manager=self.master_config_manager)
             self.config_manager.initialize(loadxbridgeconf=loadxbridgeconf)
         except Exception as e:
-            self.main_app.status_var.set(f"Error initializing {self.strategy_name}: {e}")
+            error_msg = f"Error initializing {self.strategy_name}: {e}"
+            self.main_app.status_var.set(error_msg)
+            # Use centralized error handling if available
             if self.config_manager:
-                self.config_manager.general_log.error(f"Error initializing {self.strategy_name}: {e}", exc_info=True)
+                self.config_manager.error_handler.handle(
+                    ConfigurationError(error_msg),
+                    context={"strategy": self.strategy_name}
+                )
 
     def create_widgets(self):
         """Placeholder for creating strategy-specific widgets. To be overridden."""
@@ -77,9 +83,15 @@ class BaseStrategyFrame(ttk.Frame):
     def _critical_error_handler(self, error):
         """Handle critical errors in GUI-safe context"""
         self.stop() # Call stop without blocking argument
-        self.main_app.status_var.set(f"CRITICAL ERROR: {str(error)}")
-        if self.config_manager:  # Ensure config_manager exists before accessing its logger
-            self.config_manager.general_log.error(f"Thread crashed: {str(error)}", exc_info=True)
+        error_msg = f"CRITICAL ERROR: {str(error)}"
+        self.main_app.status_var.set(error_msg)
+        # Use centralized error handling if available
+        if self.config_manager:
+            self.config_manager.error_handler.handle(
+                OperationalError(error_msg),
+                context={"strategy": self.strategy_name},
+                exc_info=True
+            )
 
     def _thread_wrapper(self, func, *args):
         """Wrap thread execution for proper error handling"""
@@ -172,7 +184,7 @@ class BaseStrategyFrame(ttk.Frame):
             self.force_stop_timeout_id = None
 
     def start(self):
-        """Starts the bot in a separate thread."""
+        """Starts the bot in a separate thread with error handling."""
         try:
             self._pre_start_validation()
             log = self.config_manager.general_log
@@ -198,12 +210,16 @@ class BaseStrategyFrame(ttk.Frame):
         except Exception as e:
             error_msg = f"Error starting {self.strategy_name} bot: {e}"
             self.main_app.status_var.set(error_msg)
-            # Use module logger if config_manager isn't available
+            # Use centralized error handling if available
             if self.config_manager:
-                self.config_manager.general_log.error(error_msg, exc_info=True)
+                self.config_manager.error_handler.handle(
+                    OperationalError(error_msg),
+                    context={"strategy": self.strategy_name},
+                    exc_info=True
+                )
             else:
                 logger.error(error_msg, exc_info=True)
-            self.stop(reload_config=False) # Removed blocking=True as it's not a parameter anymore
+            self.stop(reload_config=False)
 
     def stop(self, reload_config: bool = True):
         """
@@ -221,10 +237,17 @@ class BaseStrategyFrame(ttk.Frame):
         self.config_manager.general_log.info(f"Attempting to stop {self.strategy_name} bot...")
 
 
+        # Clear any previous timeouts
+        self._cancel_stop_monitoring()
+        
+        # Signal to controller and ccxt manager
         self._signal_controller_shutdown()
-        self.cancel_all() 
+        self.config_manager.general_log.debug("Sent shutdown signal for controller event loop")
+        
+        # Attempt cancel all orders
+        self.cancel_all()
+        
         self._start_stop_monitoring(reload_config)
-        # HTTP session is managed by async context, no need for explicit close
 
 
     def _finalize_stop(self, reload_config: bool = True):
@@ -259,7 +282,7 @@ class BaseStrategyFrame(ttk.Frame):
         self.main_app.notify_strategy_stopped(self.strategy_name)
 
     def cancel_all(self):
-        """Cancels all open orders on the exchange."""
+        """Cancels all open orders on the exchange with error handling."""
         if not self.config_manager:
             return
 
@@ -275,14 +298,19 @@ class BaseStrategyFrame(ttk.Frame):
                 log.debug("GUI: cancel_all - calling cancelallorders()")
                 asyncio.run(self.config_manager.xbridge_manager.cancelallorders())
                 log.debug("GUI: cancel_all - cancelallorders() returned")
-                # We need to schedule the GUI update back on the main thread.
+                # Schedule GUI update on main thread
                 self.main_app.root.after(0, lambda: self.main_app.status_var.set("Cancelled all open orders."))
                 log.info("cancel_all: All orders cancelled successfully.")
             except Exception as e:
+                error_msg = f"Error cancelling orders: {e}"
                 # Schedule GUI update on main thread
-                self.main_app.root.after(0,
-                                         lambda err=e: self.main_app.status_var.set(f"Error cancelling orders: {err}"))
-                log.error(f"Error during cancel_all worker: {e}", exc_info=True)
+                self.main_app.root.after(0, lambda: self.main_app.status_var.set(error_msg))
+                # Use centralized error handling
+                self.config_manager.error_handler.handle(
+                    OperationalError(error_msg),
+                    context={"stage": "cancel_all"},
+                    exc_info=True
+                )
             log.debug("GUI: cancel_all worker thread finished.")
             # Restart the orders updater to refresh the orders panel
             if self.orders_updater:

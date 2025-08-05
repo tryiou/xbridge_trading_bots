@@ -153,6 +153,21 @@ class GUI_Config_PingPong(BaseConfigWindow, TreeviewMixin):
         if self.pairs_treeview:
             for item_id in self.pairs_treeview.get_children():
                 values = self.pairs_treeview.item(item_id, 'values')
+                # Validate pair format before numeric conversion
+                # Validate required fields
+                if not values[0].strip():
+                    self.update_status("Name is required for each pair configuration", 'red')
+                    return None
+                    
+                if len(values) < 3:
+                    self.update_status("Invalid row: missing required fields", 'red')
+                    return None
+                    
+                pair = values[2]
+                if '/' not in pair or len(pair.split('/')) != 2:
+                    self.update_status(f"Invalid pair format: {pair}. Must be TOKEN1/TOKEN2", 'red')
+                    return None
+                    
                 try:
                     pair_configs.append({
                         'name': values[0],

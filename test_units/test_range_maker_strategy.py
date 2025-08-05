@@ -5,7 +5,8 @@ from pathlib import Path
 from typing import Dict
 
 import matplotlib
-matplotlib.use('Agg') # Use non-interactive backend for animation saving
+
+matplotlib.use('Agg')  # Use non-interactive backend for animation saving
 import matplotlib.animation as animation
 import matplotlib.pyplot as plt
 import numpy as np
@@ -21,6 +22,7 @@ formatter = logging.Formatter(
     datefmt='%H:%M:%S'
 )
 
+
 def override_all_formatters():
     # Start with root logger
     loggers = [logging.getLogger()]
@@ -34,6 +36,7 @@ def override_all_formatters():
     for logger in loggers:
         for handler in logger.handlers:
             handler.setFormatter(formatter)
+
 
 class RangeMakerBacktester:
     """Backtesting engine for RangeMaker strategy simulations"""
@@ -52,7 +55,6 @@ class RangeMakerBacktester:
 
         override_all_formatters()
 
-                    
         self.strategy.logger.setLevel(logging.DEBUG)  # Increase verbosity for troubleshooting
         self.logger.info("RangeMakerBacktester initialized.")
         # Simulation state
@@ -66,9 +68,9 @@ class RangeMakerBacktester:
         self.initial_price = 0
         self.final_price = 0
         self.animation_data = []  # Store data for animation frames
-        self.impermanent_loss_history = [] # New: Store Impermanent Loss over time
-        self.initial_hold_base_amount = 0.0 # New: For IL calculation
-        self.initial_hold_quote_amount = 0.0 # New: For IL calculation
+        self.impermanent_loss_history = []  # New: Store Impermanent Loss over time
+        self.initial_hold_base_amount = 0.0  # New: For IL calculation
+        self.initial_hold_quote_amount = 0.0  # New: For IL calculation
         self.logger.debug(f"Backtester initialized. Data will be loaded/saved from: {self.data_file_path}")
 
     def get_pair_symbol(self) -> str:
@@ -275,7 +277,8 @@ class RangeMakerBacktester:
                 base_token, quote_token = pair_name.split('/')
                 self.initial_hold_base_amount = self.initial_balances.get(base_token, 0)
                 self.initial_hold_quote_amount = self.initial_balances.get(quote_token, 0)
-                self.logger.debug(f"Initial hold amounts for IL: {base_token}={self.initial_hold_base_amount}, {quote_token}={self.initial_hold_quote_amount}")
+                self.logger.debug(
+                    f"Initial hold amounts for IL: {base_token}={self.initial_hold_base_amount}, {quote_token}={self.initial_hold_quote_amount}")
 
             if not self.current_balances:
                 self.logger.info("No initial balances provided - generating defaults.")
@@ -419,7 +422,7 @@ class RangeMakerBacktester:
             'size': order['maker_size'],
             'fee': fee,
             'taker_received': order['taker_size'] - fee,
-            'order_id': order.get('id', 'simulated') # Include order ID for better traceability
+            'order_id': order.get('id', 'simulated')  # Include order ID for better traceability
         }
         self.order_history.append(trade)
         self.fee_history.append(fee)
@@ -434,7 +437,7 @@ class RangeMakerBacktester:
                 # Profit = (original_sell_price - buy_price) * base_amount_bought
                 # For a buy counter-order, maker_size is quote (amount spent), taker_size is base (amount received).
                 # Profit should be calculated on the base amount received.
-                profit = (order['original_price'] - order['price']) * order['taker_size'] # Corrected P&L calculation
+                profit = (order['original_price'] - order['price']) * order['taker_size']  # Corrected P&L calculation
             self.counter_pnl_history.append(profit)
             self.logger.info(
                 f"  Counter-order filled: ID={trade['order_id']} | Type={trade['side']} | Price={trade['price']:.6f} | Size={trade['size']:.6f} | P&L={profit:.6f}")
@@ -442,7 +445,7 @@ class RangeMakerBacktester:
             self.logger.info(
                 f"  Initial order filled: ID={trade['order_id']} | Type={trade['side']} | Price={trade['price']:.6f} | Size={trade['size']:.6f}")
 
-        self.logger.info(f"  Balances after fill: {self.current_balances}") # Log balances after every trade
+        self.logger.info(f"  Balances after fill: {self.current_balances}")  # Log balances after every trade
 
     def _reset_simulation_state(self):
         """Initialize fresh simulation tracking"""
@@ -468,7 +471,8 @@ class RangeMakerBacktester:
             'impermanent_loss': buy_and_hold_value - portfolio_value  # Calculate and store IL
         })
         self.impermanent_loss_history.append(buy_and_hold_value - portfolio_value)  # Append IL to history
-       # self.logger.debug(f"Recorded simulation state at {timestamp}. Portfolio value: {portfolio_value:.6f}, IL: {buy_and_hold_value - portfolio_value:.6f}")
+
+    # self.logger.debug(f"Recorded simulation state at {timestamp}. Portfolio value: {portfolio_value:.6f}, IL: {buy_and_hold_value - portfolio_value:.6f}")
 
     def _calculate_portfolio_value(self) -> float:
         """Calculate total portfolio value in the quote currency."""
@@ -557,10 +561,14 @@ class RangeMakerBacktester:
             'final_portfolio_value': final_value,
             'initial_price': self.initial_price,  # Add initial_price to metrics
             'final_price': self.final_price,  # Add final_price to metrics
-            'final_impermanent_loss': self.impermanent_loss_history[-1] if self.impermanent_loss_history else 0.0, # Final IL
-            'average_impermanent_loss': np.mean(self.impermanent_loss_history) if self.impermanent_loss_history else 0.0, # Average IL
-            'max_impermanent_loss': np.max(self.impermanent_loss_history) if self.impermanent_loss_history else 0.0, # Max IL
-            'min_impermanent_loss': np.min(self.impermanent_loss_history) if self.impermanent_loss_history else 0.0, # Min IL
+            'final_impermanent_loss': self.impermanent_loss_history[-1] if self.impermanent_loss_history else 0.0,
+            # Final IL
+            'average_impermanent_loss': np.mean(
+                self.impermanent_loss_history) if self.impermanent_loss_history else 0.0,  # Average IL
+            'max_impermanent_loss': np.max(self.impermanent_loss_history) if self.impermanent_loss_history else 0.0,
+            # Max IL
+            'min_impermanent_loss': np.min(self.impermanent_loss_history) if self.impermanent_loss_history else 0.0,
+            # Min IL
         }
         self.logger.info(f"Performance metrics calculated: {self.metrics}")
 
@@ -720,12 +728,12 @@ class RangeMakerBacktester:
 
             # Buy orders (X=price, Y=amount) - plot all active buy orders
             buy_prices = [o['price'] for o in buy_orders]
-            buy_amounts = [o['maker_size'] for o in buy_orders] # Already in quote currency
+            buy_amounts = [o['maker_size'] for o in buy_orders]  # Already in quote currency
             buy_scatter.set_offsets(np.c_[buy_prices, buy_amounts])
 
             # Sell orders (X=price, Y=amount) - plot all active sell orders
             sell_prices = [o['price'] for o in sell_orders]
-            sell_amounts = [o['maker_size'] * o['price'] for o in sell_orders] # Convert base amount to quote amount
+            sell_amounts = [o['maker_size'] * o['price'] for o in sell_orders]  # Convert base amount to quote amount
             sell_scatter.set_offsets(np.c_[sell_prices, sell_amounts])
 
             # Update balances text
@@ -741,7 +749,7 @@ class RangeMakerBacktester:
 
             # Adjust y-axis limits dynamically based on max amount in current orders
             all_amounts = buy_amounts + sell_amounts
-            max_amount = max(all_amounts) if all_amounts else 0.1 # Prevent division by zero
+            max_amount = max(all_amounts) if all_amounts else 0.1  # Prevent division by zero
             padding_y = max_amount * 0.1
             ax.set_ylim(0, max_amount + padding_y)
 
@@ -767,17 +775,19 @@ class RangeMakerBacktester:
                 if shutil.which("ffmpeg"):
                     self.logger.info("Using ffmpeg writer for animation.")
                     writer = animation.FFMpegWriter(fps=10, metadata=dict(artist='Me'), codec='libx264')
-                    ani.save(save_path, writer=writer, dpi=150) # Explicitly set DPI
+                    ani.save(save_path, writer=writer, dpi=150)  # Explicitly set DPI
                 else:
-                    self.logger.warning("ffmpeg not found. Falling back to pillow writer for GIF. For MP4, install ffmpeg.")
-                    ani.save(save_path, writer='pillow', fps=10, dpi=150) # Use pillow writer for GIF
+                    self.logger.warning(
+                        "ffmpeg not found. Falling back to pillow writer for GIF. For MP4, install ffmpeg.")
+                    ani.save(save_path, writer='pillow', fps=10, dpi=150)  # Use pillow writer for GIF
                 self.logger.info(f"Animation saved successfully to {save_path}")
             except Exception as e:
                 self.logger.error(f"Error saving animation to {save_path}: {e}", exc_info=True)
                 self.logger.warning("Animation could not be saved. Check ffmpeg installation and dependencies.")
-                return # Exit to prevent further hanging
+                return  # Exit to prevent further hanging
         else:
-            self.logger.info("Animated order book plot generated (not saved or displayed interactively as no save_path was provided).")
+            self.logger.info(
+                "Animated order book plot generated (not saved or displayed interactively as no save_path was provided).")
 
     async def optimize_parameters(self, param_grid: Dict[str, list], cv=5):
         """Perform grid search optimization of strategy parameters"""
@@ -798,7 +808,7 @@ if __name__ == '__main__':
     # Manually initialize strategy specifics for each pair in the example usage
     example_pairs = [
         {"pair": "LTC/DOGE", "min_price": 400, "max_price": 600, "grid_density": 20, "curve": "linear",
-         "curve_strength": 25, "percent_min_size": 0.0001}] # Updated example_pairs
+         "curve_strength": 25, "percent_min_size": 0.0001}]  # Updated example_pairs
     for pair_cfg in example_pairs:
         config_manager.strategy_instance.initialize_strategy_specifics(**pair_cfg)
 
@@ -826,7 +836,7 @@ if __name__ == '__main__':
         grid_d = pair_cfg['grid_density']
         curve_type = pair_cfg['curve']
         curve_s = pair_cfg['curve_strength']
-        percent_min_s = pair_cfg.get('percent_min_size', 0.0001) # New line
+        percent_min_s = pair_cfg.get('percent_min_size', 0.0001)  # New line
 
         animation_filename = f"animation_{pair_symbol}_min{min_p}_max{max_p}_grid{grid_d}_curve{curve_type}_strength{curve_s}_min_size{str(percent_min_s).replace('.', '_')}.gif"
 

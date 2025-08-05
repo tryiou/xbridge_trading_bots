@@ -125,14 +125,15 @@ class BaseConfigWindow:
         try:
             new_config = self._get_config_data_to_save()
             if new_config is None:
-                self.update_status("Save operation cancelled or failed validation.", 'orange')
-                return  # Save operation was cancelled or failed validation
+                # Status already set by _get_config_data_to_save, so we don't overwrite it
+                return
 
             self.update_status("Saving configuration...", 'blue')
             
             # Start a new thread for saving
             save_thread = threading.Thread(target=self._async_save_worker, args=(new_config,))
             save_thread.daemon = True
+            save_thread.name = "SaveWorker"  # Set name for easier identification
             save_thread.start()
 
         except Exception as e:
@@ -155,9 +156,14 @@ class BaseConfigWindow:
             self.parent.main_app.root.after(0, lambda: self.parent.reload_configuration(loadxbridgeconf=True))
 
         except Exception as e:
-            self.parent.main_app.root.after(0, lambda: self.update_status(f"Failed to save configuration: {e}", 'lightcoral'))
+            import traceback
+            error_msg = f"Failed to save configuration: {e}"
+            tb_str = traceback.format_exc()
+            full_message = f"{error_msg}\nDetails:\n{tb_str}"
+            
+            self.parent.main_app.root.after(0, lambda: self.update_status(full_message, 'lightcoral'))
             if self.parent.config_manager:
-                self.parent.config_manager.general_log.error(f"Failed to save config in background: {e}", exc_info=True)
+                self.parent.config_manager.general_log.error(full_message, exc_info=True)
 
     def _get_config_data_to_save(self) -> Dict[str, Any] | None:
         """Placeholder for subclass to return the config dictionary to be saved."""

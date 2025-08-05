@@ -15,6 +15,7 @@ from strategies.base_strategy import BaseStrategy
 from strategies.basicseller_strategy import BasicSellerStrategy
 from strategies.pingpong_strategy import PingPongStrategy
 from strategies.range_maker_strategy import RangeMakerStrategy
+from definitions.error_handler import ErrorHandler, OperationalError, ConfigurationError
 
 
 class ConfigManager:
@@ -24,7 +25,7 @@ class ConfigManager:
         self.resource_lock = threading.RLock()
         self.logger =  setup_logging(name="config_manager",
                                  level=logging.DEBUG, console=True)
-
+        self.error_handler = ErrorHandler(self)
 
         if master_manager:
             # In GUI slave mode, just get a reference to the existing loggers.
@@ -35,6 +36,9 @@ class ConfigManager:
         else:
             # In standalone or master GUI mode, set up the loggers from scratch.
             self.general_log, self.trade_log, self.ccxt_log = setup_logger(strategy, self.ROOT_DIR)
+
+        # Update error handler logger
+        self.error_handler.logger = self.general_log
 
         # Initialize config attributes to None
         self.config_ccxt = None
@@ -77,7 +81,14 @@ class ConfigManager:
                 self.ccxt_manager.my_ccxt = getattr(master_manager.ccxt_manager, 'my_ccxt', None)
         else:
             # Standalone or Master GUI Mode: Create all resources from scratch
-            self.load_configs()
+            try:
+                self.load_configs()
+            except Exception as e:
+                self.error_handler.handle(
+                    ConfigurationError(f"Failed to load configs: {str(e)}"),
+                    context={"stage": "load_configs"}
+                )
+                raise
             self.xbridge_manager = XBridgeManager(self)
             self.ccxt_manager = CCXTManager(self)
             # If this is the master GUI manager, initialize shared components now.
@@ -124,9 +135,15 @@ class ConfigManager:
                         shutil.copy(template_path, target_path)
                         self.logger.info(f"Created config file: {target_name} from template")
                     except Exception as e:
-                        self.logger.error(f"Failed to create config file {target_name}: {str(e)}")
+                        self.error_handler.handle(
+                            OperationalError(f"Failed to create config file {target_name}: {str(e)}"),
+                            context={"file": target_path, "template": template_path}
+                        )
                 else:
-                    self.logger.error(f"Template file {template_path} not found in config directory")
+                    self.error_handler.handle(
+                        ConfigurationError(f"Template file {template_path} not found in config directory"),
+                        context={"file": template_path}
+                    )
             else:
                 # Target file exists
                 self.logger.info(f"{target_name}: Already exists")
@@ -141,18 +158,35 @@ class ConfigManager:
         template_path = os.path.join(self.ROOT_DIR, "config", "templates", config_name + ".template")
 
         if not os.path.exists(template_path):
-            self.logger.warning(f"Template file not found: {template_path}. Cannot check for missing keys.")
+            self.error_handler.handle(
+                ConfigurationError(f"Template file not found: {template_path}. Cannot check for missing keys."),
+                context={"template_path": template_path}
+            )
             return YamlToObject(config_path)
 
         yaml = YAML()
         yaml.preserve_quotes = True
         yaml.indent(mapping=2, sequence=4, offset=2)
 
-        with open(config_path, 'r') as f:
-            user_config = yaml.load(f) or {}
+        try:
+            with open(config_path, 'r') as f:
+                user_config = yaml.load(f) or {}
+        except Exception as e:
+            self.error_handler.handle(
+                OperationalError(f"Error loading config file {config_path}: {str(e)}"),
+                context={"config_path": config_path}
+            )
+            return YamlToObject({})
 
-        with open(template_path, 'r') as f:
-            template_config = yaml.load(f) or {}
+        try:
+            with open(template_path, 'r') as f:
+                template_config = yaml.load(f) or {}
+        except Exception as e:
+            self.error_handler.handle(
+                OperationalError(f"Error loading template file {template_path}: {str(e)}"),
+                context={"template_path": template_path}
+            )
+            return YamlToObject(user_config)
 
         def merge_configs(template, user):
             updated = False
@@ -175,7 +209,10 @@ class ConfigManager:
                     yaml.dump(user_config, f)
                 self.logger.info(f"Updated {os.path.basename(config_path)} with missing keys from template.")
             except Exception as e:
-                self.logger.error(f"Failed to save updated config file {config_path}: {e}")
+                self.error_handler.handle(
+                    OperationalError(f"Failed to save updated config file {config_path}: {e}"),
+                    context={"config_path": config_path}
+                )
 
         return YamlToObject(user_config)
 
@@ -230,13 +267,23 @@ class ConfigManager:
         self.pairs = self.strategy_instance.get_pairs_for_initialization(self.tokens, **kwargs)
 
     def _init_ccxt(self):
-        """Initialize CCXT instance"""
-        self.ccxt_manager.my_ccxt = self.ccxt_manager.init_ccxt_instance(
-            exchange=self.config_ccxt.ccxt_exchange,
-            hostname=self.config_ccxt.ccxt_hostname,
-            private_api=False,
-            debug_level=self.config_ccxt.debug_level
-        )
+        """Initialize CCXT instance with error handling"""
+        try:
+            self.ccxt_manager.my_ccxt = self.ccxt_manager.init_ccxt_instance(
+                exchange=self.config_ccxt.ccxt_exchange,
+                hostname=self.config_ccxt.ccxt_hostname,
+                private_api=False,
+                debug_level=self.config_ccxt.debug_level
+            )
+        except Exception as e:
+            self.error_handler.handle(
+                OperationalError(f"CCXT initialization failed: {str(e)}"),
+                context={
+                    "exchange": self.config_ccxt.ccxt_exchange,
+                    "hostname": self.config_ccxt.ccxt_hostname
+                }
+            )
+            raise
 
     def _init_xbridge(self):
         """Initialize XBridge configuration"""
@@ -248,35 +295,42 @@ class ConfigManager:
         tokens, and pairs.  This should only be used for strategies that require
         their own isolated environment.  For the GUI, see `initialize_ccxt`.
         """
-        loadxbridgeconf = kwargs.get('loadxbridgeconf', True)
-        self.strategy_config.update(kwargs)
+        try:
+            loadxbridgeconf = kwargs.get('loadxbridgeconf', True)
+            self.strategy_config.update(kwargs)
 
-        self.tokens = {}  # Token data
-        self.pairs = {}  # Pair data
-        self.load_xbridge_conf_on_startup = loadxbridgeconf  # Store the flag
+            self.tokens = {}  # Token data
+            self.pairs = {}  # Pair data
+            self.load_xbridge_conf_on_startup = loadxbridgeconf  # Store the flag
 
-        strategy_map = {
-            "pingpong": PingPongStrategy,
-            "basic_seller": BasicSellerStrategy,
-            "arbitrage": ArbitrageStrategy,
-            "range_maker": RangeMakerStrategy,
-            "gui": None,  # 'gui' strategy doesn't have a strategy instance
-        }
-        strategy_class = strategy_map.get(self.strategy)
-        if not strategy_class:
-            raise ValueError(f"Unknown strategy: {self.strategy}")
-        self.strategy_instance = strategy_class(self)
-        self.strategy_instance.initialize_strategy_specifics(**kwargs)
+            strategy_map = {
+                "pingpong": PingPongStrategy,
+                "basic_seller": BasicSellerStrategy,
+                "arbitrage": ArbitrageStrategy,
+                "range_maker": RangeMakerStrategy,
+                "gui": None,  # 'gui' strategy doesn't have a strategy instance
+            }
+            strategy_class = strategy_map.get(self.strategy)
+            if not strategy_class:
+                raise ConfigurationError(f"Unknown strategy: {self.strategy}")
+            self.strategy_instance = strategy_class(self)
+            self.strategy_instance.initialize_strategy_specifics(**kwargs)
 
-        # Initialize tokens based on strategy
-        self._init_tokens(**kwargs)
+            # Initialize tokens based on strategy
+            self._init_tokens(**kwargs)
 
-        # Initialize pairs based on strategy
-        self._init_pairs(**kwargs)
-        if self.ccxt_manager and getattr(self.ccxt_manager, 'my_ccxt', None) is None:
-            self._init_ccxt()
-        # dxloadxbridgeconf is now called asynchronously in MainController.main_init_loop
-        # self._init_xbridge() # This method is now effectively a no-op if dxloadxbridgeconf is removed
+            # Initialize pairs based on strategy
+            self._init_pairs(**kwargs)
+            if self.ccxt_manager and getattr(self.ccxt_manager, 'my_ccxt', None) is None:
+                self._init_ccxt()
+            # dxloadxbridgeconf is now called asynchronously in MainController.main_init_loop
+            # self._init_xbridge() # This method is now effectively a no-op if dxloadxbridgeconf is removed
+        except Exception as e:
+            self.error_handler.handle(
+                OperationalError(f"Initialization failed: {str(e)}"),
+                context={"strategy": self.strategy}
+            )
+            raise
 
     def initialize_ccxt(self):
         """

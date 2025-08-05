@@ -21,7 +21,7 @@ def setup_console_logging():
     setup_file_logging(name=None, log_file=log_file, level=logging.DEBUG, force=True)
 
     # Add colored console handler
-    console_formatter = ColoredFormatter('[%(asctime)s] [%(name)-18s] %(levelname)s - %(message)s')
+    console_formatter = ColoredFormatter('[%(asctime)s] [%(name)-20s] %(levelname)-8s - %(message)s')
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setFormatter(console_formatter)
     console_handler.setLevel(logging.DEBUG)
@@ -33,8 +33,8 @@ def setup_gui_logging(log_frame):
 
     # Add GUI panel handler
     gui_handler = TextLogHandler(log_frame)
-    gui_formatter = logging.Formatter('%(asctime)s [%(name)-18s] - %(levelname)-7s - %(message)s',
-                                      datefmt='%H:%M:%S')
+    gui_formatter = logging.Formatter('[%(asctime)s] [%(name)-20s] %(levelname)-8s - %(message)s',
+                                      datefmt='%Y-%m-%d %H:%M:%S')
     gui_handler.setFormatter(gui_formatter)
     root_logger.addHandler(gui_handler)
 

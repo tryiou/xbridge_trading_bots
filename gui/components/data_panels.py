@@ -1,20 +1,25 @@
 import re
 import queue
+import logging
 from tkinter import ttk
 from typing import List, Dict, Tuple
 
+logger = logging.getLogger(__name__)
+
 
 class BaseDataPanel(ttk.Frame):
-    """Base class for data display panels with thread-safe updates"""
+    """Base class for data display panels with thread-safe updates and error handling"""
 
     def __init__(self, parent, columns: List[Tuple[str, str, int]]):
-        """                                                                                                                                                                               
-        :param columns: (internal_name, display_name, width_percentage)                                                                                                                   
+        """
+        :param columns: (internal_name, display_name, width_percentage)
         """
         super().__init__(parent)
         self.columns = columns
         self.tree = ttk.Treeview(self, columns=[c[0] for c in columns], show='headings')
         self.scroll = ttk.Scrollbar(self, orient='vertical', command=self.tree.yview)
+        # Pre-compile regex once for all instances
+        self._clean_pattern = re.compile(r'[$%,\[\]]')
 
         # Configure zebra striping
         self.tree.tag_configure('evenrow', background='#333333')
@@ -49,11 +54,11 @@ class BaseDataPanel(ttk.Frame):
 
         self.tree.configure(yscrollcommand=self.scroll.set)
 
-        # Grid layout                                                                                                                                                                     
+        # Grid layout
         self.tree.grid(row=0, column=0, sticky='nsew')
         self.scroll.grid(row=0, column=1, sticky='ns')
 
-        # Responsive configuration                                                                                                                                                        
+        # Responsive configuration
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(0, weight=1)
 
@@ -61,28 +66,31 @@ class BaseDataPanel(ttk.Frame):
         self._update_queue = queue.Queue()
         self.after(250, self._process_updates)
 
-    def _sort_column(self, col_id):                                                                                                                                                  
-        """Handle header button click; sort the column immediately"""                                                                                                                
-        if self.sort_column == col_id:                                                                                                                                               
-            self.sort_ascending = not self.sort_ascending                                                                                                                            
-        else:                                                                                                                                                                        
-            self.sort_column = col_id                                                                                                                                                
-            self.sort_ascending = True                                                                                                                                               
-                                                                                                                                                                                     
-        # Update column heading with sort indicator                                                                                                                                  
-        for col_id_, col_name, _ in self.columns:                                                                                                                                    
-            if col_id_ == col_id:                                                                                                                                                    
-                if self.sort_ascending:                                                                                                                                              
-                    self.tree.heading(col_id_, text=col_name + " ▲")                                                                                                                 
-                else:                                                                                                                                                                
-                    self.tree.heading(col_id_, text=col_name + " ▼")                                                                                                                 
-            else:                                                                                                                                                                    
-                self.tree.heading(col_id_, text=col_name)                                                                                                                            
-                                                                                                                                                                                     
-        # Skip queue, process immediately                                                                                                                                            
-        if self.current_data:                                                                                                                                                        
-            self.current_data = self._sort_data(self.current_data)                                                                                                                   
-            self._redraw_tree()                                                                                                                                                      
+    def _sort_column(self, col_id):
+        """Handle header button click; sort the column immediately"""
+        try:
+            if self.sort_column == col_id:
+                self.sort_ascending = not self.sort_ascending
+            else:
+                self.sort_column = col_id
+                self.sort_ascending = True
+                                                                                                                                                                                      
+            # Update column heading with sort indicator
+            for col_id_, col_name, _ in self.columns:
+                if col_id_ == col_id:
+                    if self.sort_ascending:
+                        self.tree.heading(col_id_, text=col_name + " ▲")
+                    else:
+                        self.tree.heading(col_id_, text=col_name + " ▼")
+                else:
+                    self.tree.heading(col_id_, text=col_name)
+                                                                                                                                                                                      
+            # Skip queue, process immediately
+            if self.current_data:
+                self.current_data = self._sort_data(self.current_data)
+                self._redraw_tree()
+        except Exception as e:
+            logger.error(f"Error sorting column: {e}", exc_info=True)
 
     def update_data(self, items: List[Dict]):
         """Thread-safe entry point for all updates"""
@@ -93,34 +101,45 @@ class BaseDataPanel(ttk.Frame):
         except RuntimeError:
             # Panel being destroyed - ignore
             pass
+        except Exception as e:
+            logger.error(f"Error updating data: {e}", exc_info=True)
 
     def _process_updates(self):
-        """Process queued updates in main thread"""
+        """Process queued updates in main thread with error handling"""
         try:
             while not self._update_queue.empty():
-                items = self._update_queue.get_nowait()
-                items = self._sort_data(items)
-                self._safe_update(items)
+                try:
+                    items = self._update_queue.get_nowait()
+                    items = self._sort_data(items)
+                    self._safe_update(items)
+                except Exception as e:
+                    logger.error(f"Error processing update: {e}", exc_info=True)
         except Exception as e:
-            # Logging handled through parent frame's config manager 
-            pass  # Errors are already logged in the strategy thread
+            logger.error(f"Error in update processing loop: {e}", exc_info=True)
         finally:
             if self.winfo_exists():
                 self.after(250, self._process_updates)
 
     def _safe_update(self, items: List[Dict]):
-        """Sorts the items, stores them and redraws the tree."""
-        items = self._sort_data(items)
-        self.current_data = items
-        self._redraw_tree()
+        """Sorts the items, stores them and redraws the tree with error handling."""
+        try:
+            items = self._sort_data(items)
+            self.current_data = items
+            self._redraw_tree()
+        except Exception as e:
+            logger.error(f"Error during safe update: {e}", exc_info=True)
 
     def _sort_data(self, items: List[Dict]) -> List[Dict]:
-        """Sort data based on current sort column and order."""
-        if not self.sort_column:
-            return items  # No sort column selected
+        """Sort data based on current sort column and order with error handling."""
+        try:
+            if not self.sort_column:
+                return items  # No sort column selected
 
-        reverse = not self.sort_ascending
-        return sorted(items, key=lambda k: self._get_sort_value(k.get(self.sort_column, '')), reverse=reverse)
+            reverse = not self.sort_ascending
+            return sorted(items, key=lambda k: self._get_sort_value(k.get(self.sort_column, '')), reverse=reverse)
+        except Exception as e:
+            logger.error(f"Error sorting data: {e}", exc_info=True)
+            return items
 
     def _get_sort_value(self, value):
         """
@@ -129,40 +148,44 @@ class BaseDataPanel(ttk.Frame):
         then falls back to string.
         :param value: any cell value from data
         """
-        # Handle None and empty strings first, sort them as negative infinity for numerical columns
-        if value is None or value == '':
-            return (0, float('-inf'))
-
-        # Handle list values (e.g., for 'variation' column which can be [float_value])
-        if isinstance(value, list) and len(value) > 0:
-            value = value[0]
-        elif isinstance(value, list) and len(value) == 0:
-            return (0, float('-inf')) # Treat empty lists like None/empty string
-
-        s_value = str(value).strip().lower()
-
-        # Handle the string "None" explicitly, sort as negative infinity
-        if s_value == "none":
-            return (0, float('-inf'))
-
         try:
-            # Attempt 1: Direct conversion to float (handles "123.45", "nan", "inf")
-            float_value = float(s_value)
-            return (0, float_value)
-        except ValueError:
-            pass # Fall through to next attempt
+            # Handle None and empty strings first, sort them as negative infinity for numerical columns
+            if value is None or value == '':
+                return (0, float('-inf'))
 
-        # Attempt 2: Clean specific non-numeric symbols and try again
-        # This regex is precise, only removing currency symbols, commas, and brackets.
-        cleaned_value = re.sub(r'[$%,\[\]]', '', s_value)
-        try:
-            float_value = float(cleaned_value)
-            return (0, float_value)
-        except ValueError:
-            # Fallback: If both numerical conversions fail, treat as a string
-            # This ensures that non-numerical strings (like "BTC", "N/A", or "" from "$")
-            # are correctly sorted alphabetically, not numerically.
-            return (1, s_value) # Return original case for string sorting after numerical attempts
+            # Handle list values (e.g., for 'variation' column which can be [float_value])
+            if isinstance(value, list) and len(value) > 0:
+                value = value[0]
+            elif isinstance(value, list) and len(value) == 0:
+                return (0, float('-inf')) # Treat empty lists like None/empty string
+
+            s_value = str(value).strip().lower()
+
+            # Handle the string "None" explicitly, sort as negative infinity
+            if s_value == "none":
+                return (0, float('-inf'))
+
+            try:
+                # Attempt 1: Direct conversion to float (handles "123.45", "nan", "inf")
+                float_value = float(s_value)
+                return (0, float_value)
+            except ValueError:
+                pass # Fall through to next attempt
+
+            # Attempt 2: Clean specific non-numeric symbols and try again
+            # This regex is precise, only removing currency symbols, commas, and brackets.
+            cleaned_value = self._clean_pattern.sub('', s_value)
+            try:
+                float_value = float(cleaned_value)
+                return (0, float_value)
+            except ValueError:
+                # Fallback: If both numerical conversions fail, treat as a string
+                # This ensures that non-numerical strings (like "BTC", "N/A", or "" from "$")
+                # are correctly sorted alphabetically, not numerically.
+                return (1, s_value) # Return original case for string sorting after numerical attempts
+        except Exception as e:
+            logger.error(f"Error getting sort value: {e}", exc_info=True)
+            return (1, str(value))  # Fallback to string representation
 
     def _redraw_tree(self):
         """To be implemented by subclasses"""
