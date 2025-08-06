@@ -62,106 +62,96 @@ class GUIShutdownCoordinator:
         shutdown_thread = threading.Thread(target=self._perform_shutdown_tasks, daemon=True)
         shutdown_thread.start()
 
-    def _perform_shutdown_tasks(self):                                                                                                                                                      
-        """                                                                                                                                                                                 
-        Performs the actual shutdown tasks in a separate thread with error handling.                                                                                                        
-        """                                                                                                                                                                                 
-        try:                                                                                                                                                                                
-            self._stop_all_strategies()                                                                                                                                                     
-            self._join_all_threads()                                                                                                                                                        
-            self._stop_gui_refreshers()                                                                                                                                                     
-            self._cleanup_frames()                                                                                                                                                          
-        except Exception as e:                                                                                                                                                              
-            error_msg = f"Critical error during GUI shutdown: {e}"                                                                                                                          
-            logger.critical(error_msg, exc_info=True)                                                                                                                                       
-            self.master_config_manager.error_handler.handle(                                                                                                                                
-                OperationalError(error_msg),                                                                                                                                                
-                context={"stage": "shutdown"},                                                                                                                                              
-                severity="CRITICAL",                                                                                                                                                        
-                exc_info=True                                                                                                                                                               
-            )                                                                                                                                                                               
-        finally:                                                                                                                                                                            
-            self.gui_root.after(0, self._finalize_gui_exit)                                                                                                                                 
+    def _perform_shutdown_tasks(self):
+        """Performs the actual shutdown tasks in a separate thread with error handling."""
+        try:
+            # Phase 1: Non-blocking coordination
+            self._coordinate_shutdown_signals()
+            
+            # Phase 2: Graceful termination
+            termination_success = self._await_component_termination(timeout=5)
+            
+            # Phase 3: Guaranteed cleanup
+            self._cleanup_resources()
+        except Exception as e:
+            error_msg = f"Critical error during GUI shutdown: {e}"
+            logger.critical(error_msg, exc_info=True)
+            self.master_config_manager.error_handler.handle(
+                OperationalError(error_msg),
+                context={"stage": "shutdown"},
+                severity="CRITICAL",
+                exc_info=True
+            )
+        finally:
+            self.gui_root.after(0, self._finalize_gui_exit)
                                                                                                                                                                                             
-    def _stop_all_strategies(self):                                                                                                                                                         
-        """Stop all active strategy bots."""                                                                                                                                                
-        logger.info("Stopping all active strategy bots...")                                                                                                                                 
-        for name, frame in self.strategy_frames.items():                                                                                                                                    
-            try:                                                                                                                                                                            
-                if frame.started or frame.stopping:                                                                                                                                         
-                    logger.info(f"Signaling {name} bot to stop...")                                                                                                                         
-                    frame.stop(reload_config=False)  # Do not reload config during shutdown                                                                                                 
-                    if frame.cancel_all_thread and frame.cancel_all_thread.is_alive():                                                                                                      
-                        logger.info(f"Waiting for {name} cancel_all thread to finish...")                                                                                                   
-                        frame.cancel_all_thread.join()                                                                                                                                      
-            except Exception as e:                                                                                                                                                          
-                error_msg = f"Error stopping {name} bot: {e}"                                                                                                                               
-                logger.error(error_msg, exc_info=True)                                                                                                                                      
-                self.master_config_manager.error_handler.handle(                                                                                                                            
-                    OperationalError(error_msg),                                                                                                                                            
-                    context={"strategy": name, "stage": "shutdown"},                                                                                                                        
-                    exc_info=True                                                                                                                                                           
-                )                                                                                                                                                                           
-        time.sleep(2)  # Give bots some time to stop gracefully                                                                                                                             
+    def _coordinate_shutdown_signals(self):
+        """Send non-blocking shutdown signals to all components."""
+        logger.info("Initiating non-blocking shutdown signals...")
+        
+        # Signal strategy components
+        for name, frame in self.strategy_frames.items():
+            try:
+                if frame.started or frame.stopping:
+                    logger.info(f"Signaling {name} bot to stop...")
+                    # Send non-blocking stop signal
+                    frame.stop(reload_config=False)
+                    # Trigger controller shutdown sequence
+                    frame._signal_controller_shutdown()
+            except Exception as e:
+                error_msg = f"Error signaling {name} to stop: {e}"
+                logger.error(error_msg, exc_info=True)
+                # Non-critical during shutdown, continue
                                                                                                                                                                                             
-    def _join_all_threads(self):                                                                                                                                                            
-        """Ensure all bot threads are joined or forcefully terminated."""                                                                                                                   
-        logger.info("Waiting for bot threads to terminate...")                                                                                                                              
-        for name, frame in self.strategy_frames.items():                                                                                                                                    
-            try:                                                                                                                                                                            
-                if frame.send_process and frame.send_process.is_alive():                                                                                                                    
-                    logger.warning(f"Bot thread for {name} is still alive. Attempting to join.")                                                                                            
-                    frame._join_bot_thread(timeout=5)  # Give it 5 seconds to join                                                                                                          
-                    if frame.send_process.is_alive():                                                                                                                                       
-                        logger.critical(                                                                                                                                                    
-                            f"Bot thread for {name} did not terminate gracefully. May require manual intervention.")                                                                        
-                        self.master_config_manager.error_handler.handle(                                                                                                                    
-                            OperationalError(f"Bot thread for {name} did not terminate"),                                                                                                   
-                            context={"strategy": name, "stage": "shutdown"},                                                                                                                
-                            severity="CRITICAL"                                                                                                                                             
-                        )                                                                                                                                                                   
-            except Exception as e:                                                                                                                                                          
-                error_msg = f"Error joining {name} bot thread: {e}"                                                                                                                         
-                logger.error(error_msg, exc_info=True)                                                                                                                                      
-                self.master_config_manager.error_handler.handle(                                                                                                                            
-                    OperationalError(error_msg),                                                                                                                                            
-                    context={"strategy": name, "stage": "shutdown"},                                                                                                                        
-                    exc_info=True                                                                                                                                                           
-                )                                                                                                                                                                           
+    def _await_component_termination(self, timeout: float) -> bool:
+        """Wait for components to gracefully terminate within timeout period."""
+        logger.info(f"Awaiting component termination with {timeout} second timeout...")
+        deadline = time.time() + timeout
+        active_components = []
+
+        # Build initial status
+        for name, frame in self.strategy_frames.items():
+            if frame.started and getattr(frame, 'send_process', None) and frame.send_process.is_alive():
+                active_components.append(name)
+
+        # Periodic status updates
+        while time.time() < deadline and active_components:
+            logger.info(f"Awaiting termination for: {', '.join(active_components)}")
+            for name in active_components[:]:
+                try:
+                    frame = self.strategy_frames[name]
+                    if frame.send_process is not None and not frame.send_process.is_alive():
+                        logger.info(f"{name} successfully terminated")
+                        active_components.remove(name)
+                except Exception as e:
+                    logger.error(f"Termination check error for {name}: {e}")
+                    active_components.remove(name)  # Remove to avoid endless loop
+            
+            if active_components:
+                time.sleep(min(0.5, deadline - time.time()))  # Small sleep to avoid busy-wait
+
+        return len(active_components) == 0
                                                                                                                                                                                             
-    def _stop_gui_refreshers(self):                                                                                                                                                         
-        """Stop all GUI refreshers (orders and balances)."""                                                                                                                                
-        logger.info("Stopping GUI refreshers...")                                                                                                                                           
-        # for name, frame in self.strategy_frames.items():                                                                                                                                  
-        #     frame.stop_refresh()                                                                                                                                                          
-        # Stop the main balance updater                                                                                                                                                     
-        try:                                                                                                                                                                                
-            if hasattr(self.gui_root, 'balance_updater') and self.gui_root.balance_updater:                                                                                                 
-                self.gui_root.balance_updater.stop()                                                                                                                                        
-        except Exception as e:                                                                                                                                                              
-            error_msg = f"Error stopping balance updater: {e}"                                                                                                                              
-            logger.error(error_msg, exc_info=True)                                                                                                                                          
-            self.master_config_manager.error_handler.handle(                                                                                                                                
-                OperationalError(error_msg),                                                                                                                                                
-                context={"stage": "shutdown"},                                                                                                                                              
-                exc_info=True                                                                                                                                                               
-            )                                                                                                                                                                               
-                                                                                                                                                                                            
-    def _cleanup_frames(self):                                                                                                                                                              
-        """Perform final cleanup on strategy frames."""                                                                                                                                     
-        logger.info("Performing final cleanup on strategy frames...")                                                                                                                       
-        for name, frame in self.strategy_frames.items():                                                                                                                                    
-            try:                                                                                                                                                                            
-                frame.cleanup()                                                                                                                                                             
-            except Exception as e:                                                                                                                                                          
-                error_msg = f"Error cleaning up {name} frame: {e}"                                                                                                                          
-                logger.error(error_msg, exc_info=True)                                                                                                                                      
-                self.master_config_manager.error_handler.handle(                                                                                                                            
-                    OperationalError(error_msg),                                                                                                                                            
-                    context={"strategy": name, "stage": "shutdown"},                                                                                                                        
-                    exc_info=True                                                                                                                                                           
-                )                                                                                                                                                                           
-        logger.info("GUI shutdown tasks completed.")                                                                                                                                        
+                                                                                                                                                             
+    def _cleanup_resources(self):
+        """Final cleanup resource release both graceful and forced."""
+        logger.info("Releasing resources...")
+        # Cleanup strategy frames
+        for name, frame in self.strategy_frames.items():
+            try:
+                if getattr(frame, 'cleanup', None):
+                    frame.cleanup()
+                # Clear running processes
+                if getattr(frame, 'send_process', None):
+                    if frame.send_process.is_alive():
+                        logger.warning(f"Terminating {name}'s bot thread forcibly")
+                        # Insist on thread termination
+                        frame.send_process.join(timeout=0.5)
+                    frame.send_process = None
+            except Exception as e:
+                logger.warning(f"Resource cleanup failed for {name}: {e}", exc_info=True)
+        
+        logger.info("Resources cleanup completed.")
         
     def _finalize_gui_exit(self):
         """

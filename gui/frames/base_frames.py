@@ -237,17 +237,57 @@ class BaseStrategyFrame(ttk.Frame):
         self.config_manager.general_log.info(f"Attempting to stop {self.strategy_name} bot...")
 
 
-        # Clear any previous timeouts
-        self._cancel_stop_monitoring()
-        
-        # Signal to controller and ccxt manager
-        self._signal_controller_shutdown()
-        self.config_manager.general_log.debug("Sent shutdown signal for controller event loop")
-        
-        # Attempt cancel all orders
-        self.cancel_all()
-        
-        self._start_stop_monitoring(reload_config)
+        try:                                                                                                                                                                                
+            # 1. Signal controller shutdown to prevent new operations                                                                                                                       
+            self._signal_controller_shutdown()                                                                                                                                              
+                                                                                                                                                                                            
+            # 2. Run a blocking operation to wait for pending RPCs                                                                                                                          
+            self._wait_for_pending_rpc()                                                                                                                                                    
+                                                                                                                                                                                            
+            # 3. Proceed with cancellation AFTER operations complete                                                                                                                        
+            self.cancel_own_orders()                                                                                                                                                        
+                                                                                                                                                                                            
+            # 4. Continue with normal shutdown sequence                                                                                                                                     
+            self._start_stop_monitoring(reload_config)                                                                                                                                      
+                                                                                                                                                                                            
+        except Exception as e:                                                                                                                                                              
+            self.config_manager.general_log.error(f"Error during shutdown: {e}")
+                                                                                                                                                                                            
+    def _wait_for_pending_rpc(self, timeout=20):                                                                                                                                            
+        """Blocks until all pending RPC operations complete"""                                                                                                                              
+        start_time = time.time()                                                                                                                                                            
+        logger.info("Syncing with strategy thread...")                                                                                                             
+                                                                                                                                                                                            
+        while (time.time() - start_time) < timeout:                                                                                                                                         
+            # Check if any RPC calls are still processing                                                                                                                                   
+            if not self._has_pending_operations():                                                                                                                                          
+                logger.debug("All strategy operations completed")                                                                                                  
+                return                                                                                                                                                                      
+                                                                                                                                                                                            
+            # Log progress periodically                                                                                                                                                     
+            elapsed = time.time() - start_time                                                                                                                                              
+            if int(elapsed) % 5 == 0:  # Update every 5 seconds                                                                                                                             
+                logger.info(                                                                                                                                       
+                    f"Waiting for operations to finish ({int(elapsed)}s/{timeout}s)..."                                                                                                     
+                )                                                                                                                                                                           
+                                                                                                                                                                                            
+            time.sleep(0.1)                                                                                                                                                                 
+                                                                                                                                                                                            
+        logger.warning(                                                                                                                                            
+            f"Timeout waiting for RPC operations after {timeout} seconds"                                                                                                                   
+        )                                                                                                                                                                                   
+                                                                                                                                                                                            
+    def _has_pending_operations(self):                                                                                                                                                      
+        """Check if there are active RPC calls"""                                                                                                                                           
+        if not hasattr(self.config_manager, 'xbridge_manager'):                                                                                                                             
+            return False                                                                                                                                                                    
+                                                                                                                                                                                            
+        # Access the RPC tracking mechanism from XBridgeManager                                                                                                                             
+        if hasattr(self.config_manager.xbridge_manager, 'active_rpc_counter'):                                                                                                              
+            return self.config_manager.xbridge_manager.active_rpc_counter > 0                                                                                                               
+                                                                                                                                                                                            
+        # Fallback for managers without counters                                                                                                                                            
+        return False                                                                                                                                                               
 
 
     def _finalize_stop(self, reload_config: bool = True):
@@ -319,6 +359,31 @@ class BaseStrategyFrame(ttk.Frame):
         self.cancel_all_thread = threading.Thread(target=worker, daemon=True)
         self.cancel_all_thread.start()
         log.debug("GUI: cancel_all called - END")
+    def cancel_own_orders(self):
+        """Cancel only orders belonging to this strategy"""
+        if not self.config_manager or not self.config_manager.strategy_instance:
+            return
+            
+        try:
+            if hasattr(self.config_manager.strategy_instance, 'cancel_own_orders'):
+                # Create a new thread to run the cancellation
+                thread = threading.Thread(
+                    target=self._run_cancel_own_orders,
+                    daemon=True
+                )
+                thread.start()
+        except Exception as e:
+            logger.error(f"Error canceling strategy orders: {e}")
+
+    def _run_cancel_own_orders(self):
+        """Runs strategy-specific order cancellation in background"""
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(self.config_manager.strategy_instance.cancel_own_orders())
+        except Exception as e:
+            logger.error(f"Cancel own orders error: {e}", exc_info=True)
+
 
     def start_refresh(self):
         """Starts the periodic GUI refresh loop and orders updater."""
@@ -393,7 +458,7 @@ class BaseStrategyFrame(ttk.Frame):
         """Handles the application closing event."""
         if self.config_manager:
             self.config_manager.general_log.info(f"Closing {self.strategy_name} strategy...")
-        self.stop_refresh() # Ensure orders updater is signaled to stop
+        # self.stop_refresh() # Ensure orders updater is signaled to stop
         self.stop(reload_config=False)
 
     def reload_configuration(self, loadxbridgeconf: bool = True):

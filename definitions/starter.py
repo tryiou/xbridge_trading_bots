@@ -2,6 +2,7 @@ import asyncio
 import os
 import time
 import traceback
+from definitions.errors import OperationalError 
 
 debug_level = 2
 

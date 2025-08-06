@@ -238,10 +238,19 @@ class DexPair:
             await self.pair.config_manager.xbridge_manager.cancelorder(self.order['id'])
         self.order = None
 
-    async def create_order(self, dry_mode=False):
-        self.order = None
-        if self.disabled:
-            return
+    async def create_order(self, dry_mode=False):                                                                                                                                                
+        # First check if pair is already disabled                                                                                                                                               
+        if self.disabled:                                                                                                                                                                       
+            return                                                                                                                                                                              
+                                                                                                                                                                                                
+        # Check the global shutdown state                                                                                                                                                  
+        if self._is_shutting_down():                                                                                                                                                            
+            self.pair.config_manager.general_log.warning(                                                                                                                                       
+                f"Skipping order creation for {self.symbol} - shutdown in progress"                                                                                                             
+            )                                                                                                                                                                                   
+            return           
+                                                                                                                                                  
+        self.order = None    
 
         maker_size = f"{self.current_order['maker_size']:.6f}"
         bal = self._get_balance()
@@ -432,34 +441,62 @@ class DexPair:
             await self.create_order()  # Attempt to place it again
 
     async def at_order_finished(self, disabled_coins):
+        """Handle order completion workflow."""
+        side = self._determine_order_side()
+        self._log_finished_order_details(side)
+        
+        self.order_history = self.current_order
+        self.write_last_order_history()
+        await self._update_taker_address()
+        await self.pair.config_manager.strategy_instance.handle_finished_order(self, disabled_coins)
+        
+    def _determine_order_side(self) -> str:
+        """Determine order side based on maker token."""
         if self.current_order['maker'] == self.pair.t1.symbol:
-            side = 'SELL'
-        else:
-            side = 'BUY'
-        dict = {
+            return 'SELL'
+        return 'BUY'
+
+    def _construct_order_summary(self, side: str) -> dict:
+        """Construct order summary dictionary for logging."""
+        return {
             "name": self.pair.cfg['name'],
             "pair": self.pair.symbol,
             "side": side,
             "orderid": self.order['id']
         }
-        msg = f"order FINISHED: {dict}"
-        self.pair.config_manager.general_log.info(msg)
-        self.pair.config_manager.trade_log.info(msg)
-        msg = f"virtual order: {self.current_order}"
-        self.pair.config_manager.trade_log.info(msg)
-        msg = f"xbridge order: {self.order}"
-        self.pair.config_manager.trade_log.info(msg)
-        self.order_history = self.current_order
-        self.write_last_order_history()
 
-        if self.order and 'taker' in self.order:
-            if self.order['taker'] == self.t1.symbol:
-                await self.t1.dex.request_addr()
-            elif self.order['taker'] == self.t2.symbol:
-                await self.t2.dex.request_addr()
+    def _log_finished_order_details(self, side: str):
+        """Log detailed information about finished orders."""
+        order_summary = self._construct_order_summary(side)
+        
+        self.pair.config_manager.general_log.info(f"order FINISHED: {order_summary}")
+        self.pair.config_manager.trade_log.info(f"order FINISHED: {order_summary}")
+        self.pair.config_manager.trade_log.info(f"virtual order: {self.current_order}")
+        self.pair.config_manager.trade_log.info(f"xbridge order: {self.order}")
 
-        await self.pair.config_manager.strategy_instance.handle_finished_order(self, disabled_coins)
+    async def _update_taker_address(self):
+        """Request address update for taker token."""
+        if not self.order or 'taker' not in self.order:
+            return
+            
+        if self.order['taker'] == self.t1.symbol:
+            await self.t1.dex.request_addr()
+        elif self.order['taker'] == self.t2.symbol:
+            await self.t2.dex.request_addr()
 
+    def _is_shutting_down(self) -> bool:                                                                                                                                                        
+        """Check if shutdown has been requested"""                                                                                                                                              
+        try:                                                                                                                                                                                    
+            if (self.pair.config_manager and                                                                                                                                                    
+                self.pair.config_manager.controller and                                                                                                                                         
+                self.pair.config_manager.controller.shutdown_event and                                                                                                                          
+                self.pair.config_manager.controller.shutdown_event.is_set()):                                                                                                                   
+                return True                                                                                                                                                                     
+        except Exception as e:                                                                                                                                                                  
+            self.pair.config_manager.general_log.error(                                                                                                                                         
+                f"Error checking shutdown status: {e}"                                                                                                                                          
+            )                                                                                                                                                                                   
+        return False     
 
 class CexPair:
     def __init__(self, pair):

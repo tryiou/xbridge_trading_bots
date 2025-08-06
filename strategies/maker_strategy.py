@@ -101,3 +101,28 @@ class MakerStrategy(BaseStrategy):
             self.config_manager.xbridge_manager.cancelallorders(),
             self.config_manager.xbridge_manager.dxflushcancelledorders()
         ]
+
+    async def cancel_own_orders(self):
+        """Cancel only orders belonging to this strategy"""
+        if not hasattr(self, 'controller') or not self.controller:
+            return
+
+        self.config_manager.general_log.info(f"Canceling {self.__class__.__name__} orders...")
+
+        for pair_name, pair in self.controller.pairs_dict.items():
+            if not pair.dex_enabled:
+                continue
+
+            dex = pair.dex
+            if not dex.order or 'id' not in dex.order:
+                continue
+
+            order_id = dex.order['id']
+            try:
+                self.config_manager.general_log.info(f"Canceling order {order_id} for {pair_name}")
+                await pair.dex.cancel_myorder_async()
+                # await self.config_manager.xbridge_manager.cancelorder(order_id)
+            except Exception as e:
+                self.config_manager.general_log.error(f"Error canceling order {order_id}: {e}")
+            finally:
+                self.config_manager.general_log.info(f"Cancelled order {order_id} for {pair_name}")

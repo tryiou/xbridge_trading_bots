@@ -27,6 +27,9 @@ class XBridgeManager:
         self._cache_lock = threading.Lock()  # Lock for thread-safe cache access
         self.UTXO_CACHE_DURATION = 3.0  # Cache expiration time in seconds
 
+        self.active_rpc_counter = 0                                                                                                                                                         
+        self.rpc_counter_lock = threading.Lock() 
+
         # Optional: Test RPC connection during initialization
         if not self.test_rpc():
             self.logger.error(f'Blocknet core RPC server not responding or credentials incorrect.')
@@ -49,21 +52,29 @@ class XBridgeManager:
             return False
 
     async def rpc_wrapper(self, method, params=None):
-        """Execute RPC call in a threadpool with proper async isolation"""
+        """Execute RPC call with context tracking"""                                                                                                                                        
+        with self.rpc_counter_lock:                                                                                                                                                         
+            self.active_rpc_counter += 1     
         if params is None:
             params = []
 
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(
-            None,
-            self._exec_rpc,
-            method,
-            params,
-            self.blocknet_user_rpc,
-            self.blocknet_password_rpc,
-            self.blocknet_port_rpc,
-            self.config_manager.config_xbridge.debug_level
-        )
+
+        try:
+            return await loop.run_in_executor(
+                None,
+                self._exec_rpc,
+                method,
+                params,
+                self.blocknet_user_rpc,
+                self.blocknet_password_rpc,
+                self.blocknet_port_rpc,
+                self.config_manager.config_xbridge.debug_level
+            )
+        finally:                                                                                                                                           
+            with self.rpc_counter_lock:                                                                                                                     
+                self.active_rpc_counter -= 1
+
 
     def _exec_rpc(self, method, params, rpc_user, rpc_password, rpc_port, debug_level):
         """Execute RPC on a threadpool thread with dedicated event loop"""
