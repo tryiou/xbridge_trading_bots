@@ -35,47 +35,59 @@ class ErrorHandler:
 
     def handle(self, error, context=None):
         """Main error handling entry point"""
+        full_context = context.copy() if context else {}
+        
+        # Start with error's context if present, preserving callers context
+        if hasattr(error, 'context'):
+            # Add keys from error.context that aren't already in full_context
+            for key, value in error.context.items():
+                if key not in full_context:
+                    full_context[key] = value
+        
         error_type = type(error).__name__
-        context = context or {}
-
-        # Add error type to context
-        context['error_type'] = error_type
+        full_context['error_type'] = error_type
 
         # Enrich with additional context if available
         if self.config_manager:
-            context.setdefault('strategy', getattr(self.config_manager, 'strategy', 'unknown'))
-            context.setdefault('module', getattr(self.config_manager, 'current_module', 'unknown'))
+            full_context.setdefault('strategy', getattr(self.config_manager, 'strategy', 'unknown'))
+            full_context.setdefault('module', getattr(self.config_manager, 'current_module', 'unknown'))
 
         # Classify and handle - treat ExchangeError as TransientError
         if isinstance(error, TransientError) or isinstance(error, ExchangeError):
-            return self._handle_transient(error, context)
+            return self._handle_transient(error, full_context)
         elif isinstance(error, OperationalError):
-            return self._handle_operational(error, context)
+            return self._handle_operational(error, full_context)
         else:
             # CriticalError or unhandled exception
-            return self._handle_critical(error, context)
+            return self._handle_critical(error, full_context)
 
     async def handle_async(self, error, context=None):
         """Async version of main error handling entry point"""
+        full_context = context.copy() if context else {}
+        
+        # Start with error's context if present, preserving callers context
+        if hasattr(error, 'context'):
+            # Add keys from error.context that aren't already in full_context
+            for key, value in error.context.items():
+                if key not in full_context:
+                    full_context[key] = value
+        
         error_type = type(error).__name__
-        context = context or {}
-
-        # Add error type to context
-        context['error_type'] = error_type
+        full_context['error_type'] = error_type
 
         # Enrich with additional context if available
         if self.config_manager:
-            context.setdefault('strategy', getattr(self.config_manager, 'strategy', 'unknown'))
-            context.setdefault('module', getattr(self.config_manager, 'current_module', 'unknown'))
+            full_context.setdefault('strategy', getattr(self.config_manager, 'strategy', 'unknown'))
+            full_context.setdefault('module', getattr(self.config_manager, 'current_module', 'unknown'))
 
         # Classify and handle - treat ExchangeError as TransientError
         if isinstance(error, TransientError) or isinstance(error, ExchangeError):
-            return await self._handle_transient_async(error, context)
+            return await self._handle_transient_async(error, full_context)
         elif isinstance(error, OperationalError):
-            return await self._handle_operational_async(error, context)
+            return await self._handle_operational_async(error, full_context)
         else:
             # CriticalError or unhandled exception
-            return await self._handle_critical_async(error, context)
+            return await self._handle_critical_async(error, full_context)
 
     def _handle_transient(self, error, context):
         """Handle transient errors with retry logic"""

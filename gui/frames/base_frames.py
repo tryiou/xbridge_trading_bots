@@ -86,8 +86,7 @@ class BaseStrategyFrame(ttk.Frame):
         if self.config_manager:
             self.config_manager.error_handler.handle(
                 OperationalError(error_msg),
-                context={"strategy": self.strategy_name},
-                exc_info=True
+                context={"strategy": self.strategy_name}
             )
 
     def _thread_wrapper(self, func, *args):
@@ -251,28 +250,25 @@ class BaseStrategyFrame(ttk.Frame):
             self.config_manager.general_log.error(f"Error during shutdown: {e}")
 
     def _wait_for_pending_rpc(self, timeout=20):
-        """Blocks until all pending RPC operations complete"""
+        """Blocks until all pending RPC operations complete for a fixed duration"""
         start_time = time.time()
         logger.info("Syncing with strategy thread...")
 
         while (time.time() - start_time) < timeout:
-            # Check if any RPC calls are still processing                                                                                                                                   
-            if not self._has_pending_operations():
-                logger.debug("All strategy operations completed")
+            # Check if any RPC calls are still processing
+            if not self._has_pending_operations() or not self.config_manager.controller.loop.is_running():
                 return
 
-                # Log progress periodically
+            # Log progress periodically
             elapsed = time.time() - start_time
-            if int(elapsed) % 5 == 0:  # Update every 5 seconds                                                                                                                             
+            if int(elapsed) % 5 == 0:  # Update every 5 seconds
                 logger.info(
                     f"Waiting for operations to finish ({int(elapsed)}s/{timeout}s)..."
                 )
 
             time.sleep(0.1)
 
-        logger.warning(
-            f"Timeout waiting for RPC operations after {timeout} seconds"
-        )
+        logger.warning(f"Forcibly proceeding after {timeout}s RPC wait timeout")
 
     def _has_pending_operations(self):
         """Check if there are active RPC calls"""
@@ -283,7 +279,7 @@ class BaseStrategyFrame(ttk.Frame):
         if hasattr(self.config_manager.xbridge_manager, 'active_rpc_counter'):
             return self.config_manager.xbridge_manager.active_rpc_counter > 0
 
-            # Fallback for managers without counters
+            # Fallback for managers without proper counters
         return False
 
     def _finalize_stop(self, reload_config: bool = True):
@@ -328,14 +324,17 @@ class BaseStrategyFrame(ttk.Frame):
 
         def worker():
             log.debug("GUI: cancel_all worker thread started.")
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
             try:
-                # This now runs in a dedicated thread, so asyncio.run is safe.
                 log.debug("GUI: cancel_all - calling cancelallorders()")
-                asyncio.run(self.config_manager.xbridge_manager.cancelallorders())
+                loop.run_until_complete(self.config_manager.xbridge_manager.cancelallorders())
                 log.debug("GUI: cancel_all - cancelallorders() returned")
                 # Schedule GUI update on main thread
                 self.main_app.root.after(0, lambda: self.main_app.status_var.set("Cancelled all open orders."))
                 log.info("cancel_all: All orders cancelled successfully.")
+            except asyncio.CancelledError:
+                log.debug("cancel_all worker cancelled")
             except Exception as e:
                 error_msg = f"Error cancelling orders: {e}"
                 # Schedule GUI update on main thread
@@ -346,10 +345,11 @@ class BaseStrategyFrame(ttk.Frame):
                     context={"stage": "cancel_all"},
                     exc_info=True
                 )
-            log.debug("GUI: cancel_all worker thread finished.")
-            # Restart the orders updater to refresh the orders panel
-            if self.orders_updater:
-                self.orders_updater.start()
+            finally:
+                log.debug("GUI: cancel_all worker thread finished.")
+                # Restart the orders updater to refresh the orders panel
+                if self.orders_updater:
+                    self.orders_updater.start()
 
         self.cancel_all_thread = threading.Thread(target=worker, daemon=True)
         self.cancel_all_thread.start()

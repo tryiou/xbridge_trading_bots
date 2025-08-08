@@ -9,8 +9,10 @@ import uuid
 import weakref
 
 from definitions.detect_rpc import detect_rpc
+from definitions.errors import RPCConfigError
 from definitions.logger import setup_logging
 from definitions.rpc import rpc_call
+import asyncio
 
 
 class XBridgeManager:
@@ -20,7 +22,11 @@ class XBridgeManager:
         self.config_manager = config_manager
         strategy = self.config_manager.strategy if hasattr(config_manager, 'strategy') else 'no_strat'
         self.logger = setup_logging(name=f"{strategy}.xbridge_manager", level=logging.DEBUG, console=True)
-        self.blocknet_user_rpc, self.blocknet_port_rpc, self.blocknet_password_rpc, self.blocknet_datadir_path = detect_rpc()
+        try:
+            self.blocknet_user_rpc, self.blocknet_port_rpc, self.blocknet_password_rpc, self.blocknet_datadir_path = detect_rpc()
+        except RPCConfigError as e:
+            self.logger.critical(f"Failed to initialize RPC: {str(e)}")
+            raise
         self.xbridge_conf = None
         self.xbridge_fees_estimate = {}
         self._utxo_cache = {}  # Cache for dxgetutxos results: {token_symbol: (timestamp, utxos_data)}
@@ -48,8 +54,8 @@ class XBridgeManager:
                 self.is_port_open("127.0.0.1", self.blocknet_port_rpc)):
             asyncio.run(self.async_test_rpc())
 
-    async def rpc_wrapper(self, method, params=None):
-        """Execute RPC call with context tracking"""
+    async def rpc_wrapper(self, method, params=None, shutdown_event=None):
+        """Execute RPC call with context tracking and optional shutdown event"""
         with self.rpc_counter_lock:
             self.active_rpc_counter += 1
         if params is None:
@@ -64,7 +70,8 @@ class XBridgeManager:
                 rpc_port=self.blocknet_port_rpc,
                 debug=self.config_manager.config_xbridge.debug_level,
                 logger=self.logger,
-                session=None  # Create new session per call
+                session=None,  # Create new session per call
+                shutdown_event=shutdown_event
             )
             return result
         finally:

@@ -1,9 +1,12 @@
 import asyncio
 import os
+import sys
 import time
 import traceback
 
 from definitions.errors import OperationalError
+from definitions.errors import RPCConfigError
+from definitions.shutdown import ShutdownCoordinator
 
 debug_level = 2
 
@@ -120,6 +123,7 @@ class PriceHandler:
         self.main_controller = main_controller
         self.loop = loop
         self.ccxt_price_timer = None
+        self.shutdown_event = main_controller.shutdown_event
 
     async def update_ccxt_prices(self):
         if not self.config_manager.strategy_instance.should_update_cex_prices():
@@ -154,17 +158,22 @@ class PriceHandler:
 
     async def _update_token_prices(self, tickers):
         lastprice_string = self._get_last_price_string()
-        for token, token_data in sorted(self.tokens_dict.items(), key=lambda item: (item[0] != 'BTC', item[0])):
-            if self.main_controller.shutdown_event.is_set():
+        symbols_to_update = sorted(
+            self.tokens_dict.items(),
+            key=lambda item: (item[0] != 'BTC', item[0])
+        )
+            
+        for token_symbol, token_data in symbols_to_update:
+            if self.shutdown_event.is_set():
                 return
             symbol = f"{token_data.symbol}/USDT" if token_data.symbol == 'BTC' else f"{token_data.symbol}/BTC"
-            if not hasattr(self.config_manager.config_coins.usd_ticker_custom, token) and symbol in self.ccxt_i.symbols:
+            if not hasattr(self.config_manager.config_coins.usd_ticker_custom, token_symbol) and symbol in self.ccxt_i.symbols:
                 try:
                     await self._update_token_price(tickers, symbol, lastprice_string, token_data)
                 except Exception as e:
                     self.config_manager.error_handler.handle(
-                        OperationalError(f"Error updating {token} price: {e}"),
-                        context={"token": token, "symbol": symbol},
+                        OperationalError(f"Error updating {token_symbol} price: {e}"),
+                        context={"token": token_symbol, "symbol": symbol},
                         exc_info=True
                     )
 
@@ -225,7 +234,9 @@ class MainController:
             token_init_futures = []
             for token in self.tokens_dict.values():
                 if token.dex.enabled:
-                    token_init_futures.append(token.dex.read_address())
+                    # Only queue token initialization if not shutting down
+                    if not self.config_manager.controller.shutdown_event.is_set():
+                        token_init_futures.append(token.dex.read_address())
             if token_init_futures:
                 await asyncio.gather(*token_init_futures)
 
@@ -305,30 +316,39 @@ def run_async_main(config_manager, loop=None, startup_tasks=None):
         asyncio.set_event_loop(loop)
 
     startup_tasks = startup_tasks or []
-    controller = MainController(config_manager, loop)
-    config_manager.controller = controller
-
-    main_task = loop.create_task(main(config_manager, loop, startup_tasks))
-
     try:
-        # Run the event loop until the main task is complete.
-        loop.run_until_complete(main_task)
-    except (SystemExit, KeyboardInterrupt):
-        from definitions.shutdown import ShutdownCoordinator
-        config_manager.general_log.info("Received stop signal. Initiating coordinated shutdown...")
-        if controller and not controller.shutdown_event.is_set():
-            controller.shutdown_event.set()
-            # Use the proper async shutdown method for CLI
+        controller = MainController(config_manager, loop)
+        config_manager.controller = controller
+
+        main_task = loop.create_task(main(config_manager, loop, startup_tasks))
+
+        try:
+            # Run the event loop until the main task is complete.
+            loop.run_until_complete(main_task)
+        except (SystemExit, KeyboardInterrupt):
+
+            config_manager.general_log.info("Received stop signal. Initiating coordinated shutdown...")
+            if controller and not controller.shutdown_event.is_set():
+                controller.shutdown_event.set()
+                # Use the proper async shutdown method for CLI
+                loop.run_until_complete(ShutdownCoordinator.shutdown_async(config_manager))
+        except Exception as e:
+            config_manager.general_log.error(f"Exception in run_async_main: {e}")
+            traceback.print_exc()
+            raise
+    except RPCConfigError as e:
+        config_manager.general_log.critical(f"Fatal RPC configuration error: {e}")
+
+        try:
             loop.run_until_complete(ShutdownCoordinator.shutdown_async(config_manager))
-    except Exception as e:
-        config_manager.general_log.error(f"Exception in run_async_main: {e}")
-        traceback.print_exc()
-        raise
+        except Exception as e:
+            config_manager.general_log.error(f"Error during shutdown: {e}")
+        sys.exit(1)
     finally:
         # This block will run for clean exit, SystemExit, and KeyboardInterrupt
 
-        # Cancel the main task if it's still running (e.g., from KeyboardInterrupt)
-        if not main_task.done():
+        # The main_task might not be defined if MainController constructor fails.
+        if 'main_task' in locals() and not main_task.done():
             main_task.cancel()
             try:
                 # Give the task a chance to finish its cancellation

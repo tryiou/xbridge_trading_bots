@@ -12,6 +12,7 @@ from pathlib import Path
 import ccxt
 
 from definitions.error_handler import ErrorHandler, TransientError, OperationalError, CriticalError
+from definitions.errors import RPCConfigError
 from definitions.rpc import rpc_call
 
 
@@ -105,7 +106,7 @@ class CCXTManager:
                     )
                     # Continue retrying unless it's a critical error
                     if isinstance(e, CriticalError):
-                        exit()
+                        raise RPCConfigError("No valid Blocknet Core Config path found.", context={"context": str(e)})
                 else:
                     done = True
             return instance

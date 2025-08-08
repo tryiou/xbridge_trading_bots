@@ -3,6 +3,7 @@ import asyncio
 import aiohttp
 import async_timeout
 from aiohttp import BasicAuth, ClientError
+import asyncio
 
 from definitions.error_handler import TransientError, OperationalError
 
@@ -14,7 +15,8 @@ class RpcTimeoutError(Exception):
 
 async def rpc_call(method, params=None, url="http://127.0.0.1", rpc_user=None, rpc_password=None,
                    rpc_port=None, debug=2, timeout=30, display=True, prefix='xbridge', max_err_count=5,
-                   logger=None, session=None, error_handler=None):
+                   logger=None, session=None, error_handler=None,
+                   shutdown_event=None):
     """
     Make an async JSON-RPC call with centralized error handling.
 

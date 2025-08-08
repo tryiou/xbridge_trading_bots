@@ -20,7 +20,7 @@ def run_async(coro):
 
 from definitions.error_handler import ErrorHandler, TransientError, OperationalError
 from definitions.errors import ConfigurationError, ExchangeError, StrategyError, CriticalError, \
-    GUIRenderingError
+    GUIRenderingError, RPCConfigError
 import asyncio
 
 
@@ -71,7 +71,7 @@ class ErrorHandlingVisitor(ast.NodeVisitor):
                 hasattr(node.exc.func, "id") and
                 node.exc.func.id in ["TransientError", "OperationalError", "CriticalError",
                                      "ConfigurationError", "ExchangeError", "StrategyError",
-                                     "GUIRenderingError"]):
+                                     "GUIRenderingError", "RPCConfigError"]):
 
             has_context = False
             for keyword in node.exc.keywords:
@@ -107,7 +107,8 @@ def test_static_analysis():
         "definitions/error_handler.py",
         "definitions/ccxt_manager.py",
         "definitions/rpc.py",
-        "definitions/xbridge_manager.py"
+        "definitions/xbridge_manager.py",
+        "definitions/detect_rpc.py"  # New module to analyze
     ]
 
     violations = []
@@ -225,10 +226,46 @@ def test_critical_error_shutdown(error_handler):
             reason="CriticalError: Critical failure | Context: {}"
         )
 
+def test_rpc_error_propagates_to_shutdown():
+    """Test RPCConfigError propagates to clean shutdown"""
+    from definitions.starter import run_async_main
+    mock_config = MagicMock()
+    
+    with patch("definitions.shutdown.ShutdownCoordinator.shutdown_async") as mock_shutdown, \
+         patch("definitions.starter.MainController") as MockController, \
+         patch("definitions.ccxt_manager.CCXTManager._cleanup_proxy") as mock_cleanup:
+        
+        # Simulate RPCConfigError during initialization with port details
+        MockController.side_effect = RPCConfigError(
+            "Invalid RPC config", 
+            {
+                "path": "/bad/path",
+                "rpc_port": 2233,     # CCXT proxy port
+                "blocknet_port": 44552 # Default RPC port
+            }
+        )
+        
+        with patch.object(mock_config.general_log, 'critical') as mock_critical:
+            try:
+                run_async_main(mock_config, loop=asyncio.new_event_loop())
+            except SystemExit:
+                pass
+            
+            # Verify RPC port details in context                                                                                                                                           
+            assert "/bad/path" in mock_critical.call_args[0][0]  # From error context                                                                                                      
+            assert "2233" in mock_critical.call_args[0][0]  # CCXT proxy port                                                                                                              
+            assert "44552" in mock_critical.call_args[0][0]  # Default RPC port                                                                                                            
+                                                                                                                                                                                           
+            # Verify cleanup happened                                                                                                                                                      
+            mock_cleanup.assert_called_once()                                                                                                                                              
+            mock_shutdown.assert_called()                                                                                                                                                  
+            assert "RPCConfigError" in mock_critical.call_args[0][0]                                                                                                                       
+
 
 # Error classification tests
 @pytest.mark.parametrize("error,expected_type", [
     (ConfigurationError("Invalid config"), OperationalError),
+    (RPCConfigError("Invalid RPC path"), OperationalError),  # New test case
     (ExchangeError("API timeout"), TransientError),
     (StrategyError("Logic failure"), OperationalError),
     (GUIRenderingError("Display issue"), OperationalError),
@@ -269,6 +306,23 @@ def test_context_enrichment(error_handler):
             'error_type': 'OperationalError',
             'strategy': 'arbitrage',
             'module': 'trade_execution'
+        }
+        
+    # Test specific to RPCConfigError context
+    with patch.object(ErrorHandler, "_handle_operational") as mock_handle:
+        error_handler.config_manager = MockConfigManager()
+        error_handler.handle(
+            RPCConfigError("Config not found", {"path": "/bad/path"}),
+            {"component": "RPC"}
+        )
+
+        context = mock_handle.call_args[0][1]
+        assert context == {
+            'component': 'RPC',
+            'path': '/bad/path',
+            'error_type': 'RPCConfigError',
+            'strategy': 'arbitrage',
+            'module': 'trade_executor'
         }
 
 

@@ -1,8 +1,10 @@
 import logging
 import os
 import platform
-
+import sys
 import yaml
+
+from definitions.errors import RPCConfigError
 
 debug_level = 2
 
@@ -68,7 +70,7 @@ def prompt_user_for_config_path():
 def read_config_file(config_path):
     if not config_path:
         autoconf_rpc_log.error('Config path is empty.')
-        exit()
+        raise RPCConfigError("Empty configuration path", context={})
 
     if os.path.exists(config_path):
         autoconf_rpc_log.debug(f'Reading config file: {config_path}')
@@ -107,7 +109,7 @@ def read_config_file(config_path):
                 missing_config_keys.append('rpcport')
 
             autoconf_rpc_log.error(f'Missing keys in config file: {", ".join(missing_config_keys)}. Exiting.')
-            exit()
+            raise RPCConfigError(f'Missing keys in config file: {", ".join(missing_config_keys)}', context={})
 
     else:
         autoconf_rpc_log.warning(f'Config file not found: {config_path}')
@@ -148,7 +150,7 @@ def detect_rpc():
 
     if not config_path or not os.path.exists(config_path):
         autoconf_rpc_log.error("No valid Blocknet Core Config path found.")
-        exit()
+        raise RPCConfigError(f"Config file not found: {config_path}", context={})
     else:
         autoconf_rpc_log.info(f"Blocknet Core Config found at {config_path}")
 

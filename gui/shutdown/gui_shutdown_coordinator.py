@@ -109,32 +109,63 @@ class GUIShutdownCoordinator:
         deadline = time.time() + timeout
         active_components = []
 
-        # Build initial status
+        # Build initial status monitoring both threads and CCXT proxies
         for name, frame in self.strategy_frames.items():
+            # Monitor strategy thread
             if frame.started and getattr(frame, 'send_process', None) and frame.send_process.is_alive():
-                active_components.append(name)
+                active_components.append((name, frame.send_process, "thread"))
+            # Monitor CCXT proxy process
+            if hasattr(frame.config_manager, 'ccxt_manager') and \
+                    hasattr(frame.config_manager.ccxt_manager, '_proxy_process'):
+                proxy = frame.config_manager.ccxt_manager._proxy_process
+                if proxy and proxy.poll() is None:
+                    active_components.append((f"{name} CCXT Proxy", proxy, "process"))
+
+        # Add small sleep interval to reduce busy-waiting
+        SLEEP_INTERVAL = 0.2
 
         # Periodic status updates
         while time.time() < deadline and active_components:
-            logger.info(f"Awaiting termination for: {', '.join(active_components)}")
-            for name in active_components[:]:
+            status_msg = ", ".join([name for name, _, _ in active_components])
+            logger.info(f"Awaiting termination for: {status_msg}")
+            remaining = []
+            for (name, proc, typ) in active_components:
                 try:
-                    frame = self.strategy_frames[name]
-                    if frame.send_process is not None and not frame.send_process.is_alive():
+                    if typ == "thread":
+                        alive = proc.is_alive()
+                    else:  # "process"
+                        alive = proc.poll() is None
+                    if alive:
+                        remaining.append((name, proc, typ))
+                    else:
                         logger.info(f"{name} successfully terminated")
-                        active_components.remove(name)
                 except Exception as e:
-                    logger.error(f"Termination check error for {name}: {e}")
-                    active_components.remove(name)  # Remove to avoid endless loop
+                    logger.error(f"Error checking {name}: {e}")
+                    # Don't remain in loop if checking fails
 
+            active_components = remaining
             if active_components:
-                time.sleep(min(0.5, deadline - time.time()))  # Small sleep to avoid busy-wait
+                remaining_time = deadline - time.time()
+                if remaining_time <= 0:
+                    break
+                time.sleep(min(SLEEP_INTERVAL, remaining_time))
 
         return len(active_components) == 0
 
     def _cleanup_resources(self):
         """Final cleanup resource release both graceful and forced."""
         logger.info("Releasing resources...")
+        # First clean up all CCXT proxies to prevent new connections
+        for name, frame in self.strategy_frames.items():
+            try:
+                if hasattr(frame, 'config_manager') and hasattr(frame.config_manager, 'ccxt_manager'):
+                    # Use centralized proxy cleanup
+                    from definitions.ccxt_manager import CCXTManager
+                    CCXTManager._cleanup_proxy()
+                    logger.info(f"CCXT proxy terminated for {name}")
+            except Exception as e:
+                logger.warning(f"Proxy cleanup failed for {name}: {e}", exc_info=True)
+
         # Cleanup strategy frames
         for name, frame in self.strategy_frames.items():
             try:
@@ -144,8 +175,10 @@ class GUIShutdownCoordinator:
                 if getattr(frame, 'send_process', None):
                     if frame.send_process.is_alive():
                         logger.warning(f"Terminating {name}'s bot thread forcibly")
-                        # Insist on thread termination
-                        frame.send_process.join(timeout=0.5)
+                        frame.send_process.join(timeout=0.2)
+                        # After join, check again
+                        if frame.send_process.is_alive():
+                            logger.error(f"{name} thread still alive after final termination attempt")
                     frame.send_process = None
             except Exception as e:
                 logger.warning(f"Resource cleanup failed for {name}: {e}", exc_info=True)
@@ -157,6 +190,8 @@ class GUIShutdownCoordinator:
         Finalizes the GUI exit on the main Tkinter thread.
         """
         try:
+            # Brief pause to allow in-flight operations to settle/terminate
+            time.sleep(0.5)
             logger.info("Destroying GUI root window.")
             self.gui_root.destroy()
         except Exception as e:
