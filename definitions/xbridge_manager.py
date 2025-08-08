@@ -3,10 +3,10 @@ import configparser
 import logging
 import os
 import socket
+import threading
 import time
 import uuid
 import weakref
-import threading
 
 from definitions.detect_rpc import detect_rpc
 from definitions.logger import setup_logging
@@ -18,7 +18,7 @@ class XBridgeManager:
 
     def __init__(self, config_manager):
         self.config_manager = config_manager
-        strategy = self.config_manager.strategy if hasattr(config_manager,'strategy') else 'no_strat'
+        strategy = self.config_manager.strategy if hasattr(config_manager, 'strategy') else 'no_strat'
         self.logger = setup_logging(name=f"{strategy}.xbridge_manager", level=logging.DEBUG, console=True)
         self.blocknet_user_rpc, self.blocknet_port_rpc, self.blocknet_password_rpc, self.blocknet_datadir_path = detect_rpc()
         self.xbridge_conf = None
@@ -27,12 +27,13 @@ class XBridgeManager:
         self._cache_lock = threading.Lock()  # Lock for thread-safe cache access
         self.UTXO_CACHE_DURATION = 3.0  # Cache expiration time in seconds
 
-        self.active_rpc_counter = 0                                                                                                                                                         
-        self.rpc_counter_lock = threading.Lock() 
+        self.active_rpc_counter = 0
+        self.rpc_counter_lock = threading.Lock()
 
         # Check if RPC port is open (synchronous check)
         if not self.is_port_open("127.0.0.1", self.blocknet_port_rpc):
-            self.logger.error(f'Blocknet RPC port {self.blocknet_port_rpc} is not open. Will not be able to connect to Blocknet Core.')
+            self.logger.error(
+                f'Blocknet RPC port {self.blocknet_port_rpc} is not open. Will not be able to connect to Blocknet Core.')
         else:
             self.logger.info(f'Blocknet RPC port {self.blocknet_port_rpc} is open.')
 
@@ -43,8 +44,8 @@ class XBridgeManager:
             self.calculate_xbridge_fees()
 
         # Only run test if port is actually open and we're not in main thread
-        if (threading.current_thread() is not threading.main_thread() and 
-            self.is_port_open("127.0.0.1", self.blocknet_port_rpc)):
+        if (threading.current_thread() is not threading.main_thread() and
+                self.is_port_open("127.0.0.1", self.blocknet_port_rpc)):
             asyncio.run(self.async_test_rpc())
 
     async def rpc_wrapper(self, method, params=None):

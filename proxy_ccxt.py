@@ -8,8 +8,8 @@ import aiohttp
 import ccxt.async_support as ccxt
 from aiohttp import ClientSession, web
 
-from definitions.yaml_mix import YamlToObject
 from definitions.logger import setup_logging
+from definitions.yaml_mix import YamlToObject
 
 if os.name == 'nt':
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
@@ -108,7 +108,7 @@ class PriceFetcher:
             return
 
         logger.info(f"Refreshing CCXT tickers for: {self.symbols_list}")
-        
+
         try:
             # Group symbols by market type to avoid mixed spot/swap requests
             markets = self.ccxt_i.markets
@@ -117,7 +117,7 @@ class PriceFetcher:
                 market = markets.get(symbol)
                 if market:
                     grouped.setdefault(market['type'], []).append(symbol)
-            
+
             self.tickers = {}
             for market_type, symbols in grouped.items():
                 if len(symbols) > 0:
@@ -135,7 +135,7 @@ class PriceFetcher:
                         except (TypeError, ValueError) as e:
                             logger.error(f"Error updating tickers: {e}")
             logger.info("Successfully refreshed CCXT tickers.")
-            
+
         except ccxt.BadRequest as e:
             logger.error(f"Invalid symbol combination: {e}")
             raise
@@ -177,7 +177,7 @@ class PriceFetcher:
         new_symbols = []
         request_invalid_symbols = []
         request_valid_symbols = []
-        
+
         # Validate symbols and collect invalid ones
         for s in symbols:
             if s not in self.ccxt_i.markets:
@@ -187,7 +187,7 @@ class PriceFetcher:
             request_valid_symbols.append(s)
             if s not in self.symbols_list:
                 new_symbols.append(s)
-        
+
         if new_symbols:
             self.symbols_list.extend(new_symbols)
 
@@ -201,7 +201,7 @@ class PriceFetcher:
         else:
             self.ccxt_cache_hit += 1
             logger.info("Returning cached CCXT tickers.")
-        
+
         # Create the result dictionary
         result = {}
         # Add the valid symbols
@@ -211,11 +211,11 @@ class PriceFetcher:
             else:
                 # Shouldn't happen, but if it does
                 result[s] = {'error': 'Ticker data not found'}
-        
+
         # Add invalid symbols with error messages
         for s in request_invalid_symbols:
             result[s] = {'error': 'Invalid symbol'}
-        
+
         return result
 
     async def get_block_ticker(self) -> float:

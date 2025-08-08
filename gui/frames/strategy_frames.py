@@ -1,13 +1,11 @@
 # gui/frames/strategy_frames.py
-import abc
 import logging
 from typing import TYPE_CHECKING
 
 from definitions.config_manager import ConfigManager
-from gui.frames.base_frames import StandardStrategyFrame
-
-from gui.config_windows.pingpong_config import GUI_Config_PingPong
 from gui.config_windows.basicseller_config import GUI_Config_BasicSeller
+from gui.config_windows.pingpong_config import GUI_Config_PingPong
+from gui.frames.base_frames import StandardStrategyFrame
 
 if TYPE_CHECKING:
     from gui.main_app import MainApplication
@@ -20,6 +18,7 @@ class PingPongFrame(StandardStrategyFrame):
     """
     Strategy frame for the PingPong bot.
     """
+
     def __init__(self, parent, main_app: "MainApplication", master_config_manager: ConfigManager):
         super().__init__(parent, main_app, "pingpong", master_config_manager)
 
@@ -34,6 +33,7 @@ class BasicSellerFrame(StandardStrategyFrame):
     """
     Strategy frame for the Basic Seller bot.
     """
+
     def __init__(self, parent, main_app: "MainApplication", master_config_manager: ConfigManager):
         super().__init__(parent, main_app, "basic_seller", master_config_manager)
 
@@ -50,6 +50,7 @@ class ArbitrageFrame(StandardStrategyFrame):
     Note: This currently uses a mock configuration window as the full
     implementation is pending.
     """
+
     def __init__(self, parent, main_app: "MainApplication", master_config_manager: ConfigManager):
         super().__init__(parent, main_app, "arbitrage", master_config_manager)
 
@@ -58,6 +59,7 @@ class ArbitrageFrame(StandardStrategyFrame):
         Creates and returns the Arbitrage specific configuration GUI window.
         Currently returns a mock implementation.
         """
+
         # Temporary implementation - return mock config window
         class MockConfigWindow:
             def open(self):

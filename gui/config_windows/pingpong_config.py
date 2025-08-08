@@ -1,11 +1,10 @@
 # gui/config_windows/pingpong_config.py
-import tkinter as tk
 from tkinter import ttk
-from typing import TYPE_CHECKING, Dict, Any, List, Optional
+from typing import TYPE_CHECKING, Dict, Any
 
+from gui.components.dialogs import AddPairDialog, PairConfigDialog
 from gui.config_windows.base_config_window import BaseConfigWindow
 from gui.config_windows.common_config_widgets import TreeviewMixin
-from gui.components.dialogs import AddPairDialog, PairConfigDialog
 
 if TYPE_CHECKING:
     from gui.frames.base_frames import BaseStrategyFrame
@@ -24,7 +23,7 @@ class GUI_Config_PingPong(BaseConfigWindow, TreeviewMixin):
 
     def _create_widgets(self, parent_frame: ttk.Frame):
         canvas, content_frame = self._create_scrollable_content_frame(parent_frame)
-        
+
         self._create_general_settings_widgets(content_frame)
         self._create_pairs_treeview_widgets(content_frame)
 
@@ -50,7 +49,7 @@ class GUI_Config_PingPong(BaseConfigWindow, TreeviewMixin):
         """Creates the Treeview for displaying and managing pair configurations."""
         tree_frame = ttk.LabelFrame(parent_frame, text="Pair Configurations")
         tree_frame.grid(row=1, column=0, padx=5, pady=5, sticky='nsew')
-        parent_frame.grid_rowconfigure(1, weight=1) # Allow this section to expand
+        parent_frame.grid_rowconfigure(1, weight=1)  # Allow this section to expand
 
         columns = [
             ('name', 'Name'), ('enabled', 'Enabled'), ('pair', 'Pair'),
@@ -158,16 +157,16 @@ class GUI_Config_PingPong(BaseConfigWindow, TreeviewMixin):
                 if not values[0].strip():
                     self.update_status("Name is required for each pair configuration", 'red')
                     return None
-                    
+
                 if len(values) < 3:
                     self.update_status("Invalid row: missing required fields", 'red')
                     return None
-                    
+
                 pair = values[2]
                 if '/' not in pair or len(pair.split('/')) != 2:
                     self.update_status(f"Invalid pair format: {pair}. Must be TOKEN1/TOKEN2", 'red')
                     return None
-                    
+
                 try:
                     pair_configs.append({
                         'name': values[0],

@@ -1,18 +1,18 @@
 import asyncio
+import atexit  # Add for exit handler
 import json
 import os
 import socket
 import subprocess
 import sys
-import time
 import threading
-import atexit  # Add for exit handler
+import time
 from pathlib import Path
 
 import ccxt
 
-from definitions.rpc import rpc_call
 from definitions.error_handler import ErrorHandler, TransientError, OperationalError, CriticalError
+from definitions.rpc import rpc_call
 
 
 class CCXTManager:
@@ -37,7 +37,7 @@ class CCXTManager:
                 if cls._proxy_process.poll() is None:
                     # Try graceful termination first
                     cls._proxy_process.terminate()
-                    
+
                     # Give it time to terminate
                     try:
                         cls._proxy_process.wait(timeout=5.0)
@@ -70,11 +70,11 @@ class CCXTManager:
             except Exception as e:
                 self.error_handler.handle(
                     OperationalError(f"API keys load failed: {str(e)}",
-                                    {"exchange": exchange, "file": "api_keys.local.json"}),
+                                     {"exchange": exchange, "file": "api_keys.local.json"}),
                     context={"method": "init_ccxt_instance"}
                 )
                 return None
-                
+
         if exchange in ccxt.exchanges:
             exchange_class = getattr(ccxt, exchange)
             if hostname:
@@ -100,7 +100,7 @@ class CCXTManager:
                 except Exception as e:
                     self.error_handler.handle(
                         TransientError(f"Exchange initialization failed: {str(e)}",
-                                      {"exchange": exchange}),
+                                       {"exchange": exchange}),
                         context={"method": "init_ccxt_instance"}
                     )
                     # Continue retrying unless it's a critical error
@@ -136,8 +136,8 @@ class CCXTManager:
                     "err_count": err_count
                 }
                 if not self.error_handler.handle(
-                    TransientError(str(error), {"type": type(error).__name__}),
-                    context=context
+                        TransientError(str(error), {"type": type(error).__name__}),
+                        context=context
                 ):
                     return None  # Abort on critical error
             else:
@@ -158,8 +158,8 @@ class CCXTManager:
                     "err_count": err_count
                 }
                 if not self.error_handler.handle(
-                    TransientError(str(error), {"type": type(error).__name__}),
-                    context=context
+                        TransientError(str(error), {"type": type(error).__name__}),
+                        context=context
                 ):
                     return None
             else:
@@ -202,8 +202,8 @@ class CCXTManager:
                     "err_count": err_count
                 }
                 if not self.error_handler.handle(
-                    TransientError(str(error), {"type": type(error).__name__}),
-                    context=context
+                        TransientError(str(error), {"type": type(error).__name__}),
+                        context=context
                 ):
                     return None
 
@@ -221,21 +221,21 @@ class CCXTManager:
                     "err_count": err_count
                 }
                 if not self.error_handler.handle(
-                    TransientError(str(error), {"type": type(error).__name__}),
-                    context=context
+                        TransientError(str(error), {"type": type(error).__name__}),
+                        context=context
                 ):
                     return None
             else:
                 self._debug_display('ccxt_call_fetch_ticker', [symbol], result)
                 return result
 
-
     def _start_proxy(self):
         """Start shared CCXT proxy with process coordination"""
         with CCXTManager._proxy_lock:
             if self.isportopen_sync("127.0.0.1", CCXTManager._proxy_port):
                 if CCXTManager._proxy_process:
-                    self.config_manager.ccxt_log.info(f"CCXT proxy already running (PID: {CCXTManager._proxy_process.pid})")
+                    self.config_manager.ccxt_log.info(
+                        f"CCXT proxy already running (PID: {CCXTManager._proxy_process.pid})")
                 else:
                     self.config_manager.ccxt_log.info(f"CCXT proxy port {CCXTManager._proxy_port} already occupied")
                 return
@@ -260,9 +260,9 @@ class CCXTManager:
                         break
                     else:
                         self.config_manager.ccxt_log.warning(
-                            f"Port check attempt {i}/3 failed - retrying in {i*2} seconds"
+                            f"Port check attempt {i}/3 failed - retrying in {i * 2} seconds"
                         )
-                
+
                 if proxy_started:
                     self.config_manager.ccxt_log.info(
                         f"Proxy started successfully (PID: {CCXTManager._proxy_process.pid}, port: {CCXTManager._proxy_port})"
@@ -317,6 +317,7 @@ class CCXTManager:
         # Level 4: Also log the full result
         if debug_level >= 4:
             self.config_manager.ccxt_log.debug(str(result))
+
 
 # Register proxy cleanup function to be called on exit
 atexit.register(CCXTManager._cleanup_proxy)

@@ -1,5 +1,4 @@
 import argparse
-import asyncio
 
 from definitions.config_manager import ConfigManager
 from definitions.starter import run_async_main

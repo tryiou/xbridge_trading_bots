@@ -56,7 +56,7 @@ def start():
             grid_d = pair_cfg['grid_density']
             curve_type = pair_cfg.get('curve', 'linear')
             curve_s = pair_cfg.get('curve_strength', 10)
-            percent_min_s = pair_cfg.get('percent_min_size', 0.0001) # New line
+            percent_min_s = pair_cfg.get('percent_min_size', 0.0001)  # New line
 
             animation_filename = f"animation_{pair_symbol}_min{min_p}_max{max_p}_grid{grid_d}_curve{curve_type}_strength{curve_s}_min_size{str(percent_min_s).replace('.', '_')}.mp4"
 

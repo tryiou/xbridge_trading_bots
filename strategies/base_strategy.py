@@ -1,5 +1,4 @@
 from abc import ABC, abstractmethod
-from definitions.error_handler import OperationalError, ConfigurationError
 
 
 class BaseStrategy(ABC):

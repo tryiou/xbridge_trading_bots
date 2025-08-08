@@ -1,6 +1,6 @@
-import re
-import queue
 import logging
+import queue
+import re
 from tkinter import ttk
 from typing import List, Dict, Tuple
 
@@ -28,14 +28,14 @@ class BaseDataPanel(ttk.Frame):
         # Configure tree columns with percentage-based weights
         self.columns = columns  # Store columns for resize handling
         total_weight = sum(col[2] for col in columns)
-        
+
         # Set initial widths based on current window size
         def set_column_weights(event=None):
             width = self.tree.winfo_width()
             for col_id, _, weight in self.columns:
                 self.tree.column(col_id,
-                               width=int(width * weight/total_weight),
-                               stretch=True)
+                                 width=int(width * weight / total_weight),
+                                 stretch=True)
 
         # Bind resize event and do initial configuration
         self.tree.bind('<Configure>', set_column_weights)
@@ -48,7 +48,7 @@ class BaseDataPanel(ttk.Frame):
         for col_id, col_name, _ in columns:
             self.tree.heading(col_id, text=col_name, command=lambda col=col_id: self._sort_column(col))
             self.tree.column(col_id, stretch=True)  # Enable proportional resizing
-            
+
         # Trigger initial layout
         self.after(250, lambda: set_column_weights(None))
 
@@ -74,7 +74,7 @@ class BaseDataPanel(ttk.Frame):
             else:
                 self.sort_column = col_id
                 self.sort_ascending = True
-                                                                                                                                                                                      
+
             # Update column heading with sort indicator
             for col_id_, col_name, _ in self.columns:
                 if col_id_ == col_id:
@@ -84,7 +84,7 @@ class BaseDataPanel(ttk.Frame):
                         self.tree.heading(col_id_, text=col_name + " ▼")
                 else:
                     self.tree.heading(col_id_, text=col_name)
-                                                                                                                                                                                      
+
             # Skip queue, process immediately
             if self.current_data:
                 self.current_data = self._sort_data(self.current_data)
@@ -157,7 +157,7 @@ class BaseDataPanel(ttk.Frame):
             if isinstance(value, list) and len(value) > 0:
                 value = value[0]
             elif isinstance(value, list) and len(value) == 0:
-                return (0, float('-inf')) # Treat empty lists like None/empty string
+                return (0, float('-inf'))  # Treat empty lists like None/empty string
 
             s_value = str(value).strip().lower()
 
@@ -170,7 +170,7 @@ class BaseDataPanel(ttk.Frame):
                 float_value = float(s_value)
                 return (0, float_value)
             except ValueError:
-                pass # Fall through to next attempt
+                pass  # Fall through to next attempt
 
             # Attempt 2: Clean specific non-numeric symbols and try again
             # This regex is precise, only removing currency symbols, commas, and brackets.
@@ -182,7 +182,7 @@ class BaseDataPanel(ttk.Frame):
                 # Fallback: If both numerical conversions fail, treat as a string
                 # This ensures that non-numerical strings (like "BTC", "N/A", or "" from "$")
                 # are correctly sorted alphabetically, not numerically.
-                return (1, s_value) # Return original case for string sorting after numerical attempts
+                return (1, s_value)  # Return original case for string sorting after numerical attempts
         except Exception as e:
             logger.error(f"Error getting sort value: {e}", exc_info=True)
             return (1, str(value))  # Fallback to string representation
@@ -190,12 +190,14 @@ class BaseDataPanel(ttk.Frame):
     def _redraw_tree(self):
         """To be implemented by subclasses"""
         pass
+
+
 class OrdersPanel(BaseDataPanel):
     """Replacement for original GUI_Orders"""
     COLUMNS = [
         ('name', 'Name', 11),
         ('symbol', 'Symbol', 10),
-        ('status', 'Status', 6), 
+        ('status', 'Status', 6),
         ('side', 'Side', 5),
         ('flag', 'Flag', 5),
         ('variation', 'Variation', 7),
@@ -239,7 +241,7 @@ class OrdersPanel(BaseDataPanel):
 class BalancesPanel(BaseDataPanel):
     """Replacement for original GUI_Balances"""
     COLUMNS = [
-        ('symbol', 'Coin', 25), # Changed 'coin' to 'symbol'
+        ('symbol', 'Coin', 25),  # Changed 'coin' to 'symbol'
         ('usd_price', 'USD Price', 20),
         ('total', 'Total', 20),
         ('free', 'Free', 20),
@@ -258,9 +260,9 @@ class BalancesPanel(BaseDataPanel):
             if 'total' in item and 'usd_price' in item:
                 item['total_usd'] = item['total'] * item['usd_price']
             else:
-                item['total_usd'] = 0.0 # Default to 0 or handle as appropriate
+                item['total_usd'] = 0.0  # Default to 0 or handle as appropriate
 
-        super()._safe_update(items) # Call parent's _safe_update to sort and redraw
+        super()._safe_update(items)  # Call parent's _safe_update to sort and redraw
 
     def _redraw_tree(self):
         """Main thread only - actual UI update"""
@@ -274,7 +276,7 @@ class BalancesPanel(BaseDataPanel):
                 f"${balance['usd_price']:.3f}",
                 f"{balance['total']:.4f}",
                 f"{balance['free']:.4f}",
-                f"${balance.get('total_usd', 0.0):.2f}" # Use the pre-calculated value
+                f"${balance.get('total_usd', 0.0):.2f}"  # Use the pre-calculated value
             ), tags=('evenrow' if i % 2 == 0 else 'oddrow',))
 
         self.tree.configure(height=display_height)

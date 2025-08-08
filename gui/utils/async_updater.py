@@ -1,12 +1,13 @@
 # gui/utils/async_updater.py
+import asyncio
+import logging
 import queue
 import threading
 import time
-import logging
-import asyncio
-from typing import Callable, Any, List, Dict
+from typing import Callable, Any
 
 logger = logging.getLogger(__name__)
+
 
 class AsyncUpdater:
     """
@@ -40,7 +41,7 @@ class AsyncUpdater:
         self._update_queue = queue.Queue()
         self._updater_thread: threading.Thread | None = None
         self._running = False
-        self._process_id = None # For scheduling _process_updates
+        self._process_id = None  # For scheduling _process_updates
 
     def start(self):
         with self._lock:
@@ -64,8 +65,8 @@ class AsyncUpdater:
 
             logger.info(f"{self.name}: Stopping updater.")
             self._running = False
-            self._update_queue.put(None) # Signal the fetcher thread to stop
-        
+            self._update_queue.put(None)  # Signal the fetcher thread to stop
+
         if self._process_id:
             self.tk_widget.after_cancel(self._process_id)
             self._process_id = None
@@ -74,7 +75,7 @@ class AsyncUpdater:
         # but for completeness or if non-daemon, one might add:
         if self._updater_thread and self._updater_thread.is_alive():
             logger.debug(f"{self.name}: Waiting for fetcher thread to terminate.")
-            self._updater_thread.join(timeout=self.update_interval_sec * 2 + 1) # Give it some time
+            self._updater_thread.join(timeout=self.update_interval_sec * 2 + 1)  # Give it some time
             logger.debug(f"{self.name}: Fetcher thread terminated.")
 
     def _run_fetcher(self):
@@ -97,41 +98,40 @@ class AsyncUpdater:
 
                 if data is not None:
                     self._update_queue.put(data)
-                
+
                 # Check for stop signal in queue
                 if not self._update_queue.empty() and self._update_queue.queue[0] is None:
-                    self._update_queue.get() # Consume the None
+                    self._update_queue.get()  # Consume the None
                     break
 
                 time.sleep(self.update_interval_sec)
             except Exception as e:
                 logger.error(f"{self.name}: Error in fetcher thread: {e}", exc_info=True)
-                time.sleep(self.update_interval_sec * 2) # Wait longer on error
-        
+                time.sleep(self.update_interval_sec * 2)  # Wait longer on error
+
         # Close the event loop when the thread terminates
         if not loop.is_closed():
             loop.close()
 
         logger.info(f"{self.name}: Fetcher thread terminated.")
 
-
     def _process_updates(self):
         """
         Processes queued data updates in the main Tkinter thread.
         """
         if not self._running:
-            return # Stop processing if updater is no longer running
+            return  # Stop processing if updater is no longer running
 
         try:
             while not self._update_queue.empty():
                 data = self._update_queue.get_nowait()
-                if data is None: # Stop signal
+                if data is None:  # Stop signal
                     return
                 self.update_target_method(data)
         except queue.Empty:
-            pass # No updates yet
+            pass  # No updates yet
         except Exception as e:
             logger.error(f"{self.name}: Error processing updates in main thread: {e}", exc_info=True)
         finally:
-            if self._running: # Only reschedule if still running
+            if self._running:  # Only reschedule if still running
                 self._process_id = self.tk_widget.after(self.process_interval_ms, self._process_updates)

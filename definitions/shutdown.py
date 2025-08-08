@@ -1,6 +1,5 @@
 import asyncio
 import os
-import subprocess
 import sys
 import threading
 from typing import Optional, Dict, Any
@@ -78,13 +77,13 @@ class ShutdownCoordinator:
             try:
                 self.config_manager.general_log.info(f"Attempting to stop {strategy.strategy_name} strategy")
                 strategy.stop(reload_config=False)
-                
+
                 # Additional check if strategy thread is still alive
                 if strategy.send_process and strategy.send_process.is_alive():
                     self.config_manager.general_log.warning(
                         f"{strategy.strategy_name} thread did not terminate, sending final SIGTERM")
                     strategy._finalize_stop(reload_config=False)
-                    
+
             except Exception as e:
                 self.config_manager.general_log.error(
                     f"Failed to stop {strategy.strategy_name}: {str(e)}",

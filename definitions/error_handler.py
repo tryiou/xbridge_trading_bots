@@ -1,10 +1,12 @@
 """
 Centralized error handling with context propagation and recovery policies
 """
-import time
-import logging
 import asyncio
+import logging
+import time
+
 from .errors import *
+
 
 class ErrorHandler:
     def __init__(self, config_manager=None, logger=None):
@@ -12,7 +14,7 @@ class ErrorHandler:
         self.logger = logger or logging.getLogger("error_handler")
         self.max_retries = 3
         self.retry_delays = [1, 3, 5]  # Seconds between retries
-    
+
     async def _async_notify_user(self, level, message, details):
         """Async version of notify_user"""
         if self.config_manager:
@@ -30,20 +32,20 @@ class ErrorHandler:
                     message=message,
                     details=details
                 )
-        
+
     def handle(self, error, context=None):
         """Main error handling entry point"""
         error_type = type(error).__name__
         context = context or {}
-        
+
         # Add error type to context
         context['error_type'] = error_type
-        
+
         # Enrich with additional context if available
         if self.config_manager:
             context.setdefault('strategy', getattr(self.config_manager, 'strategy', 'unknown'))
             context.setdefault('module', getattr(self.config_manager, 'current_module', 'unknown'))
-        
+
         # Classify and handle - treat ExchangeError as TransientError
         if isinstance(error, TransientError) or isinstance(error, ExchangeError):
             return self._handle_transient(error, context)
@@ -52,20 +54,20 @@ class ErrorHandler:
         else:
             # CriticalError or unhandled exception
             return self._handle_critical(error, context)
-    
+
     async def handle_async(self, error, context=None):
         """Async version of main error handling entry point"""
         error_type = type(error).__name__
         context = context or {}
-        
+
         # Add error type to context
         context['error_type'] = error_type
-        
+
         # Enrich with additional context if available
         if self.config_manager:
             context.setdefault('strategy', getattr(self.config_manager, 'strategy', 'unknown'))
             context.setdefault('module', getattr(self.config_manager, 'current_module', 'unknown'))
-        
+
         # Classify and handle - treat ExchangeError as TransientError
         if isinstance(error, TransientError) or isinstance(error, ExchangeError):
             return await self._handle_transient_async(error, context)
@@ -74,7 +76,7 @@ class ErrorHandler:
         else:
             # CriticalError or unhandled exception
             return await self._handle_critical_async(error, context)
-    
+
     def _handle_transient(self, error, context):
         """Handle transient errors with retry logic"""
         # For testing purposes, simulate retry logic
@@ -82,7 +84,7 @@ class ErrorHandler:
             # In tests, we just sleep once to verify retry behavior
             time.sleep(0.1)
             return True
-        
+
         # Implement actual retry logic with exponential backoff
         self.logger.warning(
             f"Transient error (will retry {self.max_retries} times): {error} | Context: {context}"
@@ -91,12 +93,12 @@ class ErrorHandler:
             delay = self.retry_delays[attempt] if attempt < len(self.retry_delays) else self.retry_delays[-1]
             time.sleep(delay)
             return True  # Signal to retry operation after delay
-        
+
         self.logger.error(
             f"Transient error max retries exceeded: {error} | Context: {context}"
         )
         return False
-    
+
     def _handle_operational(self, error, context):
         """Handle operational errors with logging and continuation"""
         self.logger.error(
@@ -117,7 +119,7 @@ class ErrorHandler:
                 # If direct call fails, log the error
                 self.logger.warning(f"Direct notification failed: {e}")
         return True  # Continue operation
-    
+
     def _handle_critical(self, error, context):
         """Handle critical errors with shutdown procedure"""
         self.logger.critical(
@@ -152,7 +154,7 @@ class ErrorHandler:
             except Exception as e:
                 self.logger.error(f"Shutdown failed: {e}")
         return False  # Abort operation
-    
+
     async def _handle_transient_async(self, error, context):
         """Async version of handling transient errors with retry logic"""
         # For testing purposes, simulate retry logic
@@ -160,7 +162,7 @@ class ErrorHandler:
             # In tests, we just sleep once to verify retry behavior
             await asyncio.sleep(0.1)
             return True
-        
+
         # Implement actual retry logic with exponential backoff
         self.logger.warning(
             f"Transient error (will retry {self.max_retries} times): {error} | Context: {context}"
@@ -169,12 +171,12 @@ class ErrorHandler:
             delay = self.retry_delays[attempt] if attempt < len(self.retry_delays) else self.retry_delays[-1]
             await asyncio.sleep(delay)
             return True  # Signal to retry operation after delay
-        
+
         self.logger.error(
             f"Transient error max retries exceeded: {error} | Context: {context}"
         )
         return False
-    
+
     async def _handle_operational_async(self, error, context):
         """Async version of handling operational errors with logging and continuation"""
         self.logger.error(
@@ -195,7 +197,7 @@ class ErrorHandler:
                 # If direct call fails, log the error
                 self.logger.warning(f"Direct notification failed: {e}")
         return True  # Continue operation
-    
+
     async def _handle_critical_async(self, error, context):
         """Async version of handling critical errors with shutdown procedure"""
         self.logger.critical(

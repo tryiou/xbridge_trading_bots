@@ -2,10 +2,12 @@ import logging
 import os
 import shutil
 import threading
+from typing import Dict, Any
 
 from ruamel.yaml import YAML
 
 from definitions.ccxt_manager import CCXTManager
+from definitions.error_handler import ErrorHandler, OperationalError, ConfigurationError
 from definitions.logger import setup_logger, setup_logging
 from definitions.token import Token
 from definitions.xbridge_manager import XBridgeManager
@@ -15,7 +17,6 @@ from strategies.base_strategy import BaseStrategy
 from strategies.basicseller_strategy import BasicSellerStrategy
 from strategies.pingpong_strategy import PingPongStrategy
 from strategies.range_maker_strategy import RangeMakerStrategy
-from definitions.error_handler import ErrorHandler, OperationalError, ConfigurationError
 
 
 class ConfigManager:
@@ -23,8 +24,8 @@ class ConfigManager:
         self.strategy = strategy
         self.ROOT_DIR = os.path.abspath(os.curdir)
         self.resource_lock = threading.RLock()
-        self.logger =  setup_logging(name="config_manager",
-                                 level=logging.DEBUG, console=True)
+        self.logger = setup_logging(name="config_manager",
+                                    level=logging.DEBUG, console=True)
         self.error_handler = ErrorHandler(self)
 
         if master_manager:
@@ -94,7 +95,7 @@ class ConfigManager:
             # If this is the master GUI manager, initialize shared components now.
             if self.strategy == "gui":
                 self._init_ccxt()
-        self.strategy_config = {}
+        self.strategy_config: Dict[str, Any] = {}
         self.strategy_instance: BaseStrategy = None
         self.tokens = {}  # Token data
         self.pairs = {}  # Pair data

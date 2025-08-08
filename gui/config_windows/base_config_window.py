@@ -3,7 +3,7 @@ import os
 import threading
 import tkinter as tk
 from tkinter import ttk
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict
 
 from ruamel.yaml import YAML
 
@@ -129,7 +129,7 @@ class BaseConfigWindow:
                 return
 
             self.update_status("Saving configuration...", 'blue')
-            
+
             # Start a new thread for saving
             save_thread = threading.Thread(target=self._async_save_worker, args=(new_config,))
             save_thread.daemon = True
@@ -148,10 +148,12 @@ class BaseConfigWindow:
             # Reload the master configuration manager to pick up changes from the file.
             if self.parent.master_config_manager:
                 self.parent.master_config_manager.load_configs()
-            
+
             # Schedule GUI update on the main thread
-            self.parent.main_app.root.after(0, lambda: self.update_status("Configuration saved and reloaded successfully.", 'lightgreen'))
-            
+            self.parent.main_app.root.after(0,
+                                            lambda: self.update_status("Configuration saved and reloaded successfully.",
+                                                                       'lightgreen'))
+
             # Now, reload the strategy frame's specific configuration from the master.
             self.parent.main_app.root.after(0, lambda: self.parent.reload_configuration(loadxbridgeconf=True))
 
@@ -160,7 +162,7 @@ class BaseConfigWindow:
             error_msg = f"Failed to save configuration: {e}"
             tb_str = traceback.format_exc()
             full_message = f"{error_msg}\nDetails:\n{tb_str}"
-            
+
             self.parent.main_app.root.after(0, lambda: self.update_status(full_message, 'lightcoral'))
             if self.parent.config_manager:
                 self.parent.config_manager.general_log.error(full_message, exc_info=True)

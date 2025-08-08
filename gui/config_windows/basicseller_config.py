@@ -1,11 +1,10 @@
 # gui/config_windows/basicseller_config.py
-import tkinter as tk
 from tkinter import ttk
-from typing import TYPE_CHECKING, Dict, Any, List, Optional
+from typing import TYPE_CHECKING, Dict, Any
 
+from gui.components.dialogs import AddSellerDialog, SellerConfigDialog
 from gui.config_windows.base_config_window import BaseConfigWindow
 from gui.config_windows.common_config_widgets import TreeviewMixin
-from gui.components.dialogs import AddSellerDialog, SellerConfigDialog
 
 if TYPE_CHECKING:
     from gui.frames.base_frames import BaseStrategyFrame
@@ -15,6 +14,7 @@ class GUI_Config_BasicSeller(BaseConfigWindow, TreeviewMixin):
     """
     Manages the configuration window for the Basic Seller bot settings.
     """
+
     def __init__(self, parent: "BaseStrategyFrame"):
         super().__init__(parent)
         self.sellers_treeview: ttk.Treeview | None = None

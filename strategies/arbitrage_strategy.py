@@ -8,9 +8,9 @@ from typing import List, Dict, Any, Optional, Callable, Coroutine, TYPE_CHECKING
 
 import aiohttp
 
+from definitions.error_handler import OperationalError
 from definitions.trade_state import TradeState
 from strategies.base_strategy import BaseStrategy
-from definitions.error_handler import OperationalError, ConfigurationError
 
 if TYPE_CHECKING:
     from definitions.config_manager import ConfigManager
@@ -81,7 +81,8 @@ class ArbitrageStrategy(BaseStrategy):
                                                    self.xb_monitor_poll)
             self.thor_monitor_timeout = get_nested_attr(self.config_manager.config_thorchain, ['monitoring', 'timeout'],
                                                         self.thor_monitor_timeout)
-            self.thor_monitor_poll = get_nested_attr(self.config_manager.config_thorchain, ['monitoring', 'poll_interval'],
+            self.thor_monitor_poll = get_nested_attr(self.config_manager.config_thorchain,
+                                                     ['monitoring', 'poll_interval'],
                                                      self.thor_monitor_poll)
             self.thor_api_url = get_nested_attr(self.config_manager.config_thorchain, ['api', 'thornode_url'],
                                                 self.thor_api_url)

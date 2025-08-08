@@ -6,6 +6,7 @@ import sys
 from definitions.logger import ColoredFormatter, setup_logging as setup_file_logging
 from gui.components.logging_components import TextLogHandler, StdoutRedirector
 
+
 def setup_console_logging():
     """Initializes console logging before GUI components are ready"""
     root_logger = logging.getLogger()
@@ -26,6 +27,7 @@ def setup_console_logging():
     console_handler.setFormatter(console_formatter)
     console_handler.setLevel(logging.DEBUG)
     root_logger.addHandler(console_handler)
+
 
 def setup_gui_logging(log_frame):
     """Finalizes logging setup after GUI components are initialized"""

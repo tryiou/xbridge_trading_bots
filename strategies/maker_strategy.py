@@ -121,7 +121,7 @@ class MakerStrategy(BaseStrategy):
             try:
                 self.config_manager.general_log.info(f"Canceling order {order_id} for {pair_name}")
                 await pair.dex.cancel_myorder_async()
-                count +=1
+                count += 1
                 # await self.config_manager.xbridge_manager.cancelorder(order_id)
             except Exception as e:
                 self.config_manager.general_log.error(f"Error canceling order {order_id}: {e}")

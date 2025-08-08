@@ -1,7 +1,8 @@
 # gui/config_windows/common_config_widgets.py
 import tkinter as tk
 from tkinter import ttk
-from typing import List, Dict, Tuple, Callable, Any
+from typing import List, Tuple, Callable
+
 
 class TreeviewMixin:
     """
@@ -27,10 +28,10 @@ class TreeviewMixin:
         # Check if the focus is currently on a Treeview within this config window
         # This prevents the canvas from scrolling when the user intends to scroll the Treeview
         if self.config_window and hasattr(self, 'pairs_treeview') and self.pairs_treeview and \
-           self.config_window.focus_get() == self.pairs_treeview:
+                self.config_window.focus_get() == self.pairs_treeview:
             return
         if self.config_window and hasattr(self, 'sellers_treeview') and self.sellers_treeview and \
-           self.config_window.focus_get() == self.sellers_treeview:
+                self.config_window.focus_get() == self.sellers_treeview:
             return
         canvas.yview_scroll(direction, "units")
 
@@ -71,7 +72,7 @@ class TreeviewMixin:
 
         # Default column configurations, can be overridden by specific implementations
         for col_id, _ in columns:
-            treeview.column(col_id, width=100, anchor='w') # Default width and anchor
+            treeview.column(col_id, width=100, anchor='w')  # Default width and anchor
 
         scrollbar = ttk.Scrollbar(parent_frame, orient="vertical", command=treeview.yview)
         treeview.configure(yscrollcommand=scrollbar.set)
@@ -85,7 +86,8 @@ class TreeviewMixin:
 
     def _create_control_buttons_for_treeview(self, parent_frame: ttk.Frame,
                                              add_command: Callable, remove_command: Callable, edit_command: Callable,
-                                             add_text: str = "Add", remove_text: str = "Remove", edit_text: str = "Edit") -> None:
+                                             add_text: str = "Add", remove_text: str = "Remove",
+                                             edit_text: str = "Edit") -> None:
         """
         Creates standard Add, Remove, and Edit buttons for a Treeview.
         """

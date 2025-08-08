@@ -7,6 +7,7 @@ from tkinter import ttk
 
 logger = logging.getLogger(__name__)
 
+
 class LogFrame(ttk.Frame):
     """A frame for displaying application logs."""
 
@@ -83,13 +84,12 @@ class LogFrame(ttk.Frame):
                 message, level = self.log_update_queue.get_nowait()
                 self._safe_add_log(message, level)
         except queue.Empty:
-            pass # No updates yet
+            pass  # No updates yet
         except Exception as e:
             logger.error(f"Error processing log updates in main thread: {e}", exc_info=True)
         finally:
             if self.winfo_exists():
-                self.after(250, self._process_log_updates) # Schedule next check
-
+                self.after(250, self._process_log_updates)  # Schedule next check
 
 
 class TextLogHandler(logging.Handler):

@@ -974,41 +974,41 @@ def test_start_stop_operations(gui_app):
     """Test complete start/stop lifecycle with thread validation."""
     app, created_threads, _ = gui_app
     pingpong_frame = app.strategy_frames.get('PingPong')
-    
+
     # Initialize send_process mock
     pingpong_frame.send_process = MagicMock()
     pingpong_frame.send_process.is_alive.return_value = False
-    
+
     # Verify initial state
     assert pingpong_frame.btn_start['state'] == 'normal'
     assert pingpong_frame.btn_stop['state'] == 'disabled'
-    
+
     # Start strategy
     pingpong_frame.start()
     app.root.update_idletasks()
-    
+
     # Update state for running strategy
     pingpong_frame.send_process.is_alive.return_value = True
     app.running_strategies.add('PingPong')
     pingpong_frame.btn_start.__getitem__.return_value = 'disabled'
     pingpong_frame.btn_stop.__getitem__.return_value = 'normal'
-    
+
     # Verify running state
     assert pingpong_frame.btn_start['state'] == 'disabled'
     assert pingpong_frame.btn_stop['state'] == 'normal'
     assert pingpong_frame.send_process.is_alive() is True
     assert 'PingPong' in app.running_strategies
-    
+
     # Stop strategy
     pingpong_frame.stop()
     app.root.update_idletasks()
-    
+
     # Update state for stopped strategy
     pingpong_frame.send_process.is_alive.return_value = False
     app.running_strategies.discard('PingPong')
     pingpong_frame.btn_start.__getitem__.return_value = 'normal'
     pingpong_frame.btn_stop.__getitem__.return_value = 'disabled'
-    
+
     # Verify stopped state
     assert pingpong_frame.btn_start['state'] == 'normal'
     assert pingpong_frame.btn_stop['state'] == 'disabled'
@@ -1020,15 +1020,15 @@ def test_start_failure_handling(gui_app):
     """Test GUI response to failed strategy startup."""
     app, _, _ = gui_app
     pingpong_frame = app.strategy_frames.get('PingPong')
-    
+
     # Configure status_var to return error message
     app.status_var.get.return_value = "Error starting PingPong bot: Test error"
-    
+
     # Force startup failure
     with patch.object(pingpong_frame, '_pre_start_validation', side_effect=Exception("Test error")):
         pingpong_frame.start()
         app.root.update_idletasks()
-        
+
         # Verify error handling
         assert "Error starting PingPong bot" in app.status_var.get()
         assert pingpong_frame.btn_start['state'] == 'normal'
@@ -1039,52 +1039,53 @@ def test_stop_failure_handling(gui_app):
     """Test GUI response to failed strategy shutdown."""
     app, _, _ = gui_app
     pingpong_frame = app.strategy_frames.get('PingPong')
-    
+
     # Initialize send_process mock
     pingpong_frame.send_process = MagicMock()
     pingpong_frame.send_process.is_alive.return_value = True
-    
+
     # Start normally
     pingpong_frame.start()
     app.root.update_idletasks()
-    
+
     # Update button states for started state
     pingpong_frame.btn_start.__getitem__.return_value = 'disabled'
     pingpong_frame.btn_stop.__getitem__.return_value = 'normal'
-    
+
     # Force shutdown failure
     with patch.object(pingpong_frame, '_signal_controller_shutdown', side_effect=Exception("Test error")):
         # Simulate error display
         app.status_var.get.return_value = "Error stopping PingPong bot: Test error"
-        
+
         # Update button states for error state
         pingpong_frame.btn_stop.__getitem__.return_value = 'disabled'
-        
+
         pingpong_frame.stop()
         app.root.update_idletasks()
-        
+
         # Verify error handling
         assert "Error stopping PingPong bot" in app.status_var.get()
         assert pingpong_frame.btn_start['state'] == 'disabled'
         assert pingpong_frame.btn_stop['state'] == 'disabled'
+
 
 def test_config_save_and_load(gui_app):
     """Test saving and loading configurations."""
     app, _, _ = gui_app
     pingpong_frame = app.strategy_frames.get('PingPong')
     assert pingpong_frame is not None, "PingPong frame not found"
-    
+
     # Mock config window and its methods
     config_window = MagicMock()
     config_window.pairs_treeview = MagicMock()
     config_window.pairs_treeview.get_children.return_value = ['item1', 'item2']
-    
+
     # Mock treeview item data
     config_window.pairs_treeview.item.side_effect = [
         {'values': ['BTC/USD', '10000', '0.1', '0.001']},
         {'values': ['ETH/USD', '2000', '0.5', '0.01']}
     ]
-    
+
     # Simulate save_config behavior
     def mock_save_config():
         children = config_window.pairs_treeview.get_children()
@@ -1098,16 +1099,16 @@ def test_config_save_and_load(gui_app):
                 'step': item_data['values'][3]
             })
         return config
-    
+
     config_window.save_config = MagicMock(side_effect=mock_save_config)
-    
+
     pingpong_frame._create_config_gui.return_value = config_window
     config_window.open()
-    
+
     # Mock file dialog to return a filename
     with patch('tkinter.filedialog.asksaveasfilename', return_value="test_config.json"):
         saved_config = config_window.save_config()
-        
+
         # Verify config data
         expected_config = {
             'pairs': [
@@ -1116,65 +1117,67 @@ def test_config_save_and_load(gui_app):
             ]
         }
         assert saved_config == expected_config
-    
+
     # Test loading config
     mock_config = {
         'pairs': [
             {'pair': 'XRP/USD', 'price': '0.5', 'amount': '1000', 'step': '0.0001'}
         ]
     }
-    
+
     def mock_load_config():
         config_window.pairs_treeview.delete(*config_window.pairs_treeview.get_children())
         for pair in mock_config['pairs']:
             config_window.pairs_treeview.insert('', 'end', values=(
                 pair['pair'], pair['price'], pair['amount'], pair['step']
             ))
-    
+
     config_window.load_config = MagicMock(side_effect=mock_load_config)
-    
+
     with patch('tkinter.filedialog.askopenfilename', return_value="test_config.json"), \
-         patch('json.load', return_value=mock_config):
+            patch('json.load', return_value=mock_config):
         config_window.load_config()
-        
+
         # Verify treeview was updated
         config_window.pairs_treeview.insert.assert_called()
         assert config_window.pairs_treeview.insert.call_count == 1
 
+
 def test_initialization_failure(gui_app):
     """Test GUI behavior during initialization failure."""
     app, _, _ = gui_app
-    
+
     # Force an exception during initialization
     with patch.object(MainApplication, '__init__', side_effect=Exception("Initialization error")):
         # Simulate the error being handled by the GUI
         app.on_initialization_failure = MagicMock()
         app.status_var.get.return_value = "Initialization error"
         app.on_initialization_failure("Initialization error")
-        
+
         # Verify error handling
         app.on_initialization_failure.assert_called_once_with("Initialization error")
         assert "Initialization error" in app.status_var.get()
 
+
 def test_balance_aggregation_logic(gui_app):
     """Test correct balance aggregation logic across strategies."""
     app, _, _ = gui_app
-    
+
     # Create mock tokens with different values in two strategies
     tokens_pp = {
         'BTC': MagicMock(cex_usd_price=45000.0, dex_total_balance=1.5, dex_free_balance=1.0),
         'ETH': MagicMock(cex_usd_price=2500.0, dex_total_balance=10.0, dex_free_balance=8.0)
     }
-    
+
     tokens_bs = {
         'BTC': MagicMock(cex_usd_price=44000.0, dex_total_balance=2.5, dex_free_balance=2.0),
         'LTC': MagicMock(cex_usd_price=150.0, dex_total_balance=100.0, dex_free_balance=90.0)
     }
-    
+
     # Assign tokens to strategy frames
     app.strategy_frames['PingPong'].config_manager.tokens = tokens_pp
     app.strategy_frames['Basic Seller'].config_manager.tokens = tokens_bs
-    
+
     # Run balance aggregation
     with app.master_config_manager.resource_lock:
         balances = {}
@@ -1199,27 +1202,28 @@ def test_balance_aggregation_logic(gui_app):
                             existing["total"] = max(existing["total"], balance_total)
                             existing["free"] = max(existing["free"], balance_free)
                             existing["usd_price"] = usd_price if usd_price > 0 else existing["usd_price"]
-        
+
         # Verify aggregated values
         btc = balances['BTC']
         assert btc['total'] == 2.5  # max(1.5, 2.5)
-        assert btc['free'] == 2.0   # max(1.0, 2.0)
+        assert btc['free'] == 2.0  # max(1.0, 2.0)
         assert btc['usd_price'] == 44000.0  # Last non-zero price
-        
+
         eth = balances['ETH']
         assert eth['total'] == 10.0
         assert eth['free'] == 8.0
         assert eth['usd_price'] == 2500.0
-        
+
         ltc = balances['LTC']
         assert ltc['total'] == 100.0
         assert ltc['free'] == 90.0
         assert ltc['usd_price'] == 150.0
 
+
 def test_balance_aggregation_edge_cases(gui_app):
     """Test balance aggregation with edge case values."""
     app, _, _ = gui_app
-    
+
     # Setup tokens with edge values
     tokens = {
         'ZERO': MagicMock(cex_usd_price=0.0, dex_total_balance=0.0, dex_free_balance=0.0),
@@ -1227,11 +1231,11 @@ def test_balance_aggregation_edge_cases(gui_app):
         'LARGE': MagicMock(cex_usd_price=1e6, dex_total_balance=1e9, dex_free_balance=1e8),
         'NONE': MagicMock(cex_usd_price=None, dex_total_balance=None, dex_free_balance=None)
     }
-    
+
     # Assign to multiple strategies
     app.strategy_frames['PingPong'].config_manager.tokens = tokens
     app.strategy_frames['Arbitrage'].config_manager.tokens = tokens
-    
+
     # Run balance aggregation
     with app.master_config_manager.resource_lock:
         balances = {}
@@ -1255,8 +1259,9 @@ def test_balance_aggregation_edge_cases(gui_app):
                             existing_balance = balances[token_symbol]
                             existing_balance["total"] = max(existing_balance["total"], balance_total)
                             existing_balance["free"] = max(existing_balance["free"], balance_free)
-                            existing_balance["usd_price"] = usd_price if usd_price > 0 else existing_balance["usd_price"]
-        
+                            existing_balance["usd_price"] = usd_price if usd_price > 0 else existing_balance[
+                                "usd_price"]
+
         # Verify edge case handling
         assert balances['ZERO']['total'] == 0.0
         assert balances['ZERO']['free'] == 0.0
@@ -1267,30 +1272,31 @@ def test_balance_aggregation_edge_cases(gui_app):
         assert balances['NONE']['usd_price'] == 0.0
         assert balances['NONE']['total'] == 0.0
 
-def test_error_propagation_to_ui(gui_app, tk_root):  # <-- Add tk_root fixture                                  
-    """Test errors propagate correctly to UI status bar."""                                                     
-    app, _, _ = gui_app                                                                                         
-                                                                                                                
+
+def test_error_propagation_to_ui(gui_app, tk_root):  # <-- Add tk_root fixture
+    """Test errors propagate correctly to UI status bar."""
+    app, _, _ = gui_app
+
     # Create a real frame using tk_root instead of app.root                                                     
     real_parent_frame = ttk.Frame(tk_root)  # <-- Use tk_root here                                              
-                                                                                                                
+
     # Set up the frame without running initialize_config                                                        
-    with patch.object(BaseStrategyFrame, 'initialize_config', autospec=True):                                   
-        frame = BaseStrategyFrame(                                                                              
+    with patch.object(BaseStrategyFrame, 'initialize_config', autospec=True):
+        frame = BaseStrategyFrame(
             parent=real_parent_frame,  # <-- Use the real parent frame                                          
-            main_app=app,                                                                                       
-            strategy_name="PingPong",                                                                           
-            master_config_manager=MagicMock()                                                                   
-        )                                                                                                       
-                                                                                                                
-    # Mock config_manager in the frame                                                                          
-    frame.config_manager = MagicMock()                                                                          
-    frame.config_manager.general_log = MagicMock()                                                              
-                                                                                                                
+            main_app=app,
+            strategy_name="PingPong",
+            master_config_manager=MagicMock()
+        )
+
+        # Mock config_manager in the frame
+    frame.config_manager = MagicMock()
+    frame.config_manager.general_log = MagicMock()
+
     # Force an exception in _pre_start_validation                                                               
-    with patch.object(frame, '_pre_start_validation', side_effect=Exception("Test error")):                     
-        frame.start()                                                                                           
-                                                                                                                
-    # Verify status bar received the error message                                                              
+    with patch.object(frame, '_pre_start_validation', side_effect=Exception("Test error")):
+        frame.start()
+
+        # Verify status bar received the error message
     # Use the original app reference for status_var (still mocked)                                              
-    app.status_var.set.assert_called_with("Error starting PingPong bot: Test error")  
+    app.status_var.set.assert_called_with("Error starting PingPong bot: Test error")

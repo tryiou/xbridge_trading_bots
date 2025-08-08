@@ -285,19 +285,19 @@ class DexPair:
             await self.pair.config_manager.xbridge_manager.cancelorder(self.order['id'])
         self.order = None
 
-    async def create_order(self, dry_mode=False):                                                                                                                                                
+    async def create_order(self, dry_mode=False):
         # First check if pair is already disabled                                                                                                                                               
-        if self.disabled:                                                                                                                                                                       
-            return                                                                                                                                                                              
-                                                                                                                                                                                                
-        # Check the global shutdown state                                                                                                                                                  
-        if self._is_shutting_down():                                                                                                                                                            
-            self.pair.config_manager.general_log.warning(                                                                                                                                       
-                f"Skipping order creation for {self.symbol} - shutdown in progress"                                                                                                             
-            )                                                                                                                                                                                   
-            return           
-                                                                                                                                                  
-        self.order = None    
+        if self.disabled:
+            return
+
+            # Check the global shutdown state
+        if self._is_shutting_down():
+            self.pair.config_manager.general_log.warning(
+                f"Skipping order creation for {self.symbol} - shutdown in progress"
+            )
+            return
+
+        self.order = None
 
         maker_size = f"{self.current_order['maker_size']:.6f}"
         bal = self._get_balance()
@@ -491,12 +491,12 @@ class DexPair:
         """Handle order completion workflow."""
         side = self._determine_order_side()
         self._log_finished_order_details(side)
-        
+
         self.order_history = self.current_order
         self.write_last_order_history()
         await self._update_taker_address()
         await self.pair.config_manager.strategy_instance.handle_finished_order(self, disabled_coins)
-        
+
     def _determine_order_side(self) -> str:
         """Determine order side based on maker token."""
         if self.current_order['maker'] == self.pair.t1.symbol:
@@ -515,7 +515,7 @@ class DexPair:
     def _log_finished_order_details(self, side: str):
         """Log detailed information about finished orders."""
         order_summary = self._construct_order_summary(side)
-        
+
         self.pair.config_manager.general_log.info(f"order FINISHED: {order_summary}")
         self.pair.config_manager.trade_log.info(f"order FINISHED: {order_summary}")
         self.pair.config_manager.trade_log.info(f"virtual order: {self.current_order}")
@@ -525,25 +525,26 @@ class DexPair:
         """Request address update for taker token."""
         if not self.order or 'taker' not in self.order:
             return
-            
+
         if self.order['taker'] == self.t1.symbol:
             await self.t1.dex.request_addr()
         elif self.order['taker'] == self.t2.symbol:
             await self.t2.dex.request_addr()
 
-    def _is_shutting_down(self) -> bool:                                                                                                                                                        
-        """Check if shutdown has been requested"""                                                                                                                                              
-        try:                                                                                                                                                                                    
-            if (self.pair.config_manager and                                                                                                                                                    
-                self.pair.config_manager.controller and                                                                                                                                         
-                self.pair.config_manager.controller.shutdown_event and                                                                                                                          
-                self.pair.config_manager.controller.shutdown_event.is_set()):                                                                                                                   
-                return True                                                                                                                                                                     
-        except Exception as e:                                                                                                                                                                  
-            self.pair.config_manager.general_log.error(                                                                                                                                         
-                f"Error checking shutdown status: {e}"                                                                                                                                          
-            )                                                                                                                                                                                   
-        return False     
+    def _is_shutting_down(self) -> bool:
+        """Check if shutdown has been requested"""
+        try:
+            if (self.pair.config_manager and
+                    self.pair.config_manager.controller and
+                    self.pair.config_manager.controller.shutdown_event and
+                    self.pair.config_manager.controller.shutdown_event.is_set()):
+                return True
+        except Exception as e:
+            self.pair.config_manager.general_log.error(
+                f"Error checking shutdown status: {e}"
+            )
+        return False
+
 
 class CexPair:
     def __init__(self, pair):

@@ -1,13 +1,16 @@
 import asyncio
-import aiohttp
-from aiohttp import BasicAuth, ClientError
-import async_timeout
 
-from definitions.error_handler import ErrorHandler, TransientError, OperationalError
+import aiohttp
+import async_timeout
+from aiohttp import BasicAuth, ClientError
+
+from definitions.error_handler import TransientError, OperationalError
+
 
 class RpcTimeoutError(Exception):
     """Custom exception for RPC timeout handling"""
     pass
+
 
 async def rpc_call(method, params=None, url="http://127.0.0.1", rpc_user=None, rpc_password=None,
                    rpc_port=None, debug=2, timeout=30, display=True, prefix='xbridge', max_err_count=5,
@@ -44,7 +47,11 @@ async def rpc_call(method, params=None, url="http://127.0.0.1", rpc_user=None, r
             response_text = None
             try:
                 async with async_timeout.timeout(timeout):
-                    async with s.post(url, json=payload, headers=headers, auth=auth, timeout=client_timeout) as response:
+                    async with s.post(url,
+                                      json=payload,
+                                      headers=headers,
+                                      auth=auth,
+                                      timeout=client_timeout) as response:
                         response_text = await response.text()
                         response.raise_for_status()
 
@@ -92,14 +99,14 @@ async def rpc_call(method, params=None, url="http://127.0.0.1", rpc_user=None, r
                     "err_count": err_count,
                     "response_text": response_text
                 }
-                
+
                 if error_handler:
                     error_class = TransientError if isinstance(e, asyncio.TimeoutError) else OperationalError
                     if not error_handler.handle(error_class(str(e)), context=context):
                         return None
                 elif logger:
                     logger.warning(f"{prefix}_rpc_call error: {type(e).__name__} - {e}")
-                
+
                 await asyncio.sleep(err_count + 1)
             except Exception as e:
                 context = {
@@ -109,16 +116,16 @@ async def rpc_call(method, params=None, url="http://127.0.0.1", rpc_user=None, r
                     "err_count": err_count,
                     "response_text": response_text
                 }
-                
+
                 if error_handler:
                     if not error_handler.handle(
-                        OperationalError(f"Unexpected error: {str(e)}"),
-                        context=context
+                            OperationalError(f"Unexpected error: {str(e)}"),
+                            context=context
                     ):
                         return None
                 elif logger:
                     logger.error(f"{prefix}_rpc_call unexpected error: {type(e).__name__} - {e}", exc_info=True)
-                
+
                 await asyncio.sleep(err_count + 1)
         return None
 

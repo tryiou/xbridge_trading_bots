@@ -9,9 +9,9 @@ from definitions.error_handler import OperationalError
 
 if TYPE_CHECKING:
     from gui.frames.base_frames import BaseStrategyFrame
-    from gui.main_app import MainApplication
 
 logger = logging.getLogger(__name__)
+
 
 class GUIShutdownCoordinator:
     """
@@ -67,10 +67,10 @@ class GUIShutdownCoordinator:
         try:
             # Phase 1: Non-blocking coordination
             self._coordinate_shutdown_signals()
-            
+
             # Phase 2: Graceful termination
             termination_success = self._await_component_termination(timeout=5)
-            
+
             # Phase 3: Guaranteed cleanup
             self._cleanup_resources()
         except Exception as e:
@@ -84,11 +84,11 @@ class GUIShutdownCoordinator:
             )
         finally:
             self.gui_root.after(0, self._finalize_gui_exit)
-                                                                                                                                                                                            
+
     def _coordinate_shutdown_signals(self):
         """Send non-blocking shutdown signals to all components."""
         logger.info("Initiating non-blocking shutdown signals...")
-        
+
         # Signal strategy components
         for name, frame in self.strategy_frames.items():
             try:
@@ -102,7 +102,7 @@ class GUIShutdownCoordinator:
                 error_msg = f"Error signaling {name} to stop: {e}"
                 logger.error(error_msg, exc_info=True)
                 # Non-critical during shutdown, continue
-                                                                                                                                                                                            
+
     def _await_component_termination(self, timeout: float) -> bool:
         """Wait for components to gracefully terminate within timeout period."""
         logger.info(f"Awaiting component termination with {timeout} second timeout...")
@@ -126,13 +126,12 @@ class GUIShutdownCoordinator:
                 except Exception as e:
                     logger.error(f"Termination check error for {name}: {e}")
                     active_components.remove(name)  # Remove to avoid endless loop
-            
+
             if active_components:
                 time.sleep(min(0.5, deadline - time.time()))  # Small sleep to avoid busy-wait
 
         return len(active_components) == 0
-                                                                                                                                                                                            
-                                                                                                                                                             
+
     def _cleanup_resources(self):
         """Final cleanup resource release both graceful and forced."""
         logger.info("Releasing resources...")
@@ -150,9 +149,9 @@ class GUIShutdownCoordinator:
                     frame.send_process = None
             except Exception as e:
                 logger.warning(f"Resource cleanup failed for {name}: {e}", exc_info=True)
-        
+
         logger.info("Resources cleanup completed.")
-        
+
     def _finalize_gui_exit(self):
         """
         Finalizes the GUI exit on the main Tkinter thread.

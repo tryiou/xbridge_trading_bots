@@ -42,7 +42,7 @@ class RangePosition:
     curve_strength: float = 10  # Steepness of sigmoid curve
     fee_accumulated: float = 0.0
     created_at: datetime = datetime.now()
-    percent_min_size: float = 0.0001 # New: e.g., 0.01% of allocated funds
+    percent_min_size: float = 0.0001  # New: e.g., 0.01% of allocated funds
 
 
 class RangeMakerStrategy(BaseStrategy):
@@ -83,7 +83,7 @@ class RangeMakerStrategy(BaseStrategy):
                 grid_density=kwargs['grid_density'],
                 curve=kwargs.get('curve', 'linear'),
                 curve_strength=kwargs.get('curve_strength', 10),
-                percent_min_size=kwargs.get('percent_min_size', 0.0001) # New line
+                percent_min_size=kwargs.get('percent_min_size', 0.0001)  # New line
             )
             self.active_positions[pos.token_pair] = pos
             self.logger.info(f"Added position: {pos.token_pair} - price range [{pos.min_price}, {pos.max_price}], "
@@ -205,14 +205,15 @@ class RangeMakerStrategy(BaseStrategy):
             self.logger.info(
                 f"Re-gridded with {len(buy_orders)} buy orders and {len(sell_orders)} sell orders for {symbol}.")
         else:
-            self.logger.warning(f"No orders generated during re-gridding for {symbol}. Check balances and min_order_size.")
+            self.logger.warning(
+                f"No orders generated during re-gridding for {symbol}. Check balances and min_order_size.")
             # If no orders are generated, ensure active_orders is empty
             self.order_grids[symbol]['active_orders'] = []
 
     async def initialize_order_grid(self, pair_instance, position):
         """Creates the initial set of auction orders (buy/sell) within the price range"""
         self.logger.info(f"Initializing order grid for {pair_instance.symbol}")
-        await self._regrid_liquidity(pair_instance, position) # Use the new re-grid helper
+        await self._regrid_liquidity(pair_instance, position)  # Use the new re-grid helper
 
     def calculate_grid_allocations(self, pair_instance, position) -> Tuple[List[dict], List[dict]]:
         """Distributes funds algorithmically across the price range"""
@@ -265,8 +266,9 @@ class RangeMakerStrategy(BaseStrategy):
         for i, (price, weight) in enumerate(zip(prices, weights)):
             if price < mid_price:
                 maker_size = t2_balance * weight
-                min_order_size_quote = maker_size * position.percent_min_size # Dynamic min_order_size
-                self.logger.debug(f"Buy order {i}: maker_size={maker_size:.6f}, percent_min_size={position.percent_min_size:.6f}, min_order_size={min_order_size_quote:.6f}")
+                min_order_size_quote = maker_size * position.percent_min_size  # Dynamic min_order_size
+                self.logger.debug(
+                    f"Buy order {i}: maker_size={maker_size:.6f}, percent_min_size={position.percent_min_size:.6f}, min_order_size={min_order_size_quote:.6f}")
                 if price <= 0 or maker_size < min_order_size_quote:
                     self.logger.debug(
                         f"Skipping buy order {i}: price={price:.6f} or maker_size={maker_size:.6f} below minimum ({min_order_size_quote:.6f}).")
@@ -280,12 +282,14 @@ class RangeMakerStrategy(BaseStrategy):
                     'price': price,
                     'type': 'buy'
                 })
-                self.logger.debug(f"Buy order {i}: price={price:.6f}, maker_size={maker_size:.6f}, taker_size={taker_size:.6f}")
+                self.logger.debug(
+                    f"Buy order {i}: price={price:.6f}, maker_size={maker_size:.6f}, taker_size={taker_size:.6f}")
             # Create sell orders above mid-price (funded with base token T1)
             else:
                 maker_size = t1_balance * weight
-                min_order_size_base = maker_size * position.percent_min_size # Dynamic min_order_size
-                self.logger.debug(f"Sell order {i}: maker_size={maker_size:.6f}, percent_min_size={position.percent_min_size:.6f}, min_order_size={min_order_size_base:.6f}")
+                min_order_size_base = maker_size * position.percent_min_size  # Dynamic min_order_size
+                self.logger.debug(
+                    f"Sell order {i}: maker_size={maker_size:.6f}, percent_min_size={position.percent_min_size:.6f}, min_order_size={min_order_size_base:.6f}")
                 if maker_size < min_order_size_base:
                     self.logger.debug(
                         f"Skipping sell order {i}: maker_size={maker_size:.6f} below minimum ({min_order_size_base:.6f}).")
@@ -299,7 +303,8 @@ class RangeMakerStrategy(BaseStrategy):
                     'price': price,
                     'type': 'sell'
                 })
-                self.logger.debug(f"Sell order {i}: price={price:.6f}, maker_size={maker_size:.6f}, taker_size={taker_size:.6f}")
+                self.logger.debug(
+                    f"Sell order {i}: price={price:.6f}, maker_size={maker_size:.6f}, taker_size={taker_size:.6f}")
         total_generated_orders = len(buy_orders) + len(sell_orders)
         self.logger.info(
             f"Finished calculating grid allocations. Generated {len(buy_orders)} buy orders and {len(sell_orders)} sell orders (Total: {total_generated_orders}).")
@@ -319,7 +324,7 @@ class RangeMakerStrategy(BaseStrategy):
             #     orders
             # )
             result = [{"id": f"SIMULATED_ORDER_{i}", "status": "simulated", **order} for i, order in
-                       enumerate(orders)]  # Simulation for testing, include order details
+                      enumerate(orders)]  # Simulation for testing, include order details
             self.logger.debug(f"Simulated order placement result: {result}")
             self.logger.info(f"Successfully simulated placement of {len(result)} orders.")
             return result
