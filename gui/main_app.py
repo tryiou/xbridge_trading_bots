@@ -66,8 +66,7 @@ class MainApplication:
             if hasattr(self, 'master_config_manager') and self.master_config_manager:
                 self.master_config_manager.error_handler.handle(
                     OperationalError(error_msg),
-                    context={"stage": "application_init"},
-                    exc_info=True
+                    context={"stage": "application_init"}
                 )
             # Show error in UI if root exists
             if hasattr(self, 'root') and self.root.winfo_exists():
@@ -106,8 +105,14 @@ class MainApplication:
         self._watchdog_count = 0
 
         # Handle Ctrl+C/KeyboardInterrupt signals for clean shutdown
-        def handle_signal(signum, frame):
-            self.root.after(0, self.on_closing)
+        def handle_signal(signum, frame):                                                                                                                                                          
+            # Instead of scheduling on_closing, create shutdown coordinator immediately                                                                                                            
+            shutdown_coordinator = GUIShutdownCoordinator(                                                                                                                                         
+                config_manager=self.master_config_manager,                                                                                                                                         
+                strategies=self.strategy_frames,                                                                                                                                                   
+                gui_root=self.root                                                                                                                                                                 
+            )                                                                                                                                                                                      
+            shutdown_coordinator.initiate_shutdown()
 
         if hasattr(signal, 'SIGINT'):
             signal.signal(signal.SIGINT, handle_signal)
@@ -210,85 +215,86 @@ class MainApplication:
         """Runs in a separate thread to collect balance data with event-based stopping."""
         try:
             while not self.balance_stop_event.is_set():
-                try:
-                    # Collect balance data
-                    balances = {}  # Use a dictionary to aggregate balances
-
-                    # Use lock to safely access tokens_dict
-                    with self.master_config_manager.resource_lock:
-                        for frame in self.strategy_frames.values():
-                            if getattr(frame, 'config_manager', None) and hasattr(frame.config_manager, 'tokens'):
-                                tokens = frame.config_manager.tokens
-                                for token_symbol, token_obj in tokens.items():
-                                    # Only process tokens that have both CEX and DEX components
-                                    if getattr(token_obj, 'cex', None) and getattr(token_obj, 'dex', None):
-                                        balance_total = token_obj.dex_total_balance or 0.0
-                                        balance_free = token_obj.dex_free_balance or 0.0
-                                        
-                                        # Ensure usd_price is not None before using it, default to 0.0
-                                        usd_price = token_obj.cex_usd_price if token_obj.cex_usd_price is not None else 0.0
-
-                                        if token_symbol not in balances:
-                                            # Add new token balance
-                                            balances[token_symbol] = {
-                                                "symbol": token_symbol,
-                                                "usd_price": usd_price,
-                                                "total": balance_total,
-                                                "free": balance_free
-                                            }
-                                        else:
-                                            # Update existing token balance, prioritizing positive values
-                                            existing_balance = balances[token_symbol]
-
-                                            # Prioritize positive or non-zero values
-                                            existing_balance["total"] = max(existing_balance["total"], balance_total)
-                                            existing_balance["free"] = max(existing_balance["free"], balance_free)
-                                            # Prioritize non-zero usd_price
-                                            existing_balance["usd_price"] = usd_price if usd_price > 0 else existing_balance["usd_price"]
-                    
-                    # Convert the dictionary to a list for the GUI
-                    data = list(balances.values())
-
-                    # Only update if there are running strategies, else display initial state
-                    if not self.running_strategies:
-                        # logger.debug("No strategies running, displaying initial balances.")
-                        data = self._get_initial_balances_data()
-                    
-                    self.balance_update_queue.put(data)
-                    
-                    # Wait for interval or stop signal
-                    if self.balance_stop_event.wait(self.balance_update_interval):
-                        break
-
-                except Exception as e:
-                    logger.error(f"Error in balance updater thread: {e}", exc_info=True)
-                    # Use centralized error handling
-                    if self.master_config_manager:
-                        self.master_config_manager.error_handler.handle(
-                            OperationalError(f"Balance updater error: {str(e)}"),
-                            context={"stage": "balance_updater"},
-                            exc_info=True
-                        )
-                    # Wait 5 seconds or until stopped
-                    if self.balance_stop_event.wait(5):
-                        break
+                self._perform_balance_update()
         except Exception as e:
-            # Top-level exception handler for the thread
-            error_msg = f"Critical error in balance updater thread: {str(e)}"
-            logger.critical(error_msg, exc_info=True)
+            self._handle_balance_thread_error(e)
+        finally:
+            self._cleanup_balance_queue()
+
+    def _perform_balance_update(self):
+        """Collect balance data and push to queue with error handling."""
+        try:
+            # Collect balance data
+            balances = {}  # Use a dictionary to aggregate balances
+
+            # Use lock to safely access tokens_dict
+            with self.master_config_manager.resource_lock:
+                for frame in self.strategy_frames.values():
+                    if not getattr(frame, 'config_manager', None) or not hasattr(frame.config_manager, 'tokens'):
+                        continue
+                    tokens = frame.config_manager.tokens
+                    for token_symbol, token_obj in tokens.items():
+                        # Only process tokens that have both CEX and DEX components
+                        if not (getattr(token_obj, 'cex', None) and getattr(token_obj, 'dex', None)):
+                            continue
+                            
+                        balance_total = token_obj.dex_total_balance or 0.0
+                        balance_free = token_obj.dex_free_balance or 0.0
+                        usd_price = token_obj.cex_usd_price or 0.0
+
+                        if token_symbol not in balances:
+                            balances[token_symbol] = {
+                                "symbol": token_symbol,
+                                "usd_price": usd_price,
+                                "total": balance_total,
+                                "free": balance_free
+                            }
+                        else:
+                            existing_balance = balances[token_symbol]
+                            # Prioritize positive or non-zero values
+                            existing_balance["total"] = max(existing_balance["total"], balance_total)
+                            existing_balance["free"] = max(existing_balance["free"], balance_free)
+                            # Prioritize non-zero usd_price
+                            if usd_price > 0:
+                                existing_balance["usd_price"] = usd_price
+            
+            # Convert the dictionary to a list for the GUI
+            data = list(balances.values())
+            if not self.running_strategies:
+                # logger.debug("No strategies running, displaying initial balances.")
+                data = self._get_initial_balances_data()
+            
+            self.balance_update_queue.put(data)
+        except Exception as e:
+            logger.error(f"Error in balance updater thread: {e}", exc_info=True)
             if self.master_config_manager:
                 self.master_config_manager.error_handler.handle(
-                    OperationalError(error_msg),
-                    context={"stage": "balance_updater_thread"}
+                    OperationalError(f"Balance updater error: {str(e)}"),
+                    context={"stage": "balance_updater"}
                 )
         finally:
-            # Always clear queue on thread exit
-            while not self.balance_update_queue.empty():
-                try:
-                    self.balance_update_queue.get_nowait()
-                except queue.Empty:
-                    break
-            logger.info("Balance updater thread terminated")
+            # Wait for interval or stop signal
+            if self.balance_stop_event.wait(self.balance_update_interval):
+                raise SystemExit("Shutting down updater")  # Breaks outer loop
+
+    def _handle_balance_thread_error(self, exception: Exception) -> None:
+        """Log critical errors in balance updater thread."""
+        error_msg = f"Critical error in balance updater thread: {str(exception)}"
+        logger.critical(error_msg, exc_info=True)
+        if self.master_config_manager:
+            self.master_config_manager.error_handler.handle(
+                OperationalError(error_msg),
+                context={"stage": "balance_updater_thread"}
+            )
+            
+    def _cleanup_balance_queue(self) -> None:
+        """Clear balance queue on thread exit."""
+        while not self.balance_update_queue.empty():
+            try:
+                self.balance_update_queue.get_nowait()
+            except queue.Empty:
+                break
+        logger.info("Balance updater thread terminated")
 
     def _process_balance_updates(self):
         """Processes queued balance updates in the main Tkinter thread with error handling."""
@@ -309,8 +315,7 @@ class MainApplication:
             if self.master_config_manager:
                 self.master_config_manager.error_handler.handle(
                     OperationalError(f"Balance update processing error: {str(e)}"),
-                    context={"stage": "process_balance_updates"},
-                    exc_info=True
+                    context={"stage": "process_balance_updates"}
                 )
         finally:
             if self.root.winfo_exists(): # Only reschedule if still running

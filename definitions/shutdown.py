@@ -118,31 +118,9 @@ class ShutdownCoordinator:
 
     def _cleanup_resources(self) -> None:
         """Release system resources and connections"""
-        # Clean up proxy process first
+        # Clean up proxy process using centralized method
         from definitions.ccxt_manager import CCXTManager
-
-        # Clean up proxy process using class reference
-        if CCXTManager._proxy_process and CCXTManager._proxy_process.poll() is None:
-            try:
-                self.config_manager.general_log.info(
-                    f"Stopping CCXT proxy (PID: {CCXTManager._proxy_process.pid}) on port {CCXTManager._proxy_port}..."
-                )
-                CCXTManager._proxy_process.terminate()
-                exit_code = CCXTManager._proxy_process.wait(timeout=5)
-                self.config_manager.general_log.info(
-                    f"Proxy exited with code {exit_code}"
-                )
-            except subprocess.TimeoutExpired:
-                self.config_manager.general_log.warning(
-                    f"Proxy did not terminate gracefully after 5s, sending SIGKILL to PID {CCXTManager._proxy_process.pid}"
-                )
-                CCXTManager._proxy_process.kill()
-            except Exception as e:
-                self.config_manager.general_log.error(
-                    f"Error stopping proxy: {str(e)} (PID: {CCXTManager._proxy_process.pid})"
-                )
-            finally:
-                CCXTManager._proxy_process = None
+        CCXTManager._cleanup_proxy()
 
         if hasattr(self.config_manager, 'http_session'):
             self.config_manager.general_log.info("Closing HTTP session and cleaning up resources")
@@ -197,8 +175,9 @@ class ShutdownCoordinator:
 
         try:
             config_manager.general_log.debug("Canceling XBridge orders")
-            canceled = await config_manager.xbridge_manager.cancelallorders()
-            config_manager.general_log.info(f"Canceled {len(canceled) if canceled else 0} orders in async shutdown")
+            count = await config_manager.strategy_instance.cancel_own_orders()
+            # canceled = await config_manager.xbridge_manager.cancelallorders()
+            config_manager.general_log.info(f"Canceled {count} orders in async shutdown")
 
             if config_manager.controller:
                 config_manager.general_log.debug("Setting shutdown event flag")

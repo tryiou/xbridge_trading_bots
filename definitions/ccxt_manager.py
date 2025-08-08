@@ -6,6 +6,7 @@ import subprocess
 import sys
 import time
 import threading
+import atexit  # Add for exit handler
 from pathlib import Path
 
 import ccxt
@@ -24,6 +25,35 @@ class CCXTManager:
         self.config_manager = config_manager  # Store ConfigManager reference
         # Instance doesn't need its own proxy_process reference
         self.error_handler = ErrorHandler(config_manager, logger=self.config_manager.ccxt_log)
+
+    @classmethod
+    def _cleanup_proxy(cls):
+        """Terminate proxy process with robust cleanup handling."""
+        with cls._proxy_lock:
+            if cls._proxy_process is None:
+                return
+
+            try:
+                if cls._proxy_process.poll() is None:
+                    # Try graceful termination first
+                    cls._proxy_process.terminate()
+                    
+                    # Give it time to terminate
+                    try:
+                        cls._proxy_process.wait(timeout=5.0)
+                    except (subprocess.TimeoutExpired, TimeoutError):
+                        # Force kill if it didn't terminate
+                        cls._proxy_process.kill()
+                        try:
+                            cls._proxy_process.wait(timeout=2.0)
+                        except (subprocess.TimeoutExpired, TimeoutError):
+                            # Could not kill - proceed anyway
+                            pass
+            except Exception as e:
+                # Fallback to stderr if logging unavailable
+                sys.stderr.write(f"Error cleaning up proxy: {str(e)}\n")
+            finally:
+                cls._proxy_process = None
 
     def init_ccxt_instance(self, exchange, hostname=None, private_api=False, debug_level=1):
         # CCXT instance
@@ -141,13 +171,13 @@ class CCXTManager:
         err_count = 0
 
         # Start proxy if needed before first attempt
-        if proxy and not self.isportopen("127.0.0.1", 2233) and not hasattr(self, 'proxy_started'):
+        if proxy and not self.isportopen_sync("127.0.0.1", 2233) and not hasattr(self, 'proxy_started'):
             self._start_proxy()
 
         while True:
             try:
                 used_proxy = False
-                if self.isportopen("127.0.0.1", 2233) and proxy:  # CCXT PROXY
+                if self.isportopen_sync("127.0.0.1", 2233) and proxy:  # CCXT PROXY
                     result = await rpc_call("ccxt_call_fetch_tickers", tuple(symbols_list), rpc_port=2233,
                                             debug=self.config_manager.config_ccxt.debug_level, display=False,
                                             logger=self.config_manager.general_log, timeout=60)
@@ -199,21 +229,11 @@ class CCXTManager:
                 self._debug_display('ccxt_call_fetch_ticker', [symbol], result)
                 return result
 
-    def isportopen(self, ip, port):
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        try:
-            s.connect((ip, int(port)))
-            s.shutdown(2)
-            return True
-        except Exception:
-            return False
 
     def _start_proxy(self):
         """Start shared CCXT proxy with process coordination"""
         with CCXTManager._proxy_lock:
-            if self.isportopen("127.0.0.1", CCXTManager._proxy_port) or \
-               (CCXTManager._proxy_process and CCXTManager._proxy_process.poll() is None):
-                # Proxy already running
+            if self.isportopen_sync("127.0.0.1", CCXTManager._proxy_port):
                 if CCXTManager._proxy_process:
                     self.config_manager.ccxt_log.info(f"CCXT proxy already running (PID: {CCXTManager._proxy_process.pid})")
                 else:
@@ -230,30 +250,50 @@ class CCXTManager:
                     stderr=subprocess.DEVNULL,
                     creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == 'nt' else 0
                 )
-
-                max_retries = 5
-                for attempt in range(1, max_retries + 1):
-                    time.sleep(attempt * 1)
-                    if self.isportopen("127.0.0.1", CCXTManager._proxy_port):
-                        self.config_manager.ccxt_log.info(
-                            f"Proxy started successfully (PID: {CCXTManager._proxy_process.pid}, port: {CCXTManager._proxy_port})"
+                # Verify proxy started properly
+                # Wait and verify proxy started properly with retries
+                proxy_started = False
+                for i in range(1, 4):  # 3 attempts: 2s, 4s, 6s
+                    time.sleep(i * 2)
+                    if self.isportopen_sync("127.0.0.1", CCXTManager._proxy_port):
+                        proxy_started = True
+                        break
+                    else:
+                        self.config_manager.ccxt_log.warning(
+                            f"Port check attempt {i}/3 failed - retrying in {i*2} seconds"
                         )
-                        time.sleep(0.5)  # Allow server initialization
-                        return
-                    self.config_manager.ccxt_log.debug(f"Port check attempt {attempt}/{max_retries} failed")
-
-                self.config_manager.ccxt_log.error(
-                    f"Proxy failed to start - port {CCXTManager._proxy_port} not responding after {max_retries} attempts")
-                if CCXTManager._proxy_process.stderr:
-                    stderr_output = CCXTManager._proxy_process.stderr.read().decode().strip()
-                    if stderr_output:
-                        self.config_manager.ccxt_log.error(f"Proxy error output:\n{stderr_output}")
+                
+                if proxy_started:
+                    self.config_manager.ccxt_log.info(
+                        f"Proxy started successfully (PID: {CCXTManager._proxy_process.pid}, port: {CCXTManager._proxy_port})"
+                    )
+                else:
+                    self.config_manager.ccxt_log.error(
+                        f"Proxy failed to start - port {CCXTManager._proxy_port} not responding after 3 attempts"
+                    )
+                    CCXTManager._proxy_process.kill()
+                    CCXTManager._proxy_process = None
             except Exception as e:
                 self.error_handler.handle(
                     CriticalError(f"Proxy startup failed: {str(e)}", {"port": CCXTManager._proxy_port}),
                     context={"method": "_start_proxy"}
                 )
+                if CCXTManager._proxy_process:
+                    CCXTManager._proxy_process.kill()
                 CCXTManager._proxy_process = None
+
+    def isportopen_sync(self, ip: str, port: int) -> bool:
+        """Check if TCP port is open synchronously."""
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(2)
+            try:
+                s.connect((ip, port))
+                return True
+            except (ConnectionRefusedError, socket.timeout, OSError):
+                return False
+            except Exception as e:
+                self.config_manager.ccxt_log.error(f"Port check error: {e}")
+                return False
 
     def _debug_display(self, func, params, result, timer=None):
         debug_level = self.config_manager.config_ccxt.debug_level
@@ -277,3 +317,6 @@ class CCXTManager:
         # Level 4: Also log the full result
         if debug_level >= 4:
             self.config_manager.ccxt_log.debug(str(result))
+
+# Register proxy cleanup function to be called on exit
+atexit.register(CCXTManager._cleanup_proxy)

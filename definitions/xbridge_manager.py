@@ -42,15 +42,6 @@ class XBridgeManager:
             # Calculate fee estimates
             self.calculate_xbridge_fees()
 
-    def isportopen(self, ip, port):
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        try:
-            s.connect((ip, int(port)))
-            s.shutdown(2)
-            return True
-        except Exception:
-            return False
-
     async def rpc_wrapper(self, method, params=None):
         """Execute RPC call with context tracking"""                                                                                                                                        
         with self.rpc_counter_lock:                                                                                                                                                         
@@ -221,9 +212,12 @@ class XBridgeManager:
 
     async def cancelallorders(self):
         myorders = await self.rpc_wrapper("dxGetMyOrders")
+        result = []
         for z in myorders:
             if z['status'] == "open" or z['status'] == "new":
                 await self.cancelorder(z['id'])
+                result.append(z['id'])
+        return result
 
     async def dxloadxbridgeconf(self):
         await self.rpc_wrapper("dxloadxbridgeconf")

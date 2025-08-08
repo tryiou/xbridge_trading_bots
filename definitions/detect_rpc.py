@@ -4,12 +4,11 @@ import platform
 
 import yaml
 
-from .logger import setup_logging
 
 debug_level = 2
 
-autoconf_rpc_log = setup_logging(name="autoconf_rpc_log",
-                                 level=logging.DEBUG, console=True)
+autoconf_rpc_log = logging.getLogger("autoconf_rpc_log")                                                                                                                                   
+autoconf_rpc_log.setLevel(logging.DEBUG)     
 
 
 def get_default_config_path():

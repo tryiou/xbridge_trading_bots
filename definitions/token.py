@@ -6,7 +6,20 @@ import yaml
 
 
 class Token:
-    def __init__(self, symbol, strategy, dex_enabled=True, config_manager=None):
+    """Represents a cryptocurrency token with DEX and CEX trading capabilities.
+
+    Handles both decentralized exchange (DEX) and centralized exchange (CEX)
+    operations and pricing for a specific token.
+
+    Attributes:
+        symbol: Ticker symbol of the token (e.g., 'BTC')
+        strategy: Trading strategy associated with this token
+        config_manager: Master configuration manager
+        dex: DexToken instance for DEX operations
+        cex: CexToken instance for CEX operations
+    """
+
+    def __init__(self, symbol: str, strategy, dex_enabled: bool = True, config_manager=None):
         self.symbol = symbol
         self.strategy = strategy
         self.config_manager = config_manager
@@ -14,20 +27,47 @@ class Token:
         self.cex = CexToken(self)
 
     @property
-    def dex_total_balance(self):
+    def dex_total_balance(self) -> float | None:
+        """Total token balance in DEX wallet including locked funds.
+        
+        Returns:
+            Total DEX balance if available, else None
+        """
         return getattr(self.dex, 'total_balance', None) if self.dex else None
 
     @property
-    def dex_free_balance(self):
+    def dex_free_balance(self) -> float | None:
+        """Available token balance in DEX wallet (excluding locked funds).
+        
+        Returns:
+            Available DEX balance if available, else None
+        """
         return getattr(self.dex, 'free_balance', None) if self.dex else None
 
     @property
-    def cex_usd_price(self):
+    def cex_usd_price(self) -> float | None:
+        """Current USD price of token on the CEX.
+        
+        Returns:
+            USD price if available, else None
+        """
         return getattr(self.cex, 'usd_price', None) if self.cex else None
 
 
 class DexToken:
-    def __init__(self, parent_token, dex_enabled=True):
+    """Represents token-specific DEX information and operations.
+
+    Handles wallet address management and DEX balance tracking.
+
+    Attributes:
+        token: Parent Token object
+        enabled: Flag indicating DEX operations are enabled
+        address: Wallet address for this token
+        total_balance: Total token balance in DEX wallet
+        free_balance: Available token balance in DEX wallet
+    """
+
+    def __init__(self, parent_token: Token, dex_enabled: bool = True):
         self.token = parent_token
         self.enabled = dex_enabled
         self.address = None
@@ -35,10 +75,19 @@ class DexToken:
         self.free_balance = None
         # self.read_address() must be called asynchronously after object creation.
 
-    def _get_address_file_path(self):
+    def _get_address_file_path(self) -> str:
+        """Get path to token's DEX address file from strategy config.
+        
+        Returns:
+            File path string
+        """
         return self.token.config_manager.strategy_instance.get_dex_token_address_file_path(self.token.symbol)
 
-    async def read_address(self):
+    async def read_address(self) -> None:
+        """Read DEX wallet address from file or request new address if missing.
+        
+        Handles file not found and parsing errors by requesting new address.
+        """
         if not self.enabled:
             return
 
@@ -51,10 +100,14 @@ class DexToken:
             await self.request_addr()
         except (yaml.YAMLError, Exception) as e:
             self.token.config_manager.general_log.error(
-                f"Error reading XB address from file: {file_path} - {type(e).__name__}: {e}")
+                f"{self.token.symbol} Error reading XB address from file: {file_path} - {type(e).__name__}: {e}")
             await self.request_addr()
 
-    async def write_address(self):
+    async def write_address(self) -> None:
+        """Write current DEX wallet address to file.
+        
+        Creates/overwrites file with YAML-formatted address.
+        """
         if not self.enabled:
             return
 
@@ -64,9 +117,10 @@ class DexToken:
                 yaml.safe_dump({'address': self.address}, fp)
         except (yaml.YAMLError, Exception) as e:
             self.token.config_manager.general_log.error(
-                f"Error writing XB address to file: {file_path} - {type(e).__name__}: {e}")
+                f"{self.token.symbol} Error writing XB address to file: {file_path} - {type(e).__name__}: {e}")
 
-    async def request_addr(self):
+    async def request_addr(self) -> None:
+        """Request new DEX wallet address from XBridge manager."""
         try:
             address = (await self.token.config_manager.xbridge_manager.getnewtokenadress(self.token.symbol))[0]
             self.address = address
@@ -74,11 +128,24 @@ class DexToken:
             await self.write_address()
         except Exception as e:
             self.token.config_manager.general_log.error(
-                f"Error requesting XB address for {self.token.symbol}: {type(e).__name__}: {e}")
+                f"{self.token.symbol} Error requesting XB address: {type(e).__name__}: {e}")
 
 
 class CexToken:
-    def __init__(self, parent_token):
+    """Represents token-specific CEX information and operations.
+
+    Handles centralized exchange price updates and balance tracking.
+
+    Attributes:
+        token: Parent Token object
+        cex_price: Token price in base currency (BTC)
+        usd_price: Token price in USD
+        cex_price_timer: Timestamp of last CEX price update
+        cex_total_balance: Total token balance on CEX
+        cex_free_balance: Available token balance on CEX
+    """
+
+    def __init__(self, parent_token: Token):
         self.token = parent_token
         self.cex_price = None
         self.usd_price = None
@@ -86,7 +153,12 @@ class CexToken:
         self.cex_total_balance = None
         self.cex_free_balance = None
 
-    async def update_price(self, display=False):
+    async def update_price(self, display: bool = False) -> None:
+        """Fetch and update token prices from CEX with rate limiting.
+        
+        Args:
+            display: Flag to enable debug logging
+        """
         if (self.cex_price_timer is not None and
                 time.time() - self.cex_price_timer <= 2):
             if display:
@@ -100,7 +172,12 @@ class CexToken:
             'binance': 'lastPrice'
         }.get(self.token.config_manager.my_ccxt.id, 'lastTradeRate')
 
-        async def fetch_ticker_async(cex_symbol):
+        async def fetch_ticker_async(cex_symbol: str) -> float | None:
+            """Fetch ticker from CEX with retry logic.
+            
+            Returns:
+                Price float on success, None on failure
+            """
             for _ in range(3):  # Attempt to fetch the ticker up to 3 times
                 try:
                     ticker = await self.token.config_manager.ccxt_manager.ccxt_call_fetch_ticker(
@@ -113,10 +190,18 @@ class CexToken:
                     await asyncio.sleep(1)  # Sleep for a second before retrying
             return None
 
+        btc_price = self.token.config_manager.tokens['BTC'].cex.usd_price
+        if btc_price is None or btc_price == 0:
+            self.token.config_manager.general_log.error(
+                f"BTC price is None or zero, cannot compute custom price for {self.token.symbol}"
+            )
+            self.usd_price = None
+            self.cex_price = None
+            return
+
         if hasattr(self.token.config_manager.config_coins.usd_ticker_custom, self.token.symbol):
             custom_price = getattr(self.token.config_manager.config_coins.usd_ticker_custom, self.token.symbol)
-            result = custom_price / self.token.config_manager.tokens[
-                'BTC'].cex.usd_price
+            result = custom_price / btc_price
         elif cex_symbol in self.token.config_manager.my_ccxt.symbols:
             result = await fetch_ticker_async(cex_symbol)
         else:
@@ -141,7 +226,12 @@ class CexToken:
             self.usd_price = None
             self.cex_price = None
 
-    async def update_block_ticker(self):
+    async def update_block_ticker(self) -> float | None:
+        """Fetch BLOCK token price from proxy or fallback.
+        
+        Returns:
+            Price in BTC if successful, None on failure
+        """
         count = 0
         done = False
         used_proxy = False
@@ -151,7 +241,7 @@ class CexToken:
             while not done:
                 count += 1
                 try:
-                    if self.token.config_manager.ccxt_manager.isportopen("127.0.0.1", 2233):
+                    if self.token.config_manager.ccxt_manager.isportopen_sync("127.0.0.1", 2233):
                         result = await rpc_call("fetch_ticker_block", rpc_port=2233, debug=2, display=False,
                                                 session=session)
                         used_proxy = True

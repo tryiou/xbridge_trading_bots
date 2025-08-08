@@ -132,8 +132,7 @@ class PriceHandler:
             except Exception as e:
                 self.config_manager.error_handler.handle(
                     OperationalError(f"Error updating CEX prices: {e}"),
-                    context={"stage": "price_update"},
-                    exc_info=True
+                    context={"stage": "price_update"}
                 )
 
     async def _fetch_and_update_prices(self):
@@ -146,8 +145,7 @@ class PriceHandler:
         except Exception as e:
             self.config_manager.error_handler.handle(
                 OperationalError(f"Error fetching CEX tickers: {e}"),
-                context={"stage": "price_update"},
-                exc_info=True
+                context={"stage": "price_update"}
             )
 
     def _construct_key(self, token):
@@ -251,8 +249,7 @@ class MainController:
         except Exception as e:
             self.config_manager.error_handler.handle(
                 OperationalError(f"Initialization loop error: {e}"),
-                context={"stage": "main_init_loop"},
-                exc_info=True
+                context={"stage": "main_init_loop"}
             )
             raise
 
@@ -277,8 +274,7 @@ class MainController:
         except Exception as e:
             self.config_manager.error_handler.handle(
                 OperationalError(f"Main loop error: {e}"),
-                context={"stage": "main_loop"},
-                exc_info=True
+                context={"stage": "main_loop"}
             )
 
     def _report_time(self, start_time):
@@ -339,6 +335,12 @@ def run_async_main(config_manager, loop=None, startup_tasks=None):
             except asyncio.CancelledError:
                 pass  # This is expected
 
+        # Clean up proxy if still running
+        from definitions.ccxt_manager import CCXTManager
+        try:
+            CCXTManager._cleanup_proxy()
+        except Exception as e:
+            config_manager.general_log.error(f"Error cleaning up proxy in finally block: {e}")
 
         # Force close all async generators and the event loop
         if loop and not loop.is_closed():

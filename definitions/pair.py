@@ -8,10 +8,31 @@ from definitions.token import Token
 
 
 class Pair:
-    def __init__(self, token1: Token, token2: Token, config_manager, cfg: dict, amount_token_to_sell=None,
-                 min_sell_price_usd=None,
-                 sell_price_offset=None,
-                 strategy=None, dex_enabled=True, partial_percent=None):
+    """Represents a trading pair between two tokens.
+    
+    Manages both DEX and CEX trading operations.
+    
+    Attributes:
+        cfg: Pair configuration dictionary
+        name: Unique name identifier
+        strategy: Trading strategy name
+        t1: First token in pair
+        t2: Second token in pair
+        symbol: Trading symbol (e.g., 'BTC/BLOCK')
+        disabled: Flag if pair is disabled
+        variation: Price variation threshold
+        dex_enabled: Flag if DEX trading is enabled
+        amount_token_to_sell: Sell amount for token
+        min_sell_price_usd: Minimum USD sell price
+        sell_price_offset: Fractional offset for sell price
+        config_manager: Master configuration manager
+        dex: DexPair instance for DEX operations
+        cex: CexPair instance for CEX operations
+    """
+
+    def __init__(self, token1: Token, token2: Token, config_manager, cfg: dict, amount_token_to_sell: float = None,
+                 min_sell_price_usd: float = None, sell_price_offset: float = None, strategy: str = None,
+                 dex_enabled: bool = True, partial_percent: float = None):
         self.cfg = cfg
         self.name = cfg['name']
         self.strategy = strategy  # e.g.,  pingpong, basic_seller
@@ -34,6 +55,32 @@ class Pair:
 
 
 class DexPair:
+    """Handles DEX trading operations for a token pair.
+    
+    Implements order creation, cancellation, and tracking.
+    
+    Class Constants:
+        STATUS_OPEN (0): Order is open
+        STATUS_FINISHED (1): Order is finished
+        STATUS_OTHERS (2): Order is in other state
+        STATUS_ERROR_SWAP (-1): Swap error occurred
+        STATUS_CANCELLED_WITHOUT_CALL (-2): Order cancelled without explicit call
+        
+    Attributes:
+        pair: Parent Pair object
+        t1: First token in pair
+        t2: Second token in pair
+        symbol: Trading symbol
+        order_history: Last completed order details
+        current_order: Current virtual order
+        disabled: Flag if DEX operations disabled
+        variation: Current price variation
+        partial_percent: Partial order percentage
+        orderbook: Current DEX orderbook
+        orderbook_timer: Last orderbook update timestamp
+        order: Active order on DEX
+    """
+
     # Constants for status codes
     STATUS_OPEN = 0
     STATUS_FINISHED = 1
@@ -43,7 +90,7 @@ class DexPair:
 
     PRICE_VARIATION_TOLERANCE_DEFAULT = 0.01
 
-    def __init__(self, pair, partial_percent):
+    def __init__(self, pair: Pair, partial_percent: float):
         self.pair = pair
         self.t1 = pair.t1
         self.t2 = pair.t2
@@ -510,7 +557,10 @@ class CexPair:
 
     async def update_pricing(self, display=False):
         await self._update_token_prices()
-        self.price = self.t1.cex.cex_price / self.t2.cex.cex_price
+        if self.t1.cex.cex_price is not None and self.t2.cex.cex_price is not None and self.t2.cex.cex_price != 0:
+            self.price = self.t1.cex.cex_price / self.t2.cex.cex_price
+        else:
+            self.price = None
         if display:
             self.pair.config_manager.general_log.info(
                 f"update_pricing: {self.t1.symbol} btc_p: {self.t1.cex.cex_price}, "
