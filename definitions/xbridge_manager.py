@@ -30,11 +30,11 @@ class XBridgeManager:
         self.active_rpc_counter = 0                                                                                                                                                         
         self.rpc_counter_lock = threading.Lock() 
 
-        # Optional: Test RPC connection during initialization
-        if not self.test_rpc():
-            self.logger.error(f'Blocknet core RPC server not responding or credentials incorrect.')
-            # Depending on desired behavior, you might want to raise an exception or exit here.
-            # For now, just log the error.
+        # Check if RPC port is open (synchronous check)
+        if not self.is_port_open("127.0.0.1", self.blocknet_port_rpc):
+            self.logger.error(f'Blocknet RPC port {self.blocknet_port_rpc} is not open. Will not be able to connect to Blocknet Core.')
+        else:
+            self.logger.info(f'Blocknet RPC port {self.blocknet_port_rpc} is open.')
 
         if getattr(self.config_manager, 'strategy', None) == "arbitrage":
             # Load and parse the xbridge.conf file
@@ -42,72 +42,61 @@ class XBridgeManager:
             # Calculate fee estimates
             self.calculate_xbridge_fees()
 
+        # Only run test if port is actually open and we're not in main thread
+        if (threading.current_thread() is not threading.main_thread() and 
+            self.is_port_open("127.0.0.1", self.blocknet_port_rpc)):
+            asyncio.run(self.async_test_rpc())
+
     async def rpc_wrapper(self, method, params=None):
-        """Execute RPC call with context tracking"""                                                                                                                                        
-        with self.rpc_counter_lock:                                                                                                                                                         
-            self.active_rpc_counter += 1     
+        """Execute RPC call with context tracking"""
+        with self.rpc_counter_lock:
+            self.active_rpc_counter += 1
         if params is None:
             params = []
 
-        loop = asyncio.get_running_loop()
-
         try:
-            return await loop.run_in_executor(
-                None,
-                self._exec_rpc,
-                method,
-                params,
-                self.blocknet_user_rpc,
-                self.blocknet_password_rpc,
-                self.blocknet_port_rpc,
-                self.config_manager.config_xbridge.debug_level
+            result = await rpc_call(
+                method=method,
+                params=params,
+                rpc_user=self.blocknet_user_rpc,
+                rpc_password=self.blocknet_password_rpc,
+                rpc_port=self.blocknet_port_rpc,
+                debug=self.config_manager.config_xbridge.debug_level,
+                logger=self.logger,
+                session=None  # Create new session per call
             )
-        finally:                                                                                                                                           
-            with self.rpc_counter_lock:                                                                                                                     
+            return result
+        finally:
+            with self.rpc_counter_lock:
                 self.active_rpc_counter -= 1
 
-
-    def _exec_rpc(self, method, params, rpc_user, rpc_password, rpc_port, debug_level):
-        """Execute RPC on a threadpool thread with dedicated event loop"""
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        self._loops.add(loop)
+    def is_port_open(self, ip: str, port: int) -> bool:
+        """Synchronously check if TCP port is open with explicit timeout."""
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(3)
         try:
-            return loop.run_until_complete(
-                rpc_call(
-                    method=method,
-                    params=params,
-                    rpc_user=rpc_user,
-                    rpc_password=rpc_password,
-                    rpc_port=rpc_port,
-                    debug=debug_level,
-                    logger=self.logger,  # Fixed typo: self.logger
-                    session=None  # Create new session per call
-                )
-            )
-        except Exception as e:
-            self.logger.error(f"RPC call failed: {str(e)}", exc_info=True)
-            raise
-        finally:
-            try:
-                loop.close()
-                if not loop.is_closed():
-                    self.logger.error("EVENT LOOP FAILED TO CLOSE!")
-                    import traceback
-                    traceback.print_stack()
-            finally:
-                self._loops.discard(loop)
-
-    def test_rpc(self):
-        # This method is called from constructor, so it cannot be async.
-        # We will use asyncio.run to run the async rpc_wrapper.
-        # This is acceptable for a one-off test at startup.
-        result = asyncio.run(self.rpc_wrapper("getwalletinfo"))
-        if result:
-            self.logger.info(f'XBridge RPC connection successful: getwalletinfo returned {result}')
+            s.connect((ip, port))
+            s.close()
             return True
-        else:
-            self.logger.error(f'XBridge RPC connection failed: getwalletinfo returned {result}')
+        except (socket.timeout, ConnectionRefusedError, OSError):
+            return False
+        except Exception as e:
+            self.logger.error(f"Port check error: {e}")
+            return False
+
+    async def async_test_rpc(self):
+        """Perform RPC connection test asynchronously with cancellation handling"""
+        try:
+            result = await self.rpc_wrapper("getwalletinfo")
+            if result:
+                self.logger.info(f'XBridge RPC connection successful: getwalletinfo returned {result}')
+                return True
+            return False
+        except asyncio.CancelledError:
+            self.logger.warning("RPC test cancelled during shutdown")
+            return False
+        except Exception as e:
+            self.logger.error(f'XBridge RPC connection failed: {e}')
             return False
 
     def parse_xbridge_conf(self):
