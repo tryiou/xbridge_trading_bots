@@ -36,6 +36,14 @@ class XBridgeManager:
         self.active_rpc_counter = 0
         self.rpc_counter_lock = threading.Lock()
 
+        # Semaphore for global RPC concurrency control
+        max_tasks = 5
+        try:
+            max_tasks = self.config_manager.config_xbridge.max_concurrent_tasks
+        except AttributeError:
+            self.logger.info(f"Falling back to default max_concurrent_tasks ({max_tasks})")
+        self.rpc_semaphore = threading.BoundedSemaphore(max_tasks)
+
         # Check if RPC port is open (synchronous check)
         if not self.is_port_open("127.0.0.1", self.blocknet_port_rpc):
             self.logger.error(
@@ -56,27 +64,46 @@ class XBridgeManager:
 
     async def rpc_wrapper(self, method, params=None, shutdown_event=None):
         """Execute RPC call with context tracking and optional shutdown event"""
-        with self.rpc_counter_lock:
-            self.active_rpc_counter += 1
-        if params is None:
-            params = []
+        # Early bailout if shutdown is signaled
+        if shutdown_event and shutdown_event.is_set():
+            return None
 
+        # Wait for global RPC semaphore using thread pool (non-blocking for async)
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self.rpc_semaphore.acquire)
+        
         try:
-            result = await rpc_call(
-                method=method,
-                params=params,
-                rpc_user=self.blocknet_user_rpc,
-                rpc_password=self.blocknet_password_rpc,
-                rpc_port=self.blocknet_port_rpc,
-                debug=self.config_manager.config_xbridge.debug_level,
-                logger=self.logger,
-                session=None,  # Create new session per call
-                shutdown_event=shutdown_event
-            )
-            return result
-        finally:
+            # Maintain active call counter with lock
             with self.rpc_counter_lock:
-                self.active_rpc_counter -= 1
+                self.active_rpc_counter += 1
+            
+            # Check if shutdown occurred during semaphore acquisition
+            if shutdown_event and shutdown_event.is_set():
+                return None
+            
+            # Default parameters
+            if params is None:
+                params = []
+
+            # Make the actual RPC call (exceptions may be thrown, caller must handle)
+            try:
+                return await rpc_call(
+                    method=method,
+                    params=params,
+                    rpc_user=self.blocknet_user_rpc,
+                    rpc_password=self.blocknet_password_rpc,
+                    rpc_port=self.blocknet_port_rpc,
+                    debug=self.config_manager.config_xbridge.debug_level,
+                    logger=self.logger,
+                    session=None,  # Create new session per call
+                    shutdown_event=shutdown_event
+                )
+            finally:
+                with self.rpc_counter_lock:
+                    self.active_rpc_counter -= 1
+        finally:
+            # Release the semaphore to allow other RPC calls
+            self.rpc_semaphore.release()
 
     def is_port_open(self, ip: str, port: int) -> bool:
         """Synchronously check if TCP port is open with explicit timeout."""
