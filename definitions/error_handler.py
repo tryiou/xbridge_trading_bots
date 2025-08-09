@@ -36,14 +36,14 @@ class ErrorHandler:
     def handle(self, error, context=None):
         """Main error handling entry point"""
         full_context = context.copy() if context else {}
-        
+
         # Start with error's context if present, preserving callers context
         if hasattr(error, 'context'):
             # Add keys from error.context that aren't already in full_context
             for key, value in error.context.items():
                 if key not in full_context:
                     full_context[key] = value
-        
+
         error_type = type(error).__name__
         full_context['error_type'] = error_type
 
@@ -64,14 +64,14 @@ class ErrorHandler:
     async def handle_async(self, error, context=None):
         """Async version of main error handling entry point"""
         full_context = context.copy() if context else {}
-        
+
         # Start with error's context if present, preserving callers context
         if hasattr(error, 'context'):
             # Add keys from error.context that aren't already in full_context
             for key, value in error.context.items():
                 if key not in full_context:
                     full_context[key] = value
-        
+
         error_type = type(error).__name__
         full_context['error_type'] = error_type
 

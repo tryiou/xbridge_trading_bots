@@ -41,7 +41,7 @@ class RPCConfigError(ConfigurationError):
             - path: Location of configuration file                                                                                                                                         
             - port: RPC service port number                                                                                                                                                
             - keys: Missing configuration keys                                                                                                                                             
-    """                        
+    """
 
     def __init__(self, message, context=None):
         super().__init__(message)

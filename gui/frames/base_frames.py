@@ -3,7 +3,6 @@ import abc
 import asyncio
 import logging
 import threading
-import time
 from tkinter import ttk
 from typing import TYPE_CHECKING, Any, Dict, List
 
@@ -192,7 +191,7 @@ class BaseStrategyFrame(ttk.Frame):
             startup_tasks = self.config_manager.strategy_instance.get_startup_tasks()
             self.send_process = threading.Thread(
                 target=self._thread_wrapper,
-                args=(run_async_main, self.config_manager, None, startup_tasks),
+                args=(run_async_main, self.config_manager, startup_tasks),
                 daemon=True,
                 name=f"BotThread-{self.strategy_name}"
             )
@@ -219,68 +218,42 @@ class BaseStrategyFrame(ttk.Frame):
             self.stop(reload_config=False)
 
     def stop(self, reload_config: bool = True):
-        """
-        Signals the bot to stop. This method is non-blocking for the GUI.
-        """
         if not self.config_manager or not self.started or self.stopping:
-            if self.config_manager:
-                self.config_manager.general_log.debug(
-                    f"GUI: Ignoring STOP click for {self.strategy_name} (started={self.started}, stopping={self.stopping}).")
             return
 
         self.stopping = True
-        self.update_button_states()  # Disable buttons immediately
+        self.update_button_states()
         self.main_app.status_var.set(f"Stopping {self.strategy_name} bot...")
         self.config_manager.general_log.info(f"Attempting to stop {self.strategy_name} bot...")
 
+        # Immediately signal shutdown to the strategy's controller
+        if (hasattr(self, 'config_manager') and
+                self.config_manager and
+                hasattr(self.config_manager, 'controller')):
+            self.config_manager.controller.shutdown_event.set()
+
+        # Start thread to run unified shutdown for this strategy
+        shutdown_thread = threading.Thread(
+            target=self._run_unified_shutdown,
+            daemon=True
+        )
+        shutdown_thread.start()
+
+        # Start monitoring the bot thread for termination
+        self._start_stop_monitoring(reload_config)
+
+    def _run_unified_shutdown(self):
+        """Runs the unified shutdown in a background thread to cancel strategy's own orders."""
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
         try:
-            # 1. Signal controller shutdown to prevent new operations                                                                                                                       
-            self._signal_controller_shutdown()
-
-            # 2. Run a blocking operation to wait for pending RPCs                                                                                                                          
-            self._wait_for_pending_rpc()
-
-            # 3. Proceed with cancellation AFTER operations complete                                                                                                                        
-            self.cancel_own_orders()
-
-            # 4. Continue with normal shutdown sequence                                                                                                                                     
-            self._start_stop_monitoring(reload_config)
-
+            from definitions.shutdown import ShutdownCoordinator
+            loop.run_until_complete(ShutdownCoordinator.unified_shutdown(self.config_manager))
+            self.config_manager.general_log.info(f"Unified shutdown completed for {self.strategy_name}")
         except Exception as e:
-            self.config_manager.general_log.error(f"Error during shutdown: {e}")
-
-    def _wait_for_pending_rpc(self, timeout=20):
-        """Blocks until all pending RPC operations complete for a fixed duration"""
-        start_time = time.time()
-        logger.info("Syncing with strategy thread...")
-
-        while (time.time() - start_time) < timeout:
-            # Check if any RPC calls are still processing
-            if not self._has_pending_operations() or not self.config_manager.controller.loop.is_running():
-                return
-
-            # Log progress periodically
-            elapsed = time.time() - start_time
-            if int(elapsed) % 5 == 0:  # Update every 5 seconds
-                logger.info(
-                    f"Waiting for operations to finish ({int(elapsed)}s/{timeout}s)..."
-                )
-
-            time.sleep(0.1)
-
-        logger.warning(f"Forcibly proceeding after {timeout}s RPC wait timeout")
-
-    def _has_pending_operations(self):
-        """Check if there are active RPC calls"""
-        if not hasattr(self.config_manager, 'xbridge_manager'):
-            return False
-
-            # Access the RPC tracking mechanism from XBridgeManager
-        if hasattr(self.config_manager.xbridge_manager, 'active_rpc_counter'):
-            return self.config_manager.xbridge_manager.active_rpc_counter > 0
-
-            # Fallback for managers without proper counters
-        return False
+            self.config_manager.general_log.error(f"Error during unified shutdown: {e}", exc_info=True)
+        finally:
+            loop.close()
 
     def _finalize_stop(self, reload_config: bool = True):
         """Cleans up the state after the bot thread has stopped."""

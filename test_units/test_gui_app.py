@@ -6,7 +6,7 @@ import sys
 import time
 import tkinter as tk
 from tkinter import ttk
-from unittest.mock import patch, MagicMock, PropertyMock
+from unittest.mock import AsyncMock, patch, MagicMock, PropertyMock
 
 # Add parent directory to path for module imports
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -473,14 +473,26 @@ def test_shutdown_sequence(gui_app):
     app, created_threads, mock_destroy = gui_app
     # Simulate starting a strategy
     pp_frame = app.strategy_frames['PingPong']
+    # Setup mock config manager with integer RPC counter
+    for frame in app.strategy_frames.values():
+        frame.config_manager.xbridge_manager.active_rpc_counter = 0
+        frame.config_manager.strategy_instance.cancel_own_orders = AsyncMock(return_value=0)
+        frame.config_manager.http_session = AsyncMock()
 
-    # Create and attach a mock thread
+    # Simulate starting a strategy with mock thread
+    pp_frame = app.strategy_frames['PingPong']
     mock_bot_thread = MagicMock()
-    mock_bot_thread.is_alive.return_value = False
     pp_frame.send_process = mock_bot_thread
+    # Mark as started to trigger notification
+    pp_frame.started = True
+    app.running_strategies.add('PingPong')
+    mock_bot_thread.is_alive.return_value = False  # Mark as terminated
 
-    pp_frame.start()
-    app.root.update()
+    # Skip GUI start calls as we're setting state directly
+
+    # Clear stop call count before shutdown
+    pp_frame.stop.reset_mock()
+    app.notify_strategy_stopped.reset_mock()
 
     # We'll capture the shutdown coordinator instance if it gets created
     coordinator_instances = []
@@ -496,6 +508,13 @@ def test_shutdown_sequence(gui_app):
 
     app.on_closing.side_effect = on_closing_side_effect
 
+    # Simulate the strategy stop notification when stop() is called
+    # This replaces the mock's behavior to also trigger notification
+    def stop_with_notification():
+        app.notify_strategy_stopped('PingPong')
+
+    pp_frame.stop.side_effect = stop_with_notification
+
     # Initiate shutdown
     app.on_closing()
 
@@ -506,8 +525,16 @@ def test_shutdown_sequence(gui_app):
     # Execute shutdown synchronously in test thread
     coordinator._perform_shutdown_tasks()
 
-    # Verify strategy thread is stopped
-    mock_bot_thread.is_alive.assert_called()
+    # Process pending Tkinter events to trigger post-shutdown updates
+    for _ in range(3):
+        app.root.update_idletasks()
+        app.root.update()
+
+    # Verify stop was called on strategy frame
+    pp_frame.stop.assert_called_once()
+
+    # Verify MainApp notified of strategy stop via the side effect
+    app.notify_strategy_stopped.assert_called_once_with('PingPong')
 
 
 def test_balance_updater_aggregation(gui_app):

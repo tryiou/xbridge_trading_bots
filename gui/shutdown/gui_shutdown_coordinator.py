@@ -1,4 +1,5 @@
 # gui/shutdown/gui_shutdown_coordinator.py
+import asyncio
 import logging
 import threading
 import time
@@ -6,6 +7,7 @@ from typing import TYPE_CHECKING, Dict, Any
 
 from definitions.config_manager import ConfigManager
 from definitions.error_handler import OperationalError
+from definitions.shutdown import ShutdownCoordinator
 
 if TYPE_CHECKING:
     from gui.frames.base_frames import BaseStrategyFrame
@@ -64,15 +66,34 @@ class GUIShutdownCoordinator:
 
     def _perform_shutdown_tasks(self):
         """Performs the actual shutdown tasks in a separate thread with error handling."""
+        loop = None
         try:
-            # Phase 1: Non-blocking coordination
-            self._coordinate_shutdown_signals()
+            # Create an event loop for this thread
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
 
-            # Phase 2: Graceful termination
-            termination_success = self._await_component_termination(timeout=5)
+            # 1. Signal all strategies to stop (set shutdown events)
+            for strategy in self.strategy_frames.values():
+                if strategy.started:
+                    logger.info(f"Signaling {strategy.strategy_name} to stop")
+                    strategy._signal_controller_shutdown()
 
-            # Phase 3: Guaranteed cleanup
-            self._cleanup_resources()
+            # 2. Cancel orders and cleanup resources via unified shutdown
+            for name, frame in self.strategy_frames.items():
+                if frame.started and frame.config_manager:
+                    try:
+                        logger.info(f"Performing unified shutdown for {name}")
+                        loop.run_until_complete(
+                            ShutdownCoordinator.unified_shutdown(frame.config_manager)
+                        )
+                    except Exception as e:
+                        logger.error(f"Error during shutdown of {name}: {e}", exc_info=True)
+
+            # 3. Stop strategy threads
+            for strategy in self.strategy_frames.values():
+                if strategy.started:
+                    logger.info(f"Stopping {strategy.strategy_name} controller")
+                    strategy.stop()  # This will wait for thread to terminate
         except Exception as e:
             error_msg = f"Critical error during GUI shutdown: {e}"
             logger.critical(error_msg, exc_info=True)
@@ -83,107 +104,10 @@ class GUIShutdownCoordinator:
                 exc_info=True
             )
         finally:
+            if loop and not loop.is_closed():
+                loop.close()
+            # Finalize GUI resources after loop closure
             self.gui_root.after(0, self._finalize_gui_exit)
-
-    def _coordinate_shutdown_signals(self):
-        """Send non-blocking shutdown signals to all components."""
-        logger.info("Initiating non-blocking shutdown signals...")
-
-        # Signal strategy components
-        for name, frame in self.strategy_frames.items():
-            try:
-                if frame.started or frame.stopping:
-                    logger.info(f"Signaling {name} bot to stop...")
-                    # Send non-blocking stop signal
-                    frame.stop(reload_config=False)
-                    # Trigger controller shutdown sequence
-                    frame._signal_controller_shutdown()
-            except Exception as e:
-                error_msg = f"Error signaling {name} to stop: {e}"
-                logger.error(error_msg, exc_info=True)
-                # Non-critical during shutdown, continue
-
-    def _await_component_termination(self, timeout: float) -> bool:
-        """Wait for components to gracefully terminate within timeout period."""
-        logger.info(f"Awaiting component termination with {timeout} second timeout...")
-        deadline = time.time() + timeout
-        active_components = []
-
-        # Build initial status monitoring both threads and CCXT proxies
-        for name, frame in self.strategy_frames.items():
-            # Monitor strategy thread
-            if frame.started and getattr(frame, 'send_process', None) and frame.send_process.is_alive():
-                active_components.append((name, frame.send_process, "thread"))
-            # Monitor CCXT proxy process
-            if hasattr(frame.config_manager, 'ccxt_manager') and \
-                    hasattr(frame.config_manager.ccxt_manager, '_proxy_process'):
-                proxy = frame.config_manager.ccxt_manager._proxy_process
-                if proxy and proxy.poll() is None:
-                    active_components.append((f"{name} CCXT Proxy", proxy, "process"))
-
-        # Add small sleep interval to reduce busy-waiting
-        SLEEP_INTERVAL = 0.2
-
-        # Periodic status updates
-        while time.time() < deadline and active_components:
-            status_msg = ", ".join([name for name, _, _ in active_components])
-            logger.info(f"Awaiting termination for: {status_msg}")
-            remaining = []
-            for (name, proc, typ) in active_components:
-                try:
-                    if typ == "thread":
-                        alive = proc.is_alive()
-                    else:  # "process"
-                        alive = proc.poll() is None
-                    if alive:
-                        remaining.append((name, proc, typ))
-                    else:
-                        logger.info(f"{name} successfully terminated")
-                except Exception as e:
-                    logger.error(f"Error checking {name}: {e}")
-                    # Don't remain in loop if checking fails
-
-            active_components = remaining
-            if active_components:
-                remaining_time = deadline - time.time()
-                if remaining_time <= 0:
-                    break
-                time.sleep(min(SLEEP_INTERVAL, remaining_time))
-
-        return len(active_components) == 0
-
-    def _cleanup_resources(self):
-        """Final cleanup resource release both graceful and forced."""
-        logger.info("Releasing resources...")
-        # First clean up all CCXT proxies to prevent new connections
-        for name, frame in self.strategy_frames.items():
-            try:
-                if hasattr(frame, 'config_manager') and hasattr(frame.config_manager, 'ccxt_manager'):
-                    # Use centralized proxy cleanup
-                    from definitions.ccxt_manager import CCXTManager
-                    CCXTManager._cleanup_proxy()
-                    logger.info(f"CCXT proxy terminated for {name}")
-            except Exception as e:
-                logger.warning(f"Proxy cleanup failed for {name}: {e}", exc_info=True)
-
-        # Cleanup strategy frames
-        for name, frame in self.strategy_frames.items():
-            try:
-                if getattr(frame, 'cleanup', None):
-                    frame.cleanup()
-                # Clear running processes
-                if getattr(frame, 'send_process', None):
-                    if frame.send_process.is_alive():
-                        logger.warning(f"Terminating {name}'s bot thread forcibly")
-                        frame.send_process.join(timeout=0.2)
-                        # After join, check again
-                        if frame.send_process.is_alive():
-                            logger.error(f"{name} thread still alive after final termination attempt")
-                    frame.send_process = None
-            except Exception as e:
-                logger.warning(f"Resource cleanup failed for {name}: {e}", exc_info=True)
-
-        logger.info("Resources cleanup completed.")
 
     def _finalize_gui_exit(self):
         """
@@ -192,11 +116,14 @@ class GUIShutdownCoordinator:
         try:
             # Brief pause to allow in-flight operations to settle/terminate
             time.sleep(0.5)
-            logger.info("Destroying GUI root window.")
+            logger.info("Quitting Tkinter mainloop and destroying root window.")
+            # First, break out of the main loop
+            self.gui_root.quit()
+            # Then clean up all widgets
             self.gui_root.destroy()
         except Exception as e:
             # If we can't destroy the root window, log and try to exit
-            error_msg = f"Error destroying GUI root: {e}"
+            error_msg = f"Error during GUI finalization: {e}"
             logger.critical(error_msg, exc_info=True)
             self.master_config_manager.error_handler.handle(
                 OperationalError(error_msg),

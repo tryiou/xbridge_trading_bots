@@ -1,9 +1,9 @@
 import asyncio
+import socket
 
 import aiohttp
 import async_timeout
 from aiohttp import BasicAuth, ClientError
-import asyncio
 
 from definitions.error_handler import TransientError, OperationalError
 
@@ -136,3 +136,17 @@ async def rpc_call(method, params=None, url="http://127.0.0.1", rpc_user=None, r
     else:
         async with aiohttp.ClientSession() as new_session:
             return await _rpc_call_internal(new_session)
+
+
+def is_port_open(ip: str, port: int, timeout: float = 2.0) -> bool:
+    """Check if TCP port is open synchronously."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.settimeout(timeout)
+    try:
+        s.connect((ip, port))
+        return True
+    except (ConnectionRefusedError, socket.timeout, OSError):
+        return False
+    except Exception as e:
+        # We don't log here to keep it simple. Callers should handle logging.                                                                                                 
+        return False

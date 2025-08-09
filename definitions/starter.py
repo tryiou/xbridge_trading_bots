@@ -1,6 +1,4 @@
 import asyncio
-import os
-import sys
 import time
 import traceback
 
@@ -21,29 +19,20 @@ class TradingProcessor:
     def __init__(self, controller):
         self.controller = controller
         self.pairs_dict = controller.pairs_dict
-        # Get concurrency limit from config, with a safe default of 5.
-        # This prevents overwhelming the XBridge daemon with too many simultaneous requests.
-        concurrency_limit = getattr(self.controller.config_manager.config_xbridge, 'max_concurrent_tasks', 5)
-        self.semaphore = asyncio.Semaphore(concurrency_limit)
-        self.controller.config_manager.general_log.info(
-            f"XBridge concurrency limit set to {concurrency_limit} tasks."
-        )
 
     async def process_pairs(self, target_function):
-        """Processes all pairs using the target function, but limits concurrency with a semaphore."""
-
-        async def sem_task(pair):
-            async with self.semaphore:
-                if self.controller.shutdown_event.is_set():
-                    return
-                # If target_function is async, await it directly.
-                if asyncio.iscoroutinefunction(target_function):
-                    await target_function(pair)
-                else:  # If blocking, run in executor.
-                    loop = asyncio.get_running_loop()
-                    await loop.run_in_executor(None, target_function, pair)
-
-        tasks = [sem_task(pair) for pair in self.pairs_dict.values() if not pair.disabled]
+        """Processes all pairs using the target function without concurrency limit."""
+        tasks = []
+        for pair in self.pairs_dict.values():
+            if pair.disabled:
+                continue
+            if self.controller.shutdown_event.is_set():
+                return
+            if asyncio.iscoroutinefunction(target_function):
+                tasks.append(target_function(pair))
+            else:
+                loop = asyncio.get_running_loop()
+                tasks.append(loop.run_in_executor(None, target_function, pair))
         if tasks:
             await asyncio.gather(*tasks)
 
@@ -162,12 +151,13 @@ class PriceHandler:
             self.tokens_dict.items(),
             key=lambda item: (item[0] != 'BTC', item[0])
         )
-            
+
         for token_symbol, token_data in symbols_to_update:
             if self.shutdown_event.is_set():
                 return
             symbol = f"{token_data.symbol}/USDT" if token_data.symbol == 'BTC' else f"{token_data.symbol}/BTC"
-            if not hasattr(self.config_manager.config_coins.usd_ticker_custom, token_symbol) and symbol in self.ccxt_i.symbols:
+            if not hasattr(self.config_manager.config_coins.usd_ticker_custom,
+                           token_symbol) and symbol in self.ccxt_i.symbols:
                 try:
                     await self._update_token_price(tickers, symbol, lastprice_string, token_data)
                 except Exception as e:
@@ -304,96 +294,61 @@ class MainController:
             )
 
 
-def run_async_main(config_manager, loop=None, startup_tasks=None):
-    """Runs the main application loop, with graceful shutdown handling."""
-    # Centralize the event loop policy for Windows
-    if os.name == 'nt':
-        # This is where the logic was moved to.
-        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+def run_async_main(config_manager, startup_tasks=None):
+    """Runs the main application loop with proper signal handling."""
 
-    if loop is None:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-
-    startup_tasks = startup_tasks or []
-    try:
-        controller = MainController(config_manager, loop)
-        config_manager.controller = controller
-
-        main_task = loop.create_task(main(config_manager, loop, startup_tasks))
-
+    async def main_wrapper():
+        from definitions.ccxt_manager import CCXTManager
+        CCXTManager.register_strategy()
         try:
-            # Run the event loop until the main task is complete.
-            loop.run_until_complete(main_task)
-        except (SystemExit, KeyboardInterrupt):
-
+            controller = MainController(config_manager, asyncio.get_running_loop())
+            config_manager.controller = controller
+            await main(config_manager, asyncio.get_running_loop(), startup_tasks)
+        except (SystemExit, KeyboardInterrupt, asyncio.CancelledError):
             config_manager.general_log.info("Received stop signal. Initiating coordinated shutdown...")
             if controller and not controller.shutdown_event.is_set():
                 controller.shutdown_event.set()
-                # Use the proper async shutdown method for CLI
-                loop.run_until_complete(ShutdownCoordinator.shutdown_async(config_manager))
-        except Exception as e:
-            config_manager.general_log.error(f"Exception in run_async_main: {e}")
-            traceback.print_exc()
+                await ShutdownCoordinator.unified_shutdown(config_manager)
+        except RPCConfigError as e:
+            config_manager.general_log.critical(f"Fatal RPC configuration error: {e}")
             raise
-    except RPCConfigError as e:
-        config_manager.general_log.critical(f"Fatal RPC configuration error: {e}")
+        finally:
+            # Unregister strategy after cleanup
+            CCXTManager.unregister_strategy()
+            # Give time for proxy cleanup
+            await asyncio.sleep(0.5)
 
-        try:
-            loop.run_until_complete(ShutdownCoordinator.shutdown_async(config_manager))
-        except Exception as e:
-            config_manager.general_log.error(f"Error during shutdown: {e}")
-        sys.exit(1)
-    finally:
-        # This block will run for clean exit, SystemExit, and KeyboardInterrupt
-
-        # The main_task might not be defined if MainController constructor fails.
-        if 'main_task' in locals() and not main_task.done():
-            main_task.cancel()
-            try:
-                # Give the task a chance to finish its cancellation
-                loop.run_until_complete(main_task)
-            except asyncio.CancelledError:
-                pass  # This is expected
-
-        # Clean up proxy if still running
-        from definitions.ccxt_manager import CCXTManager
-        try:
-            CCXTManager._cleanup_proxy()
-        except Exception as e:
-            config_manager.general_log.error(f"Error cleaning up proxy in finally block: {e}")
-
-        # Force close all async generators and the event loop
-        if loop and not loop.is_closed():
-            try:
-                loop.run_until_complete(loop.shutdown_asyncgens())
-                loop.close()
-            except Exception as e:
-                config_manager.general_log.error(f"Error closing loop: {str(e)}")
+    try:
+        asyncio.run(main_wrapper())
+    except Exception as e:
+        config_manager.general_log.error(f"Unhandled exception: {e}")
+        traceback.print_exc()
 
 
 async def main(config_manager, loop, startup_tasks=None):
     import aiohttp  # Import aiohttp
     """Generic main loop that works with any strategy. Handles graceful cancellation."""
     try:
+        if startup_tasks:
+            config_manager.general_log.info("Running startup tasks...")
+            await asyncio.gather(*startup_tasks)
+            config_manager.general_log.info("Startup tasks finished.")
+
+        # Create HTTP session
         async with aiohttp.ClientSession() as session:
             # Pass the session to the controller and strategy if needed
             config_manager.controller.http_session = session
             if hasattr(config_manager.strategy_instance, 'http_session'):
                 config_manager.strategy_instance.http_session = session
 
-            if startup_tasks:
-                config_manager.general_log.info("Running startup tasks...")
-                await asyncio.gather(*startup_tasks)
-                config_manager.general_log.info("Startup tasks finished.")
-
-            # Perform the first operation immediately on startup
             config_manager.general_log.info("Performing initial operation (creating or resuming orders)...")
             await config_manager.controller.main_init_loop()
 
-            config_manager.general_log.info("Entering main monitoring loop...")
-            await config_manager.controller.main_loop()
-            # Get the operation interval from the strategy
+            if config_manager.controller.shutdown_event.is_set():
+                config_manager.general_log.info(
+                    "Shutdown requested during initial operation. Exiting without starting main loop.")
+                return
+
             operation_interval = config_manager.strategy_instance.get_operation_interval()
             config_manager.general_log.info(
                 f"Using operation interval of {operation_interval} seconds for {config_manager.strategy} strategy.")
@@ -413,10 +368,14 @@ async def main(config_manager, loop, startup_tasks=None):
                     operation_timer = current_time
 
                 try:
-                    # Wait for the shutdown event or until the sleep interval times out
-                    await asyncio.wait_for(config_manager.controller.shutdown_event.wait(), timeout=SLEEP_INTERVAL)
+                    # Use shorter timeout to check shutdown event more frequently
+                    await asyncio.wait_for(
+                        config_manager.controller.shutdown_event.wait(),
+                        timeout=SLEEP_INTERVAL
+                    )
                 except asyncio.TimeoutError:
-                    # This is the normal path, the timeout occurred, so we continue the loop.
+                    # Normal behavior when timeout occurs
                     pass
-    except asyncio.CancelledError:
-        config_manager.general_log.info("Main loop was cancelled.")
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        config_manager.general_log.info("Main task cancelled. Preparing for shutdown...")
+        raise

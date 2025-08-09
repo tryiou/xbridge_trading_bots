@@ -1,7 +1,7 @@
 import logging
 import os
 import platform
-import sys
+
 import yaml
 
 from definitions.errors import RPCConfigError

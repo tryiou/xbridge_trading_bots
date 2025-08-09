@@ -2,7 +2,6 @@ import asyncio
 import configparser
 import logging
 import os
-import socket
 import threading
 import time
 import uuid
@@ -11,8 +10,7 @@ import weakref
 from definitions.detect_rpc import detect_rpc
 from definitions.errors import RPCConfigError
 from definitions.logger import setup_logging
-from definitions.rpc import rpc_call
-import asyncio
+from definitions.rpc import rpc_call, is_port_open
 
 
 class XBridgeManager:
@@ -45,7 +43,7 @@ class XBridgeManager:
         self.rpc_semaphore = threading.BoundedSemaphore(max_tasks)
 
         # Check if RPC port is open (synchronous check)
-        if not self.is_port_open("127.0.0.1", self.blocknet_port_rpc):
+        if not is_port_open("127.0.0.1", self.blocknet_port_rpc):
             self.logger.error(
                 f'Blocknet RPC port {self.blocknet_port_rpc} is not open. Will not be able to connect to Blocknet Core.')
         else:
@@ -58,8 +56,8 @@ class XBridgeManager:
             self.calculate_xbridge_fees()
 
         # Only run test if port is actually open and we're not in main thread
-        if (threading.current_thread() is not threading.main_thread() and
-                self.is_port_open("127.0.0.1", self.blocknet_port_rpc)):
+        if (threading.current_thread() is not threading.main_thread() and is_port_open("127.0.0.1",
+                                                                                       self.blocknet_port_rpc)):
             asyncio.run(self.async_test_rpc())
 
     async def rpc_wrapper(self, method, params=None, shutdown_event=None):
@@ -71,16 +69,16 @@ class XBridgeManager:
         # Wait for global RPC semaphore using thread pool (non-blocking for async)
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, self.rpc_semaphore.acquire)
-        
+
         try:
             # Maintain active call counter with lock
             with self.rpc_counter_lock:
                 self.active_rpc_counter += 1
-            
+
             # Check if shutdown occurred during semaphore acquisition
             if shutdown_event and shutdown_event.is_set():
                 return None
-            
+
             # Default parameters
             if params is None:
                 params = []
@@ -104,20 +102,6 @@ class XBridgeManager:
         finally:
             # Release the semaphore to allow other RPC calls
             self.rpc_semaphore.release()
-
-    def is_port_open(self, ip: str, port: int) -> bool:
-        """Synchronously check if TCP port is open with explicit timeout."""
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.settimeout(3)
-        try:
-            s.connect((ip, port))
-            s.close()
-            return True
-        except (socket.timeout, ConnectionRefusedError, OSError):
-            return False
-        except Exception as e:
-            self.logger.error(f"Port check error: {e}")
-            return False
 
     async def async_test_rpc(self):
         """Perform RPC connection test asynchronously with cancellation handling"""
