@@ -1,5 +1,8 @@
 from abc import ABC, abstractmethod
 
+from definitions.errors import BlockchainError, OperationalError, OrderError, InsufficientFundsError, \
+    NetworkTimeoutError, RPCConfigError
+
 
 class BaseStrategy(ABC):
     """
@@ -71,6 +74,50 @@ class BaseStrategy(ABC):
         Should implement error handling using self.error_handler.
         """
         pass
+
+    async def safe_thread_loop(self, pair_instance):
+        try:
+            await self.thread_loop_async_action(pair_instance)
+        except Exception as e:
+            context = {"pair": pair_instance.symbol, "component": "strategy_loop"}
+            exc_str = str(e).lower()
+
+            if "block" in exc_str:
+                error_class = BlockchainError
+            elif "order" in exc_str or "trade" in exc_str:
+                error_class = OrderError
+            elif "balance" in exc_str or "fund" in exc_str or "insufficient" in exc_str:
+                error_class = InsufficientFundsError
+            elif "network" in exc_str or "connect" in exc_str or "timeout" in exc_str:
+                error_class = NetworkTimeoutError
+            elif "configuration" in exc_str or "config" in exc_str or "rpc" in exc_str:
+                error_class = RPCConfigError
+            else:
+                error_class = OperationalError
+
+            await self.config_manager.error_handler.handle_async(
+                error_class(f"Strategy error: {e}", context)
+            )
+
+    async def safe_order_creation(self, pair_instance, create_func):
+        """Handles safe order creation with error classification"""
+        try:
+            await create_func()
+        except Exception as e:
+            context = {"pair": pair_instance.symbol, "stage": "order_creation"}
+            
+            # Classify the exception based on its string content
+            exc_str = str(e).lower()
+            if "balance" in exc_str or "fund" in exc_str or "insufficient" in exc_str:
+                error_class = InsufficientFundsError
+            elif "order" in exc_str or "trade" in exc_str:
+                error_class = OrderError
+            else:
+                error_class = OperationalError
+                
+            error_instance = error_class(f"Order creation error: {e}", context)
+            error_instance.__cause__ = e  # Preserve the original exception chain
+            await self.config_manager.error_handler.handle_async(error_instance)
 
     @abstractmethod
     def get_operation_interval(self) -> int:

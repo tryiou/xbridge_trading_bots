@@ -316,13 +316,27 @@ class DexPair:
 
     async def _create_order(self, dry_mode, maker_size):
         if float(self._get_balance()) > float(maker_size):
-            order = await self._generate_order(dry_mode)
-            if not dry_mode:
-                self.order = order
-                if self.order and 'error' in self.order:
-                    self._handle_order_error()
-            else:
-                self._log_dry_mode_order(order)
+            try:
+                order = await self._generate_order(dry_mode)
+                if not dry_mode:
+                    self.order = order
+                    if self.order and 'error' in self.order:
+                        self._handle_order_error()
+                else:
+                    self._log_dry_mode_order(order)
+            except Exception as e:
+                # Classify exception based on content
+                if "balance" in str(e).lower() or "fund" in str(e).lower() or "insufficient" in str(e).lower():
+                    error_cls = InsufficientFundsError
+                elif "order" in str(e).lower() or "trade" in str(e).lower():
+                    error_cls = OrderError
+                else:
+                    error_cls = OperationalError
+                    
+                context = {"pair": self.pair.symbol, "stage": "order_creation"}
+                error_instance = error_cls(f"Failed to create order: {e}", context)
+                error_instance.__cause__ = e
+                await self.pair.config_manager.error_handler.handle_async(error_instance)
         else:
             self.pair.config_manager.general_log.error(
                 f"dex_create_order, balance too low: {self._get_balance()}, need: {maker_size} {self.current_order['maker']}")

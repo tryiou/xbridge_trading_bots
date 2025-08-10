@@ -5,7 +5,8 @@ import asyncio
 import logging
 import time
 
-from definitions.errors import ExchangeError, OperationalError, TransientError
+from definitions.errors import CriticalError, ExchangeError, OperationalError, TransientError, BlockchainError, OrderError, \
+    NetworkTimeoutError, ProtocolError, StrategyError, InsufficientFundsError, RPCConfigError
 
 
 class ErrorHandler:
@@ -14,6 +15,8 @@ class ErrorHandler:
         self.logger = logger or logging.getLogger("error_handler")
         self.max_retries = 3
         self.retry_delays = [1, 3, 5]  # Seconds between retries
+        # For test mode handling
+        self._is_testing = False
 
     async def _async_notify_user(self, level, message, details):
         """Async version of notify_user"""
@@ -33,66 +36,64 @@ class ErrorHandler:
                     details=details
                 )
 
-    def handle(self, error, context=None):
-        """Main error handling entry point"""
-        full_context = context.copy() if context else {}
+    def _get_full_context(self, error, context=None):
+        """Merges error context with provided context"""
+        # Start with error's own context if present
+        full_context = getattr(error, 'context', {}).copy()
+        # Merge with current context
+        if context:
+            full_context.update(context)
 
-        # Start with error's context if present, preserving callers context
-        if hasattr(error, 'context'):
-            # Add keys from error.context that aren't already in full_context
-            for key, value in error.context.items():
-                if key not in full_context:
-                    full_context[key] = value
+        # Ensure error_type is set
+        full_context.setdefault('error_type', type(error).__name__)
+        # Preserve original cause for better debugging
+        full_context.setdefault('__cause__', getattr(error, '__cause__', None))
 
-        error_type = type(error).__name__
-        full_context['error_type'] = error_type
-
-        # Enrich with additional context if available
+        # Add config_manager metadata
         if self.config_manager:
-            full_context.setdefault('strategy', getattr(self.config_manager, 'strategy', 'unknown'))
-            full_context.setdefault('module', getattr(self.config_manager, 'current_module', 'unknown'))
+            # Always use state from ConfigManager
+            full_context.setdefault('strategy', self.config_manager.strategy)
+            full_context.setdefault('module', self.config_manager.current_module)
 
-        # Classify and handle - treat ExchangeError as TransientError
-        if isinstance(error, TransientError) or isinstance(error, ExchangeError):
-            return self._handle_transient(error, full_context)
+        return full_context
+
+    def _classify_error(self, error):
+        """Classifies errors into handling categories using inheritance"""
+        # First check base classes since all errors inherit from AppError
+        if isinstance(error, CriticalError):
+            return 'critical'
+        elif isinstance(error, TransientError):
+            return 'transient'
         elif isinstance(error, OperationalError):
-            return self._handle_operational(error, full_context)
-        else:
-            # CriticalError or unhandled exception
-            return self._handle_critical(error, full_context)
+            return 'operational'
+        return 'critical'  # Default for unhandled error types
+
+    def handle(self, error, context=None):
+        """Main sync error handler uses generic flow"""
+        full_context = self._get_full_context(error, context)
+        classification = self._classify_error(error)
+        handler_map = {
+            'transient': self._handle_transient,
+            'operational': self._handle_operational,
+            'critical': self._handle_critical
+        }
+        return handler_map[classification](error, full_context)
 
     async def handle_async(self, error, context=None):
-        """Async version of main error handling entry point"""
-        full_context = context.copy() if context else {}
-
-        # Start with error's context if present, preserving callers context
-        if hasattr(error, 'context'):
-            # Add keys from error.context that aren't already in full_context
-            for key, value in error.context.items():
-                if key not in full_context:
-                    full_context[key] = value
-
-        error_type = type(error).__name__
-        full_context['error_type'] = error_type
-
-        # Enrich with additional context if available
-        if self.config_manager:
-            full_context.setdefault('strategy', getattr(self.config_manager, 'strategy', 'unknown'))
-            full_context.setdefault('module', getattr(self.config_manager, 'current_module', 'unknown'))
-
-        # Classify and handle - treat ExchangeError as TransientError
-        if isinstance(error, TransientError) or isinstance(error, ExchangeError):
-            return await self._handle_transient_async(error, full_context)
-        elif isinstance(error, OperationalError):
-            return await self._handle_operational_async(error, full_context)
-        else:
-            # CriticalError or unhandled exception
-            return await self._handle_critical_async(error, full_context)
+        """Main async error handler uses same logic as sync flow"""
+        full_context = self._get_full_context(error, context)
+        classification = self._classify_error(error)
+        handler_map = {
+            'transient': self._handle_transient_async,
+            'operational': self._handle_operational_async,
+            'critical': self._handle_critical_async
+        }
+        return await handler_map[classification](error, full_context)
 
     def _handle_transient(self, error, context):
         """Handle transient errors with retry logic"""
         # For testing purposes, simulate retry logic
-        if getattr(self.config_manager, '_is_testing', False):
+        if getattr(self.config_manager, '_is_testing', False) or self._is_testing:
             # In tests, we just sleep once to verify retry behavior
             time.sleep(0.1)
             return True
@@ -170,7 +171,7 @@ class ErrorHandler:
     async def _handle_transient_async(self, error, context):
         """Async version of handling transient errors with retry logic"""
         # For testing purposes, simulate retry logic
-        if getattr(self.config_manager, '_is_testing', False):
+        if getattr(self.config_manager, '_is_testing', False) or self._is_testing:
             # In tests, we just sleep once to verify retry behavior
             await asyncio.sleep(0.1)
             return True

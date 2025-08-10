@@ -1,8 +1,11 @@
 import asyncio
+import logging
 import time
 
 from definitions.ccxt_manager import CCXTManager
 from definitions.config_manager import ConfigManager
+from definitions.errors import ExchangeError, BlockchainError, OperationalError, OrderError, RPCConfigError, \
+    NetworkTimeoutError, InsufficientFundsError
 from strategies.maker_strategy import MakerStrategy
 
 
@@ -33,39 +36,66 @@ class ShutdownCoordinator:
     async def unified_shutdown(
             config_manager: 'ConfigManager') -> None:  # noqa: F821
         """Core shutdown logic for both CLI and GUI per strategy"""
-        logger = config_manager.general_log if config_manager else logging.getLogger("unified_shutdown")
+        try:
+            logger = config_manager.general_log if config_manager else logging.getLogger("unified_shutdown")
 
-        # 1. Signal controller shutdown                                                                                                                                                                                
-        if config_manager and config_manager.controller:
-            logger.debug("Setting controller shutdown event")
-            with config_manager.resource_lock:
-                config_manager.controller.shutdown_event.set()
-            logger.info("Controller shutdown event set")
+            # 1. Signal controller shutdown                                                                                                                                                                                
+            if config_manager and config_manager.controller:
+                logger.debug("Setting controller shutdown event")
+                with config_manager.resource_lock:
+                    config_manager.controller.shutdown_event.set()
+                logger.info("Controller shutdown event set")
 
-        # 2. Wait for pending RPCs
-        await wait_for_pending_rpcs(config_manager, timeout=30)
+            # 2. Wait for pending RPCs
+            await wait_for_pending_rpcs(config_manager, timeout=30)
 
-        # 3. Cancel strategy's own orders                                                                                                                                                                              
-        if config_manager and config_manager.strategy_instance:
-            try:
-                if isinstance(config_manager.strategy_instance, MakerStrategy):
-                    logger.info(f"Cancelling {config_manager.strategy} orders...")
-                    count = await config_manager.strategy_instance.cancel_own_orders()
-                    logger.info(f"Cancelled {count} strategy orders")
+            # 3. Cancel strategy's own orders                                                                                                                                                                              
+            if config_manager and config_manager.strategy_instance:
+                try:
+                    if isinstance(config_manager.strategy_instance, MakerStrategy):
+                        logger.info(f"Cancelling {config_manager.strategy} orders...")
+                        count = await config_manager.strategy_instance.cancel_own_orders()
+                        logger.info(f"Cancelled {count} strategy orders")
+                    else:
+                        logger.info("Skipping order cancellation - not a maker strategy")
+                except Exception as e:
+                    logger.error(f"Order cancellation failed: {e}", exc_info=True)
+            else:
+                logger.warning("No strategy instance available for order cancellation")
+
+            # 4. Common resource cleanup
+            if hasattr(config_manager, 'http_session') and config_manager.http_session:
+                try:
+                    await config_manager.http_session.close()
+                    logger.debug("HTTP session closed")
+                except Exception as e:
+                    logger.error(f"Error closing HTTP session: {e}", exc_info=True)
+
+            # 5. proxy termination
+            CCXTManager._cleanup_proxy()
+        except Exception as e:
+            if config_manager:
+                # Map exceptions using prototype mapping
+                exc_str = str(e).lower()
+                if "exchange" in exc_str:
+                    error_class = ExchangeError
+                elif "blockchain" in exc_str:
+                    error_class = BlockchainError
+                elif "order" in exc_str or "trade" in exc_str:
+                    error_class = OrderError
+                elif "rpc" in exc_str or "configuration" in exc_str:
+                    error_class = RPCConfigError
+                elif "network" in exc_str or "timeout" in exc_str:
+                    error_class = NetworkTimeoutError
+                elif "insufficient" in exc_str or "fund" in exc_str or "balance" in exc_str:
+                    error_class = InsufficientFundsError
                 else:
-                    logger.info("Skipping order cancellation - not a maker strategy")
-            except Exception as e:
-                logger.error(f"Order cancellation failed: {e}", exc_info=True)
-        else:
-            logger.warning("No strategy instance available for order cancellation")
+                    error_class = OperationalError
 
-        # 4. Common resource cleanup
-        if hasattr(config_manager, 'http_session') and config_manager.http_session:
-            try:
-                await config_manager.http_session.close()
-                logger.debug("HTTP session closed")
-            except Exception as e:
-                logger.error(f"Error closing HTTP session: {e}", exc_info=True)
-
-        # 5. proxy termination
-        CCXTManager._cleanup_proxy()
+                await config_manager.error_handler.handle_async(
+                    error_class(f"Shutdown error: {e}", {"phase": "shutdown"})
+                )
+            else:
+                # If config_manager is None, we have no error handler, so just log
+                logging.getLogger("unified_shutdown").critical(f"Unhandled exception during shutdown: {e}",
+                                                               exc_info=True)

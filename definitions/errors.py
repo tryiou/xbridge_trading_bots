@@ -9,6 +9,8 @@ class AppError(Exception):
     def __init__(self, message, context=None):
         super().__init__(message)
         self.context = context or {}
+        # Preserve original cause for better debugging
+        self.__cause__ = context.get('__cause__') if isinstance(context, dict) else None
 
     def __str__(self):
         return f"{self.__class__.__name__}: {super().__str__()} | Context: {self.context}"
@@ -65,3 +67,23 @@ class StrategyError(OperationalError):
 
 class GUIRenderingError(OperationalError):
     """Errors in GUI components"""
+
+
+class OrderError(OperationalError):
+    """Errors related to order creation/management"""
+    pass
+
+
+class InsufficientFundsError(CriticalError):
+    """Insufficient funds error"""
+    pass
+
+
+class NetworkTimeoutError(TransientError):
+    """Network timeouts and connection issues"""
+    pass
+
+
+class ProtocolError(OperationalError):
+    """Errors in RPC/API protocol handling"""
+    pass

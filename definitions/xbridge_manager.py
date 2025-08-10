@@ -1,5 +1,6 @@
 import asyncio
 import configparser
+import json
 import logging
 import os
 import threading
@@ -7,8 +8,10 @@ import time
 import uuid
 import weakref
 
+import requests
+
 from definitions.detect_rpc import detect_rpc
-from definitions.errors import RPCConfigError
+from definitions.errors import RPCConfigError, NetworkTimeoutError, ProtocolError, ExchangeError
 from definitions.logger import setup_logging
 from definitions.rpc import rpc_call, is_port_open
 
@@ -96,6 +99,29 @@ class XBridgeManager:
                     session=None,  # Create new session per call
                     shutdown_event=shutdown_event
                 )
+            except Exception as e:
+                # Improved exception mapping with more specific cases
+                error_map = {
+                    asyncio.TimeoutError: NetworkTimeoutError,
+                    requests.Timeout: NetworkTimeoutError,
+                    ConnectionError: NetworkTimeoutError,
+                    requests.ConnectionError: NetworkTimeoutError,
+                    ValueError: ProtocolError,
+                    json.JSONDecodeError: ProtocolError
+                }
+                # First try direct type mapping
+                error_type = error_map.get(type(e), None)
+
+                # Fallback to string matching
+                if not error_type:
+                    if "time" in str(e).lower() or "connect" in str(e).lower():
+                        error_type = NetworkTimeoutError
+                    elif "json" in str(e).lower() or "pars" in str(e).lower():
+                        error_type = ProtocolError
+                    else:
+                        error_type = ExchangeError
+
+                raise error_type(str(e), {"method": method}) from e
             finally:
                 with self.rpc_counter_lock:
                     self.active_rpc_counter -= 1

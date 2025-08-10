@@ -5,8 +5,7 @@ import traceback
 import aiohttp
 
 from definitions.ccxt_manager import CCXTManager
-from definitions.errors import OperationalError
-from definitions.errors import RPCConfigError
+from definitions.errors import OperationalError, RPCConfigError, CriticalError
 from definitions.shutdown import ShutdownCoordinator
 
 debug_level = 2
@@ -252,10 +251,9 @@ class MainController:
 
             await self.processor.process_pairs(self.config_manager.strategy_instance.thread_init_async_action)
         except Exception as e:
-            self.config_manager.error_handler.handle(
-                OperationalError(f"Initialization loop error: {e}"),
-                context={"stage": "main_init_loop"}
-            )
+            error = CriticalError(f"Initialization loop error: {e}", context={"component": "main_init_loop"})
+            if self.config_manager:
+                self.config_manager.error_handler.handle(error)
             raise
 
     async def main_loop(self):
@@ -274,13 +272,12 @@ class MainController:
             if futures:
                 await asyncio.gather(*futures)
 
-            await self.processor.process_pairs(self.config_manager.strategy_instance.thread_loop_async_action)
+            await self.processor.process_pairs(self.config_manager.strategy_instance.safe_thread_loop)
             self._report_time(start_time)
         except Exception as e:
-            self.config_manager.error_handler.handle(
-                OperationalError(f"Main loop error: {e}"),
-                context={"stage": "main_loop"}
-            )
+            error = CriticalError(f"Main loop error: {e}", context={"component": "main_loop"})
+            if self.config_manager:
+                await self.config_manager.error_handler.handle_async(error)
 
     def _report_time(self, start_time):
         end_time = time.perf_counter()
