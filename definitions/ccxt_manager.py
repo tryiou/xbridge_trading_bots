@@ -1,5 +1,4 @@
 import asyncio
-import atexit  # Add for exit handler
 import json
 import logging
 import os
@@ -372,4 +371,3 @@ class CCXTManager:
         # Level 4: Also log the full result
         if debug_level >= 4:
             self.config_manager.ccxt_log.debug(str(result))
-

@@ -354,9 +354,9 @@ async def main(config_manager, loop, startup_tasks=None):
             config_manager.general_log.info(
                 f"Using operation interval of {operation_interval} seconds for {config_manager.strategy} strategy.")
 
-            flush_timer = time.time()                                                                                                                                                           
+            flush_timer = time.time()
             # Immediately run the main loop once at the start                                                                                                                                   
-            await config_manager.controller.main_loop()                                                                                                                                         
+            await config_manager.controller.main_loop()
             operation_timer = time.time()  # Reset the operation timer after the first run     
 
             while not config_manager.controller.shutdown_event.is_set():

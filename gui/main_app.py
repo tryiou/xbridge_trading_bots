@@ -56,7 +56,7 @@ class MainApplication:
             # Start refresh loops for all strategy frames
             for frame in self.strategy_frames.values():
                 frame.start_refresh()
-                
+
             # Unify shutdown handlers for both GUI close and console signals
             self.root.protocol("WM_DELETE_WINDOW", self.initiate_shutdown_procedure)
             if hasattr(signal, 'SIGINT'):
@@ -76,7 +76,7 @@ class MainApplication:
                 self.status_var.set(error_msg)
             else:
                 print(error_msg)
-                
+
     def _handle_signal_interrupt(self, signum, frame):
         """Handles POSIX signals by scheduling shutdown on main thread"""
         self.root.after(0, self.initiate_shutdown_procedure)
