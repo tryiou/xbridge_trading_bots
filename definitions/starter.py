@@ -2,6 +2,9 @@ import asyncio
 import time
 import traceback
 
+import aiohttp
+
+from definitions.ccxt_manager import CCXTManager
 from definitions.errors import OperationalError
 from definitions.errors import RPCConfigError
 from definitions.shutdown import ShutdownCoordinator
@@ -298,7 +301,6 @@ def run_async_main(config_manager, startup_tasks=None):
     """Runs the main application loop with proper signal handling."""
 
     async def main_wrapper():
-        from definitions.ccxt_manager import CCXTManager
         CCXTManager.register_strategy()
         try:
             controller = MainController(config_manager, asyncio.get_running_loop())
@@ -326,7 +328,6 @@ def run_async_main(config_manager, startup_tasks=None):
 
 
 async def main(config_manager, loop, startup_tasks=None):
-    import aiohttp  # Import aiohttp
     """Generic main loop that works with any strategy. Handles graceful cancellation."""
     try:
         if startup_tasks:
@@ -353,8 +354,10 @@ async def main(config_manager, loop, startup_tasks=None):
             config_manager.general_log.info(
                 f"Using operation interval of {operation_interval} seconds for {config_manager.strategy} strategy.")
 
-            flush_timer = time.time()
-            operation_timer = time.time()
+            flush_timer = time.time()                                                                                                                                                           
+            # Immediately run the main loop once at the start                                                                                                                                   
+            await config_manager.controller.main_loop()                                                                                                                                         
+            operation_timer = time.time()  # Reset the operation timer after the first run     
 
             while not config_manager.controller.shutdown_event.is_set():
                 current_time = time.time()

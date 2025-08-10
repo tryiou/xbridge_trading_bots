@@ -11,8 +11,8 @@ from pathlib import Path
 
 import ccxt
 
-from definitions.error_handler import ErrorHandler, TransientError, OperationalError, CriticalError
-from definitions.errors import RPCConfigError
+from definitions.error_handler import ErrorHandler, TransientError, OperationalError
+from definitions.errors import RPCConfigError, CriticalError
 from definitions.rpc import rpc_call, is_port_open
 
 
@@ -373,6 +373,3 @@ class CCXTManager:
         if debug_level >= 4:
             self.config_manager.ccxt_log.debug(str(result))
 
-
-# Register proxy cleanup function to be called on exit
-atexit.register(CCXTManager._cleanup_proxy)

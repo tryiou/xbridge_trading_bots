@@ -56,6 +56,11 @@ class MainApplication:
             # Start refresh loops for all strategy frames
             for frame in self.strategy_frames.values():
                 frame.start_refresh()
+                
+            # Unify shutdown handlers for both GUI close and console signals
+            self.root.protocol("WM_DELETE_WINDOW", self.initiate_shutdown_procedure)
+            if hasattr(signal, 'SIGINT'):
+                signal.signal(signal.SIGINT, self._handle_signal_interrupt)
 
         except Exception as e:
             error_msg = f"Critical error during application initialization: {str(e)}"
@@ -71,6 +76,27 @@ class MainApplication:
                 self.status_var.set(error_msg)
             else:
                 print(error_msg)
+                
+    def _handle_signal_interrupt(self, signum, frame):
+        """Handles POSIX signals by scheduling shutdown on main thread"""
+        self.root.after(0, self.initiate_shutdown_procedure)
+
+    def initiate_shutdown_procedure(self):
+        """Unified shutdown procedure for all exit paths"""
+        self.status_var.set("Shutting down... Please wait.")
+
+        # Signal the balance updater thread to stop
+        if hasattr(self, 'balance_stop_event'):
+            self.balance_stop_event.set()
+        if hasattr(self, 'balance_updater_thread') and self.balance_updater_thread.is_alive():
+            self.balance_updater_thread.join(2.0)  # Give thread 2 seconds to exit
+
+        shutdown_coordinator = GUIShutdownCoordinator(
+            config_manager=self.master_config_manager,
+            strategies=self.strategy_frames,
+            gui_root=self.root
+        )
+        shutdown_coordinator.initiate_shutdown()
 
     def _init_root_window(self, root):
         """Initialize root window properties and signals."""

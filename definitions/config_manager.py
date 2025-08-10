@@ -7,7 +7,8 @@ from typing import Dict, Any
 from ruamel.yaml import YAML
 
 from definitions.ccxt_manager import CCXTManager
-from definitions.error_handler import ErrorHandler, OperationalError, ConfigurationError
+from definitions.error_handler import ErrorHandler, OperationalError
+from definitions.errors import ConfigurationError
 from definitions.logger import setup_logger, setup_logging
 from definitions.token import Token
 from definitions.xbridge_manager import XBridgeManager

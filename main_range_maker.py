@@ -1,5 +1,10 @@
 import argparse
+import asyncio
 import json
+import os
+import signal
+import sys
+from pathlib import Path
 
 from definitions.config_manager import ConfigManager
 from definitions.starter import run_async_main
@@ -34,7 +39,6 @@ def start():
         config_manager.strategy_instance.initialize_strategy_specifics(**pair_cfg)
 
     if args.backtest:
-        import asyncio
         from test_units.test_range_maker_strategy import RangeMakerBacktester
 
         pair_symbol = args.pairs[0]['pair'].replace('/', '_')
@@ -61,7 +65,6 @@ def start():
             animation_filename = f"animation_{pair_symbol}_min{min_p}_max{max_p}_grid{grid_d}_curve{curve_type}_strength{curve_s}_min_size{str(percent_min_s).replace('.', '_')}.mp4"
 
             # Save the animation in the current script's directory
-            from pathlib import Path
             script_dir = Path(__file__).parent
             save_path = script_dir / animation_filename
 
@@ -85,4 +88,19 @@ def start():
 
 
 if __name__ == '__main__':
-    start()
+    # Ensure proper event loop policy for Windows                                                                                                                                               
+    if os.name == 'nt':
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+
+    def handle_sigint(signum, frame):
+        raise KeyboardInterrupt
+
+
+    signal.signal(signal.SIGINT, handle_sigint)
+
+    try:
+        start()
+    except KeyboardInterrupt:
+        print("Caught shutdown signal - exiting gracefully")
+        sys.exit(1)

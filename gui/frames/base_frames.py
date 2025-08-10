@@ -7,7 +7,8 @@ from tkinter import ttk
 from typing import TYPE_CHECKING, Any, Dict, List
 
 from definitions.config_manager import ConfigManager
-from definitions.error_handler import OperationalError, ConfigurationError
+from definitions.error_handler import OperationalError
+from definitions.errors import ConfigurationError
 from definitions.starter import run_async_main
 from gui.components.data_panels import OrdersPanel
 from gui.utils.async_updater import AsyncUpdater

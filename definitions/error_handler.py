@@ -5,7 +5,7 @@ import asyncio
 import logging
 import time
 
-from .errors import *
+from definitions.errors import ExchangeError, OperationalError, TransientError
 
 
 class ErrorHandler:
