@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 
 from definitions.errors import BlockchainError, OperationalError, OrderError, InsufficientFundsError, \
-    NetworkTimeoutError, RPCConfigError
+    NetworkTimeoutError, RPCConfigError, convert_exception
 
 
 class BaseStrategy(ABC):
@@ -104,20 +104,9 @@ class BaseStrategy(ABC):
         try:
             await create_func()
         except Exception as e:
-            context = {"pair": pair_instance.symbol, "stage": "order_creation"}
-            
-            # Classify the exception based on its string content
-            exc_str = str(e).lower()
-            if "balance" in exc_str or "fund" in exc_str or "insufficient" in exc_str:
-                error_class = InsufficientFundsError
-            elif "order" in exc_str or "trade" in exc_str:
-                error_class = OrderError
-            else:
-                error_class = OperationalError
-                
-            error_instance = error_class(f"Order creation error: {e}", context)
-            error_instance.__cause__ = e  # Preserve the original exception chain
-            await self.config_manager.error_handler.handle_async(error_instance)
+            err = convert_exception(e)
+            err.context = {"pair": pair_instance.symbol, "stage": "order_creation"}
+            await self.config_manager.error_handler.handle_async(err)
 
     @abstractmethod
     def get_operation_interval(self) -> int:

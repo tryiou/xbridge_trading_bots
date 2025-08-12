@@ -4,8 +4,7 @@ import time
 
 from definitions.ccxt_manager import CCXTManager
 from definitions.config_manager import ConfigManager
-from definitions.errors import ExchangeError, BlockchainError, OperationalError, OrderError, RPCConfigError, \
-    NetworkTimeoutError, InsufficientFundsError
+from definitions.errors import convert_exception
 from strategies.maker_strategy import MakerStrategy
 
 
@@ -59,7 +58,10 @@ class ShutdownCoordinator:
                     else:
                         logger.info("Skipping order cancellation - not a maker strategy")
                 except Exception as e:
-                    logger.error(f"Order cancellation failed: {e}", exc_info=True)
+                    context = {"phase": "shutdown", "operation": "order_cancellation"}
+                    converted = convert_exception(e)
+                    converted.context = context
+                    await config_manager.error_handler.handle_async(converted)
             else:
                 logger.warning("No strategy instance available for order cancellation")
 
@@ -75,26 +77,9 @@ class ShutdownCoordinator:
             CCXTManager._cleanup_proxy()
         except Exception as e:
             if config_manager:
-                # Map exceptions using prototype mapping
-                exc_str = str(e).lower()
-                if "exchange" in exc_str:
-                    error_class = ExchangeError
-                elif "blockchain" in exc_str:
-                    error_class = BlockchainError
-                elif "order" in exc_str or "trade" in exc_str:
-                    error_class = OrderError
-                elif "rpc" in exc_str or "configuration" in exc_str:
-                    error_class = RPCConfigError
-                elif "network" in exc_str or "timeout" in exc_str:
-                    error_class = NetworkTimeoutError
-                elif "insufficient" in exc_str or "fund" in exc_str or "balance" in exc_str:
-                    error_class = InsufficientFundsError
-                else:
-                    error_class = OperationalError
-
-                await config_manager.error_handler.handle_async(
-                    error_class(f"Shutdown error: {e}", {"phase": "shutdown"})
-                )
+                converted = convert_exception(e)
+                converted.context = {"phase": "shutdown"}
+                await config_manager.error_handler.handle_async(converted)
             else:
                 # If config_manager is None, we have no error handler, so just log
                 logging.getLogger("unified_shutdown").critical(f"Unhandled exception during shutdown: {e}",

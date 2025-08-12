@@ -325,10 +325,10 @@ def test_ccxt_manager_proxy_error():
     """Test CCXT proxy error handling"""
     from definitions.ccxt_manager import CCXTManager
     mock_config = MagicMock()
-        
+
     # Create a mock logger for ccxt_log
     mock_config.ccxt_log = MagicMock()
-        
+
     # Mock detect_rpc to return dummy credentials
     with patch("definitions.detect_rpc.detect_rpc") as mock_detect_rpc:
         mock_detect_rpc.return_value = ("user", 12345, "pass", "/path/to/datadir")
@@ -342,9 +342,9 @@ def test_ccxt_manager_proxy_error():
 
                 # Verify error handler was called with CriticalError
                 assert mock_handle.called
-                error = mock_handle.call_args[0][0]   # This is the first positional arg (the CriticalError instance)
-                kwargs = mock_handle.call_args[1]     # Keyword arguments
-                context = kwargs.get('context', {})   # Get 'context' from kwargs
+                error = mock_handle.call_args[0][0]  # This is the first positional arg (the CriticalError instance)
+                kwargs = mock_handle.call_args[1]  # Keyword arguments
+                context = kwargs.get('context', {})  # Get 'context' from kwargs
                 assert "stage" in context
                 assert context["stage"] == "proxy_startup"
 

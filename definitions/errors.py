@@ -74,9 +74,60 @@ class OrderError(OperationalError):
     pass
 
 
-class InsufficientFundsError(CriticalError):
-    """Insufficient funds error"""
+class InsufficientFundsError(OperationalError):
+    """Insufficient funds error - now recoverable"""
     pass
+
+
+def convert_exception(e: Exception) -> 'AppError':
+    """Convert third-party exceptions to native application error types"""
+    # Handle CCXT Errors
+    from .errors import AppError, InsufficientFundsError, NetworkTimeoutError, OrderError, RPCConfigError, \
+        OperationalError
+
+    # Handle CCXT Errors
+    if hasattr(e, 'name'):
+        if e.name == 'InsufficientFunds':
+            exc = InsufficientFundsError(str(e))
+            exc.__cause__ = e
+            return exc
+        if e.name == 'NetworkError':
+            exc = NetworkTimeoutError(str(e))
+            exc.__cause__ = e
+            return exc
+        if 'Order' in e.name:
+            exc = OrderError(str(e))
+            exc.__cause__ = e
+            return exc
+
+    # Handle HTTP/AIO Errors
+    try:
+        import aiohttp
+        if isinstance(e, aiohttp.ClientError):
+            exc = NetworkTimeoutError(str(e))
+            exc.__cause__ = e
+            return exc
+    except ImportError:
+        pass  # Gracefully fallback if aiohttp unavailable
+
+    # Handle Python Built-ins
+    if isinstance(e, (ConnectionError, TimeoutError)):
+        exc = NetworkTimeoutError(str(e))
+        exc.__cause__ = e
+        return exc
+    if isinstance(e, ValueError):
+        exc = RPCConfigError(str(e))
+        exc.__cause__ = e
+        return exc
+
+    # Preserve existing AppErrors
+    if isinstance(e, AppError):
+        return e
+
+    # Default to OperationalError
+    exc = OperationalError(str(e))
+    exc.__cause__ = e
+    return exc
 
 
 class NetworkTimeoutError(TransientError):

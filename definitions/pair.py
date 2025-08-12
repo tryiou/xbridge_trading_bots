@@ -4,6 +4,7 @@ import time
 
 import yaml
 
+from definitions.errors import convert_exception
 from definitions.token import Token
 
 
@@ -325,18 +326,10 @@ class DexPair:
                 else:
                     self._log_dry_mode_order(order)
             except Exception as e:
-                # Classify exception based on content
-                if "balance" in str(e).lower() or "fund" in str(e).lower() or "insufficient" in str(e).lower():
-                    error_cls = InsufficientFundsError
-                elif "order" in str(e).lower() or "trade" in str(e).lower():
-                    error_cls = OrderError
-                else:
-                    error_cls = OperationalError
-                    
                 context = {"pair": self.pair.symbol, "stage": "order_creation"}
-                error_instance = error_cls(f"Failed to create order: {e}", context)
-                error_instance.__cause__ = e
-                await self.pair.config_manager.error_handler.handle_async(error_instance)
+                err = convert_exception(e)
+                err.context = context
+                await self.pair.config_manager.error_handler.handle_async(err)
         else:
             self.pair.config_manager.general_log.error(
                 f"dex_create_order, balance too low: {self._get_balance()}, need: {maker_size} {self.current_order['maker']}")
