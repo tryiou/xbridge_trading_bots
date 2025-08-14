@@ -58,12 +58,21 @@ def process_orders(finished_orders, xbridge_orders):
         current_sell = None
         for order in orders_list:
             if order['side'] == 'SELL':
-                id = order['orderid']
-                xbridge_order = xbridge_orders.get(id)[0]
+                order_id = order['orderid']
+                xbridge_order_list = xbridge_orders.get(order_id)
+                if not xbridge_order_list:
+                    logger.warning(f"Could not find xbridge order details for finished order ID: {order_id}")
+                    continue
+                xbridge_order = xbridge_order_list[0]
                 xbridge_order['instance_name'] = instance_name
                 current_sell = xbridge_order
             elif order['side'] == 'BUY' and current_sell is not None:
-                current_buy = xbridge_orders.get(order['orderid'])[0]
+                order_id = order['orderid']
+                xbridge_order_list = xbridge_orders.get(order_id)
+                if not xbridge_order_list:
+                    logger.warning(f"Could not find xbridge order details for finished order ID: {order_id}")
+                    continue
+                current_buy = xbridge_order_list[0]
                 current_buy['instance_name'] = instance_name
                 completed_cycles.append((current_sell, current_buy))
                 current_sell = None

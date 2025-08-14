@@ -104,5 +104,4 @@ def setup_logger(strategy=None, ROOT_DIR=None):
         return general_log, trade_log, ccxt_log
 
     else:
-        print("setup_logger(strategy=None)")
-        os._exit(1)
+        raise ValueError("setup_logger requires a 'strategy' argument.")

@@ -174,11 +174,6 @@ class RangeMakerStrategy(BaseStrategy):
 
     async def _regrid_liquidity(self, pair_instance, position):
         """Helper to re-calculate and place the entire order grid."""
-        self.logger.info(f"Re-gridding liquidity for {pair_instance.symbol}.")
-        buy_orders, sell_orders = self.calculate_grid_allocations(
-            pair_instance, position
-        )
-
         symbol = pair_instance.symbol
         self.logger.info(f"Re-gridding liquidity for {symbol}.")
 

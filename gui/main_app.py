@@ -128,19 +128,6 @@ class MainApplication:
         self.root.title(title)
         self._watchdog_count = 0
 
-        # Handle Ctrl+C/KeyboardInterrupt signals for clean shutdown
-        def handle_signal(signum, frame):
-            # Instead of scheduling on_closing, create shutdown coordinator immediately                                                                                                            
-            shutdown_coordinator = GUIShutdownCoordinator(
-                config_manager=self.master_config_manager,
-                strategies=self.strategy_frames,
-                gui_root=self.root
-            )
-            shutdown_coordinator.initiate_shutdown()
-
-        if hasattr(signal, 'SIGINT'):
-            signal.signal(signal.SIGINT, handle_signal)
-
         # Setup UI theme
         self.style = Style(theme="darkly")
         self.style.theme_use("darkly")

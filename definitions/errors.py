@@ -46,11 +46,7 @@ class RPCConfigError(ConfigurationError):
     """
 
     def __init__(self, message, context=None):
-        super().__init__(message)
-        self.context = context or {}
-
-    def __str__(self):
-        return f"{self.__class__.__name__}: {super().__str__()} | Context: {self.context}"
+        super().__init__(message, context)
 
 
 class ExchangeError(TransientError):
@@ -79,51 +75,44 @@ class InsufficientFundsError(OperationalError):
     pass
 
 
+def _wrap_exception(e: Exception, app_error_cls: type) -> 'AppError':
+    """Wraps an exception in an AppError subclass, preserving the cause."""
+    exc = app_error_cls(str(e))
+    exc.__cause__ = e
+    return exc
+
+
 def convert_exception(e: Exception) -> 'AppError':
     """Convert third-party exceptions to native application error types"""
+    # Preserve existing AppErrors
+    if isinstance(e, AppError):
+        return e
+
     # Handle CCXT Errors
     if hasattr(e, 'name'):
         if e.name == 'InsufficientFunds':
-            exc = InsufficientFundsError(str(e))
-            exc.__cause__ = e
-            return exc
+            return _wrap_exception(e, InsufficientFundsError)
         if e.name == 'NetworkError':
-            exc = NetworkTimeoutError(str(e))
-            exc.__cause__ = e
-            return exc
+            return _wrap_exception(e, NetworkTimeoutError)
         if 'Order' in e.name:
-            exc = OrderError(str(e))
-            exc.__cause__ = e
-            return exc
+            return _wrap_exception(e, OrderError)
 
     # Handle HTTP/AIO Errors
     try:
         import aiohttp
         if isinstance(e, aiohttp.ClientError):
-            exc = NetworkTimeoutError(str(e))
-            exc.__cause__ = e
-            return exc
+            return _wrap_exception(e, NetworkTimeoutError)
     except ImportError:
         pass  # Gracefully fallback if aiohttp unavailable
 
     # Handle Python Built-ins
     if isinstance(e, (ConnectionError, TimeoutError)):
-        exc = NetworkTimeoutError(str(e))
-        exc.__cause__ = e
-        return exc
+        return _wrap_exception(e, NetworkTimeoutError)
     if isinstance(e, ValueError):
-        exc = RPCConfigError(str(e))
-        exc.__cause__ = e
-        return exc
-
-    # Preserve existing AppErrors
-    if isinstance(e, AppError):
-        return e
+        return _wrap_exception(e, RPCConfigError)
 
     # Default to OperationalError
-    exc = OperationalError(str(e))
-    exc.__cause__ = e
-    return exc
+    return _wrap_exception(e, OperationalError)
 
 
 class NetworkTimeoutError(TransientError):

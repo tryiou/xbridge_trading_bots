@@ -28,7 +28,7 @@ class XBridgeManager:
         self.xbridge_conf = None
         self.xbridge_fees_estimate = {}
         self._utxo_cache = {}  # Cache for dxgetutxos results: {token_symbol: (timestamp, utxos_data)}
-        self._cache_lock = threading.Lock()  # Lock for thread-safe cache access
+        self._cache_lock = asyncio.Lock()  # Lock for thread-safe cache access
         self.UTXO_CACHE_DURATION = 3.0  # Cache expiration time in seconds
 
         self.active_rpc_counter = 0
@@ -224,10 +224,21 @@ class XBridgeManager:
     async def cancelallorders(self):
         myorders = await self.rpc_wrapper("dxGetMyOrders")
         result = []
-        for z in myorders:
-            if z['status'] == "open" or z['status'] == "new":
-                await self.cancelorder(z['id'])
-                result.append(z['id'])
+        failed = []
+        if not myorders:
+            self.logger.info(f"No order to cancel.")
+        for order in myorders:
+            if order['status'] not in ("open", "new"):
+                continue
+            try:
+                await self.cancelorder(order['id'])
+                result.append(order['id'])
+                await asyncio.sleep(0.1)  # Brief pause between cancellations
+            except Exception as e:
+                failed.append(order['id'])
+                self.logger.error(f"Failed cancel order {order['id']}: {e}")
+        if failed:
+            self.logger.critical(f"Partially canceled: {len(result)} ok, {len(failed)} failed: {failed}")
         return result
 
     async def dxloadxbridgeconf(self):
@@ -241,7 +252,7 @@ class XBridgeManager:
 
     async def gettokenutxo(self, token, used=False):
         cache_key = f"{token}_{used}"
-        with self._cache_lock:
+        async with self._cache_lock:
             cached_data = self._utxo_cache.get(cache_key)
             current_time = time.time()
 
@@ -252,7 +263,7 @@ class XBridgeManager:
         # If not cached or expired, make the RPC call
         result = await self.rpc_wrapper("dxgetutxos", [token, used])
 
-        with self._cache_lock:
+        async with self._cache_lock:
             self._utxo_cache[cache_key] = (current_time, result)
             self.logger.debug(f"Cached new UTXO data for {token} (used={used})")
         return result
