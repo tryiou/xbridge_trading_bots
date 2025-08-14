@@ -504,8 +504,8 @@ class PingPongStrategyTester:
 
     async def _test_buy_order_price_lock(self):
         """
-        Tests the price lock mechanism for BUY orders, ensuring the variation
-        is returned as a list when the live price exceeds the last sell price.
+        Tests the price lock mechanism for BUY orders, ensuring is_locked is True
+        when the live price exceeds the last sell price.
         """
         test_name = "BUY Order Price Lock Mechanism"
         self.config_manager.general_log.info(f"\n--- [TEST CASE] Running: {test_name} ---")
@@ -518,25 +518,25 @@ class PingPongStrategyTester:
 
             # Act 1: Live price is HIGHER than last sell price
             live_price_high = 0.31
-            variation_high = self.strategy.calculate_variation_based_on_side(
+            variation_high, is_locked_high = self.strategy.calculate_variation_based_on_side(
                 self.pair.dex, 'BUY', live_price_high, original_price
             )
 
-            # Assert 1: Variation should be a list, indicating a lock
-            assert isinstance(variation_high, list)
+            # Assert 1: is_locked should be True, indicating a lock
+            assert is_locked_high is True
             self.config_manager.general_log.info(
-                "[SUB-TEST PASSED] Correctly returned a list to lock BUY order on price rise.")
+                "[SUB-TEST PASSED] Correctly signaled to lock BUY order on price rise.")
 
             # Act 2: Live price is LOWER than last sell price
             live_price_low = 0.28
-            variation_low = self.strategy.calculate_variation_based_on_side(
+            variation_low, is_locked_low = self.strategy.calculate_variation_based_on_side(
                 self.pair.dex, 'BUY', live_price_low, original_price
             )
 
-            # Assert 2: Variation should be a float
-            assert isinstance(variation_low, float)
+            # Assert 2: is_locked should be False
+            assert is_locked_low is False
             self.config_manager.general_log.info(
-                "[SUB-TEST PASSED] Correctly returned a float when price is below last sell.")
+                "[SUB-TEST PASSED] Correctly did not signal lock when price is below last sell.")
 
 
 @pytest.fixture(scope="module")

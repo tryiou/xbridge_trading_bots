@@ -6,7 +6,7 @@ import time
 from typing import TYPE_CHECKING, Dict, Any
 
 from definitions.config_manager import ConfigManager
-from definitions.error_handler import OperationalError
+from definitions.errors import CriticalError, OperationalError
 from definitions.shutdown import ShutdownCoordinator
 
 if TYPE_CHECKING:
@@ -55,9 +55,7 @@ class GUIShutdownCoordinator:
             error_msg = f"Error disabling GUI interaction: {e}"
             logger.error(error_msg, exc_info=True)
             self.master_config_manager.error_handler.handle(
-                OperationalError(error_msg),
-                context={"stage": "shutdown_init"},
-                exc_info=True
+                OperationalError(error_msg, context={"stage": "shutdown_init"}),
             )
 
         # Start shutdown in a separate thread to keep GUI responsive
@@ -66,47 +64,32 @@ class GUIShutdownCoordinator:
 
     def _perform_shutdown_tasks(self):
         """Performs the actual shutdown tasks in a separate thread with error handling."""
-        loop = None
         try:
-            # Create an event loop for this thread
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-
-            # 1. Signal all strategies to stop (set shutdown events)
-            for strategy in self.strategy_frames.values():
-                if strategy.started:
-                    logger.info(f"Signaling {strategy.strategy_name} to stop")
-                    strategy._signal_controller_shutdown()
-
-            # 2. Cancel orders and cleanup resources via unified shutdown
+            frames_to_stop = []
+            # Stop all running strategies by calling their frame's stop method.
             for name, frame in self.strategy_frames.items():
-                if frame.started and frame.config_manager:
-                    try:
-                        logger.info(f"Performing unified shutdown for {name}")
-                        loop.run_until_complete(
-                            ShutdownCoordinator.unified_shutdown(frame.config_manager)
-                        )
-                    except Exception as e:
-                        logger.error(f"Error during shutdown of {name}: {e}", exc_info=True)
+                if frame.started:
+                    logger.info(f"Stopping {name} strategy...")
+                    frame.stop(reload_config=False)
+                    frames_to_stop.append(frame)
 
-            # 3. Stop strategy threads
-            for strategy in self.strategy_frames.values():
-                if strategy.started:
-                    logger.info(f"Stopping {strategy.strategy_name} controller")
-                    strategy.stop()  # This will wait for thread to terminate
+            # Wait for all strategies to confirm they have stopped.
+            for frame in frames_to_stop:
+                while frame.started:
+                    time.sleep(0.1)  # Poll until the frame's `started` flag is False.
+
+            if frames_to_stop:
+                logger.info("All strategies have been stopped.")
         except Exception as e:
             error_msg = f"Critical error during GUI shutdown: {e}"
             logger.critical(error_msg, exc_info=True)
             self.master_config_manager.error_handler.handle(
-                OperationalError(error_msg),
-                context={"stage": "shutdown"},
-                severity="CRITICAL",
-                exc_info=True
+                CriticalError(error_msg, context={"stage": "shutdown"}),
             )
         finally:
-            if loop and not loop.is_closed():
-                loop.close()
-            # Finalize GUI resources after loop closure
+            # Brief pause to allow in-flight operations to settle/terminate
+            time.sleep(0.5)
+            # Finalize GUI resources after stopping threads
             self.gui_root.after(0, self._finalize_gui_exit)
 
     def _finalize_gui_exit(self):
@@ -114,8 +97,6 @@ class GUIShutdownCoordinator:
         Finalizes the GUI exit on the main Tkinter thread.
         """
         try:
-            # Brief pause to allow in-flight operations to settle/terminate
-            time.sleep(0.5)
             logger.info("Quitting Tkinter mainloop and destroying root window.")
             # First, break out of the main loop
             self.gui_root.quit()

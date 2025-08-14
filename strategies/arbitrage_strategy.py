@@ -390,8 +390,7 @@ class ArbitrageStrategy(BaseStrategy):
     async def _check_arbitrage_leg(self, pair_instance: 'Pair', order_book: List[List[str]], check_id: str,
                                    direction: str) -> Optional[Dict[str, Any]]:
         """
-        Private method to handle both arbitrage legs.
-        Preserves exact original logic for both bid and ask scenarios.
+        Private method to handle both arbitrage legs by parameterizing the logic.
         """
         if not order_book:
             return None
@@ -402,50 +401,44 @@ class ArbitrageStrategy(BaseStrategy):
         for order in order_book:
             order_price = float(order[0])
             order_amount = float(order[1])
-            order_id = order[2]
-            order_data = {'order_price': order_price, 'order_amount': order_amount, 'order_id': order_id}
+            order_data = {'order_price': order_price, 'order_amount': order_amount, 'order_id': order[2]}
 
             if is_bid:
-                # Leg 1: Sell t1 on XBridge (we give t1), Buy t1 on Thorchain (we give t2)
+                # Leg 1: Sell t1 on XBridge (cost is t1), Buy t1 on Thorchain (swap with t2)
                 balance_token, fee_token = pair_instance.t1, pair_instance.t1
-                required_amount = order_amount
+                required_balance = order_amount
                 order_data['cost_amount'] = order_amount
                 order_data['thorchain_swap_amount'] = order_amount * order_price
                 order_data['thorchain_from_asset'] = f"{pair_instance.t2.symbol}.{pair_instance.t2.symbol}"
                 order_data['thorchain_to_asset'] = f"{pair_instance.t1.symbol}.{pair_instance.t1.symbol}"
             else:
-                # Leg 2: Buy t1 on XBridge (we give t2), Sell t1 on Thorchain (we give t1)
+                # Leg 2: Buy t1 on XBridge (cost is t2), Sell t1 on Thorchain (swap with t1)
                 balance_token, fee_token = pair_instance.t2, pair_instance.t2
-                required_amount = order_amount * order_price
-                order_data['cost_amount'] = required_amount
+                required_balance = order_amount * order_price
+                order_data['cost_amount'] = required_balance
                 order_data['thorchain_swap_amount'] = order_amount
                 order_data['thorchain_from_asset'] = f"{pair_instance.t1.symbol}.{pair_instance.t1.symbol}"
                 order_data['thorchain_to_asset'] = f"{pair_instance.t2.symbol}.{pair_instance.t2.symbol}"
 
-            # Check for sufficient balance
-            if not self.dry_mode and (balance_token.dex.free_balance or 0) < required_amount:
+            # Common logic for both legs starts here
+            if not self.dry_mode and (balance_token.dex.free_balance or 0) < required_balance:
                 self.config_manager.general_log.debug(
                     f"[{log_prefix}] Insufficient balance for {direction} order. "
-                    f"Need {required_amount:.8f} {balance_token.symbol}, "
+                    f"Need {required_balance:.8f} {balance_token.symbol}, "
                     f"Have: {balance_token.dex.free_balance or 0:.8f}. Checking next order."
                 )
                 continue
 
-            # Assign fee and log that we found an affordable order
             order_data['xbridge_fee'] = self.config_manager.xbridge_manager.xbridge_fees_estimate.get(
                 fee_token.symbol, {}).get('estimated_fee_coin', 0)
             self.config_manager.general_log.debug(
                 f"[{log_prefix}] Found affordable XBridge {direction}: {order_amount:.8f} {pair_instance.t1.symbol} at {order_price:.8f}. Evaluating..."
             )
 
-            # --- Pre-flight Check: Ensure Thorchain path is active before getting a quote ---
             from definitions.thorchain_def import check_thorchain_path_status
-            thor_from_chain = order_data['thorchain_from_asset'].split('.')[0]
-            thor_to_chain = order_data['thorchain_to_asset'].split('.')[0]
-
             is_path_active, reason = await check_thorchain_path_status(
-                from_chain=thor_from_chain,
-                to_chain=thor_to_chain,
+                from_chain=order_data['thorchain_from_asset'].split('.')[0],
+                to_chain=order_data['thorchain_to_asset'].split('.')[0],
                 session=self.http_session,
                 api_url=self.thor_api_url
             )
@@ -454,14 +447,11 @@ class ArbitrageStrategy(BaseStrategy):
                 self.config_manager.general_log.warning(
                     f"[{log_prefix}] Skipping opportunity for {pair_instance.symbol}: {reason}"
                 )
-                # Stop checking this leg for this cycle since the path is halted.
-                return None
+                return None  # Path is halted, so no other orders in this book will work.
 
-            # This is the first affordable order, so we evaluate it and then stop.
             return await self._evaluate_opportunity(pair_instance, order_data, check_id, is_bid)
 
-        # If loop finishes, no affordable orders were found
-        return None
+        return None  # No affordable orders were found
 
     async def execute_arbitrage(self, leg_result: Dict[str, Any], check_id: str):
         """Executes the arbitrage trade for a profitable leg."""
@@ -689,44 +679,33 @@ class ArbitrageStrategy(BaseStrategy):
             logger.error(f"[{log_prefix}] No RPC configuration for {token_symbol} to verify refund.")
             return False
 
-        # Retry logic for RPC call to handle transient node issues
-        max_retries = 3
-        retry_delay = 5  # seconds
-        for attempt in range(max_retries):
-            try:
-                transactions = await rpc_call(
-                    method="listtransactions", params=["*", 500, 0], url=f"http://{coin_conf.get('ip', '127.0.0.1')}",
-                    # Increased count for safety
-                    rpc_user=coin_conf.get('username'), rpc_port=coin_conf.get('port'),
-                    rpc_password=coin_conf.get('password'), logger=logger, session=session
-                )
-                if transactions is not None:
-                    # If the call was successful, proceed with verification
-                    amount_tolerance = 0.01  # 1% tolerance
-                    min_amount = expected_amount * (1 - amount_tolerance)
+        try:
+            transactions = await rpc_call(
+                method="listtransactions", params=["*", 500, 0], url=f"http://{coin_conf.get('ip', '127.0.0.1')}",
+                rpc_user=coin_conf.get('username'), rpc_port=coin_conf.get('port'),
+                rpc_password=coin_conf.get('password'), logger=logger, session=session,
+                max_err_count=3  # Use built-in retry mechanism
+            )
+            if transactions is None:
+                logger.error(f"[{log_prefix}] Failed to verify refund for {token_symbol} after multiple attempts (RPC returned None).")
+                return False
 
-                    for tx in reversed(transactions):
-                        # If we have a timestamp, only consider transactions after that time.
-                        if since_timestamp and tx.get('timereceived', 0) < since_timestamp:
-                            continue
+            amount_tolerance = 0.01
+            min_amount = expected_amount * (1 - amount_tolerance)
 
-                        if tx.get('category') == 'receive' and tx.get('amount', 0) >= min_amount and not tx.get(
-                                'abandoned', False):
-                            logger.info(
-                                f"[{log_prefix}] Found potential refund transaction: {tx.get('txid')} for {tx.get('amount')} {token_symbol}.")
-                            return True
-                    return False  # No refund found in the transaction list
+            for tx in reversed(transactions):
+                if since_timestamp and tx.get('timereceived', 0) < since_timestamp:
+                    continue
 
-                # If transactions is None, fall through to the retry logic
-            except Exception as e:
-                logger.warning(
-                    f"[{log_prefix}] Attempt {attempt + 1}/{max_retries} failed for listtransactions: {e}. Retrying in {retry_delay}s...")
-
-            if attempt < max_retries - 1:
-                await asyncio.sleep(retry_delay)
-
-        logger.error(f"[{log_prefix}] Failed to verify refund for {token_symbol} after {max_retries} attempts.")
-        return False
+                if tx.get('category') == 'receive' and tx.get('amount', 0) >= min_amount and not tx.get('abandoned',
+                                                                                                        False):
+                    logger.info(
+                        f"[{log_prefix}] Found potential refund transaction: {tx.get('txid')} for {tx.get('amount')} {token_symbol}.")
+                    return True
+            return False
+        except Exception as e:
+            logger.error(f"[{log_prefix}] An unexpected error occurred during refund verification for {token_symbol}: {e}", exc_info=True)
+            return False
 
     async def _get_thorchain_decimals(self, chain_symbol: str) -> int:
         """

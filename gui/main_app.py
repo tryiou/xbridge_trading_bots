@@ -58,10 +58,7 @@ class MainApplication:
             for frame in self.strategy_frames.values():
                 frame.start_refresh()
 
-            # Unify shutdown handlers for both GUI close and console signals
-            self.root.protocol("WM_DELETE_WINDOW", self.initiate_shutdown_procedure)
-            if hasattr(signal, 'SIGINT'):
-                signal.signal(signal.SIGINT, self._handle_signal_interrupt)
+            # Signal handling and window close protocol are managed in main_gui.py
 
         except Exception as e:
             error_msg = f"Critical error during application initialization: {str(e)}"
@@ -78,63 +75,35 @@ class MainApplication:
             else:
                 print(error_msg)
 
-    def _handle_signal_interrupt(self, signum, frame):
-        """Handles POSIX signals by scheduling shutdown on main thread"""
-        self.root.after(0, self.initiate_shutdown_procedure)
-
-    def initiate_shutdown_procedure(self):
-        """Unified shutdown procedure for all exit paths"""
-        self.status_var.set("Shutting down... Please wait.")
-
-        # Signal the balance updater thread to stop
-        if hasattr(self, 'balance_stop_event'):
-            self.balance_stop_event.set()
-        if hasattr(self, 'balance_updater_thread') and self.balance_updater_thread.is_alive():
-            self.balance_updater_thread.join(2.0)  # Give thread 2 seconds to exit
-
-        shutdown_coordinator = GUIShutdownCoordinator(
-            config_manager=self.master_config_manager,
-            strategies=self.strategy_frames,
-            gui_root=self.root
-        )
-        shutdown_coordinator.initiate_shutdown()
-
-    def _get_aggregated_balances_data(self) -> List[Dict[str, Any]]:
-        """Aggregates token balances from all running strategy frames."""
-        balances = {}  # Use a dictionary to aggregate balances
-
-        # Use lock to safely access tokens_dict
+    def get_aggregated_balances_data(self) -> List[Dict[str, Any]]:
+        """
+        Aggregates token balances from all running strategy frames.
+        This method is public to allow for direct testing.
+        """
+        balances = {}
         with self.master_config_manager.resource_lock:
             for frame in self.strategy_frames.values():
-                if not getattr(frame, 'config_manager', None) or not hasattr(frame.config_manager, 'tokens'):
-                    continue
-                tokens = frame.config_manager.tokens
-                for token_symbol, token_obj in tokens.items():
-                    # Only process tokens that have both CEX and DEX components
-                    if not (getattr(token_obj, 'cex', None) and getattr(token_obj, 'dex', None)):
-                        continue
+                if getattr(frame, 'config_manager', None) and hasattr(frame.config_manager, 'tokens'):
+                    tokens = frame.config_manager.tokens
+                    for token_symbol, token_obj in tokens.items():
+                        if getattr(token_obj, 'cex', None) and getattr(token_obj, 'dex', None):
+                            balance_total = token_obj.dex_total_balance or 0.0
+                            balance_free = token_obj.dex_free_balance or 0.0
+                            usd_price = token_obj.cex_usd_price if token_obj.cex_usd_price is not None else 0.0
 
-                    balance_total = token_obj.dex_total_balance or 0.0
-                    balance_free = token_obj.dex_free_balance or 0.0
-                    usd_price = token_obj.cex_usd_price or 0.0
-
-                    if token_symbol not in balances:
-                        balances[token_symbol] = {
-                            "symbol": token_symbol,
-                            "usd_price": usd_price,
-                            "total": balance_total,
-                            "free": balance_free
-                        }
-                    else:
-                        existing_balance = balances[token_symbol]
-                        # Prioritize positive or non-zero values
-                        existing_balance["total"] = max(existing_balance["total"], balance_total)
-                        existing_balance["free"] = max(existing_balance["free"], balance_free)
-                        # Prioritize non-zero usd_price
-                        if usd_price > 0:
-                            existing_balance["usd_price"] = usd_price
-
-        # Convert the dictionary to a list for the GUI
+                            if token_symbol not in balances:
+                                balances[token_symbol] = {
+                                    "symbol": token_symbol,
+                                    "usd_price": usd_price,
+                                    "total": balance_total,
+                                    "free": balance_free
+                                }
+                            else:
+                                existing_balance = balances[token_symbol]
+                                existing_balance["total"] = max(existing_balance["total"], balance_total)
+                                existing_balance["free"] = max(existing_balance["free"], balance_free)
+                                existing_balance["usd_price"] = usd_price if usd_price > 0 else existing_balance[
+                                    "usd_price"]
         return list(balances.values())
 
     def _init_root_window(self, root):
@@ -276,7 +245,7 @@ class MainApplication:
         """Collect balance data and push to queue with error handling."""
         try:
             # Collect balance data
-            data = self._get_aggregated_balances_data()
+            data = self.get_aggregated_balances_data()
 
             if not self.running_strategies:
                 # logger.debug("No strategies running, displaying initial balances.")

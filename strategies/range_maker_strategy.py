@@ -222,33 +222,12 @@ class RangeMakerStrategy(BaseStrategy):
             raise ValueError(f"Invalid price range: min_price={position.min_price}, max_price={position.max_price}")
         self.logger.debug("Price range validated.")
 
-        # Calculate price points and weights based on curve type
+        # Calculate price points and weights
         prices = np.linspace(position.min_price, position.max_price, position.grid_density)
         mid_price = (position.min_price + position.max_price) / 2
         self.logger.debug(f"Generated {len(prices)} price points. Mid price: {mid_price:.6f}")
 
-        if position.curve == 'linear':
-            weights = np.linspace(1, 0, position.grid_density)
-            self.logger.debug("Using linear curve for weights.")
-        elif position.curve == 'exp_decay':
-            weights = np.exp(-np.abs(prices - mid_price))
-            self.logger.debug("Using exponential decay curve for weights.")
-        elif position.curve == 'sigmoid':
-            k = position.curve_strength  # Steepness parameter
-            weights = 1 / (1 + np.exp(-k * (prices - mid_price) / (position.max_price - position.min_price)))
-            self.logger.debug(f"Using sigmoid curve for weights with strength: {k}.")
-        elif position.curve == 'constant_product':
-            weights = 1 / (prices ** 2)
-            weights /= weights.sum()
-            self.logger.debug("Using constant product curve for weights.")
-        else:
-            weights = np.ones(position.grid_density)
-            self.logger.warning(f"Unknown curve type '{position.curve}'. Using uniform weights.")
-
-        # Normalize weights to sum to 1
-        initial_sum = weights.sum()
-        weights /= weights.sum()
-        self.logger.debug(f"Weights normalized. Original sum: {initial_sum:.6f}, New sum: {weights.sum():.6f}")
+        weights = self._calculate_weights(prices, mid_price, position)
 
         buy_orders = []
         sell_orders = []
@@ -307,6 +286,36 @@ class RangeMakerStrategy(BaseStrategy):
             self.logger.warning(
                 f"Only {total_generated_orders} orders generated out of {position.grid_density} grid density due to minimum order size constraints. Consider adjusting percent_min_size or initial balances.")
         return buy_orders, sell_orders
+
+    def _calculate_weights(self, prices: np.ndarray, mid_price: float, position: RangePosition) -> np.ndarray:
+        """Calculates allocation weights based on the selected curve."""
+        if position.curve == 'linear':
+            weights = np.linspace(1, 0, position.grid_density)
+            self.logger.debug("Using linear curve for weights.")
+        elif position.curve == 'exp_decay':
+            weights = np.exp(-np.abs(prices - mid_price))
+            self.logger.debug("Using exponential decay curve for weights.")
+        elif position.curve == 'sigmoid':
+            k = position.curve_strength
+            weights = 1 / (1 + np.exp(-k * (prices - mid_price) / (position.max_price - position.min_price)))
+            self.logger.debug(f"Using sigmoid curve for weights with strength: {k}.")
+        elif position.curve == 'constant_product':
+            weights = 1 / (prices ** 2)
+            weights /= weights.sum()  # Normalize immediately for this curve
+            self.logger.debug("Using constant product curve for weights.")
+        else:
+            weights = np.ones(position.grid_density)
+            self.logger.warning(f"Unknown curve type '{position.curve}'. Using uniform weights.")
+
+        # Normalize weights to sum to 1
+        if weights.sum() > 0:
+            initial_sum = weights.sum()
+            weights /= initial_sum
+            self.logger.debug(f"Weights normalized. Original sum: {initial_sum:.6f}, New sum: {weights.sum():.6f}")
+        else:
+            self.logger.warning("Sum of weights is zero, cannot normalize.")
+
+        return weights
 
     async def place_grid_orders(self, pair_instance, orders: List[dict]):
         """Batch order placement with XBridgeManager"""

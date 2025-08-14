@@ -7,6 +7,10 @@ from tkinter import ttk
 
 logger = logging.getLogger(__name__)
 
+# Constants for log management
+MAX_LOG_ENTRIES = 10000
+PRUNE_TO_ENTRIES = 5000
+
 
 class LogFrame(ttk.Frame):
     """A frame for displaying application logs."""
@@ -65,9 +69,9 @@ class LogFrame(ttk.Frame):
         self.log_entries.append((now, line_count, line_count + 1))
 
         # Keep text widget manageable
-        if len(self.log_entries) > 10000:  # Safety valve
-            self.log_text.delete(1.0, f'{len(self.log_entries) - 5000}.0')
-            self.log_entries = self.log_entries[-5000:]
+        if len(self.log_entries) > MAX_LOG_ENTRIES:  # Safety valve
+            self.log_text.delete(1.0, f'{len(self.log_entries) - PRUNE_TO_ENTRIES}.0')
+            self.log_entries = self.log_entries[-PRUNE_TO_ENTRIES:]
 
         self.log_text.see(tk.END)
         self.log_text.config(state='disabled')

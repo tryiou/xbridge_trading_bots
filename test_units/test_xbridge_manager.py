@@ -12,6 +12,13 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 from definitions.xbridge_manager import XBridgeManager
 
 
+@pytest.fixture(autouse=True)
+def reset_xbridge_manager_class_vars():
+    XBridgeManager._active_rpc_counter = 0
+    XBridgeManager._rpc_semaphore = None
+    yield
+
+
 @pytest.fixture
 def mock_config_manager():
     """Fixture for a mock ConfigManager."""
@@ -20,6 +27,7 @@ def mock_config_manager():
     cm.config_xbridge.debug_level = 0
     cm.config_xbridge.max_concurrent_tasks = 2  # Lower for testing
     cm.general_log = MagicMock()
+    cm.controller = None
     return cm
 
 

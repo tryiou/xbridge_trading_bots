@@ -48,43 +48,6 @@ class MockThread:
 import pytest
 
 
-def _perform_balance_aggregation(app):
-    """Helper function to aggregate balances from mock strategy frames."""
-    with app.master_config_manager.resource_lock:
-        balances = {}
-        for frame in app.strategy_frames.values():
-            if getattr(frame, 'config_manager', None) and hasattr(frame.config_manager, 'tokens'):
-                tokens = frame.config_manager.tokens
-                for token_symbol, token_obj in tokens.items():
-                    # Only process tokens that have both CEX and DEX components
-                    if getattr(token_obj, 'cex', None) and getattr(token_obj, 'dex', None):
-                        balance_total = token_obj.dex_total_balance or 0.0
-                        balance_free = token_obj.dex_free_balance or 0.0
-
-                        # Ensure usd_price is not None before using it, default to 0.0
-                        usd_price = token_obj.cex_usd_price if token_obj.cex_usd_price is not None else 0.0
-
-                        if token_symbol not in balances:
-                            # Add new token balance
-                            balances[token_symbol] = {
-                                "symbol": token_symbol,
-                                "usd_price": usd_price,
-                                "total": balance_total,
-                                "free": balance_free
-                            }
-                        else:
-                            # Update existing token balance, prioritizing positive values
-                            existing_balance = balances[token_symbol]
-
-                            # Prioritize positive or non-zero values
-                            existing_balance["total"] = max(existing_balance["total"], balance_total)
-                            existing_balance["free"] = max(existing_balance["free"], balance_free)
-                            # Prioritize non-zero usd_price
-                            existing_balance["usd_price"] = usd_price if usd_price > 0 else existing_balance[
-                                "usd_price"]
-        return list(balances.values())
-
-
 # Create session-scoped root window
 @pytest.fixture(scope="session")
 def tk_root():
@@ -142,6 +105,8 @@ def gui_app(tk_root):
     app._run_balance_updater = MagicMock()
     app._process_balance_updates = MagicMock()
     app._get_initial_balances_data = MagicMock(return_value=[])
+    # Attach the real method to the mock for testing
+    app.get_aggregated_balances_data = MainApplication.get_aggregated_balances_data.__get__(app, MainApplication)
 
     # Create mock threads list for compatibility
     created_mock_threads = []
@@ -374,6 +339,7 @@ def test_shutdown_sequence(gui_app):
         frame.config_manager.xbridge_manager.active_rpc_counter = 0
         frame.config_manager.strategy_instance.cancel_own_orders = AsyncMock(return_value=0)
         frame.config_manager.http_session = AsyncMock()
+        frame.started = False  # Ensure all frames are marked as stopped initially
 
     # Simulate starting a strategy with mock thread
     pp_frame = app.strategy_frames['PingPong']
@@ -406,7 +372,8 @@ def test_shutdown_sequence(gui_app):
 
     # Simulate the strategy stop notification when stop() is called
     # This replaces the mock's behavior to also trigger notification
-    def stop_with_notification():
+    def stop_with_notification(*args, **kwargs):
+        pp_frame.started = False  # Mark as stopped to exit shutdown loop
         app.notify_strategy_stopped('PingPong')
 
     pp_frame.stop.side_effect = stop_with_notification
@@ -476,7 +443,7 @@ def test_balance_updater_aggregation(gui_app):
         frame.config_manager.tokens = tokens
 
     # Call the balance aggregation helper
-    data = _perform_balance_aggregation(app)
+    data = app.get_aggregated_balances_data()
 
     # Filter only the tokens we're testing (BTC, ETH, LTC)
     test_tokens = ['BTC', 'ETH', 'LTC']
@@ -527,7 +494,7 @@ def test_balance_updater_handles_none_usd_price(gui_app):
         app.balance_update_queue.get_nowait()
 
     # Call the balance aggregation helper
-    data = _perform_balance_aggregation(app)
+    data = app.get_aggregated_balances_data()
 
     # Filter only the tokens we're testing (BTC, ETH)
     test_tokens = ['BTC', 'ETH']
@@ -576,7 +543,7 @@ def test_balance_updater_prioritizes_positive_balances(gui_app):
             frame.config_manager.tokens = mock_tokens[strategy]
 
     # Call the balance aggregation helper
-    data = _perform_balance_aggregation(app)
+    data = app.get_aggregated_balances_data()
 
     # Verify BTC balance prioritizes highest values
     btc_data = next(item for item in data if item['symbol'] == 'BTC')
@@ -616,7 +583,7 @@ def test_balance_updater_error_handling(gui_app, caplog):
         with app.master_config_manager.resource_lock:
             try:
                 # This will raise the mocked exception
-                _perform_balance_aggregation(app)
+                app.get_aggregated_balances_data()
             except Exception as e:
                 # Verify error was logged
                 assert "Test error" in caplog.text
@@ -713,10 +680,7 @@ def test_balances_when_no_strategies_running(gui_app):
             if not app.running_strategies:
                 data = app._get_initial_balances_data()
             else:
-                # This branch won't be taken in this test
-                balances = {}
-                # ... (aggregation logic would go here)
-                data = list(balances.values())
+                data = app.get_aggregated_balances_data()
 
         # Verify initial balances are used
         assert data == mock_initial.return_value
@@ -741,7 +705,7 @@ def test_balances_when_strategies_running(gui_app):
             frame.config_manager.tokens = mock_tokens[strategy]
 
     # Call the balance aggregation helper
-    data = _perform_balance_aggregation(app)
+    data = app.get_aggregated_balances_data()
 
     # Verify aggregated data is used, not initial balances
     btc_data = next(item for item in data if item['symbol'] == 'BTC')
@@ -958,7 +922,7 @@ def test_balance_aggregation_logic(gui_app):
     app.strategy_frames['Basic Seller'].config_manager.tokens = tokens_bs
 
     # Run balance aggregation
-    balances = {item['symbol']: item for item in _perform_balance_aggregation(app)}
+    balances = {item['symbol']: item for item in app.get_aggregated_balances_data()}
 
     # Verify aggregated values
     btc = balances['BTC']
@@ -994,7 +958,7 @@ def test_balance_aggregation_edge_cases(gui_app):
     app.strategy_frames['Arbitrage'].config_manager.tokens = tokens
 
     # Run balance aggregation
-    balances = {item['symbol']: item for item in _perform_balance_aggregation(app)}
+    balances = {item['symbol']: item for item in app.get_aggregated_balances_data()}
 
     # Verify edge case handling
     assert balances['ZERO']['total'] == 0.0

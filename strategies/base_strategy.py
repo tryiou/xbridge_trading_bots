@@ -1,7 +1,10 @@
+import threading
 from abc import ABC, abstractmethod
+from typing import Optional, Callable
 
 from definitions.errors import BlockchainError, OperationalError, OrderError, InsufficientFundsError, \
     NetworkTimeoutError, RPCConfigError, convert_exception
+from definitions.starter import run_async_main
 
 
 class BaseStrategy(ABC):
@@ -15,6 +18,9 @@ class BaseStrategy(ABC):
         self.controller = controller  # MainController instance, set later
         # All derived strategies inherit access to the error handler
         self.error_handler = config_manager.error_handler
+        self._bot_thread: Optional[threading.Thread] = None
+        self.is_running = False
+        self._critical_error_callback: Optional[Callable] = None
 
     @abstractmethod
     def initialize_strategy_specifics(self, **kwargs):
@@ -37,6 +43,28 @@ class BaseStrategy(ABC):
         Returns a dictionary of Pair objects required for the strategy.
         """
         pass
+
+    def initialize_tokens_and_pairs(self, **kwargs):
+        """Initializes token and pair objects based on strategy configuration."""
+        from definitions.token import Token
+        tokens_list = self.get_tokens_for_initialization(**kwargs)
+
+        # Initialize tokens
+        self.config_manager.tokens = {}
+        if 'BTC' not in tokens_list:
+            self.config_manager.tokens['BTC'] = Token(
+                'BTC', strategy=self.config_manager.strategy, config_manager=self.config_manager, dex_enabled=False
+            )
+        for token_symbol in list(set(tokens_list)):
+            if token_symbol not in self.config_manager.tokens:
+                dex_enabled = self.config_manager.strategy == 'arbitrage' or token_symbol != 'BTC'
+                self.config_manager.tokens[token_symbol] = Token(
+                    token_symbol, strategy=self.config_manager.strategy, config_manager=self.config_manager,
+                    dex_enabled=dex_enabled
+                )
+
+        # Initialize pairs
+        self.config_manager.pairs = self.get_pairs_for_initialization(self.config_manager.tokens, **kwargs)
 
     @abstractmethod
     def get_dex_history_file_path(self, pair_name: str) -> str:
@@ -118,6 +146,75 @@ class BaseStrategy(ABC):
     @abstractmethod
     def get_startup_tasks(self) -> list:
         """
-        Returns a list of async tasks to be run at startup.
+        Returns a list of callables that return async tasks (coroutines)
+        to be run at startup. Deferring the creation of the coroutine
+        ensures that the controller and its shutdown event are available.
         """
         pass
+
+    def register_critical_error_callback(self, callback: Callable):
+        """Registers a callback to be invoked on critical, unhandled exceptions."""
+        self._critical_error_callback = callback
+
+    def _thread_wrapper(self, func, *args):
+        """Wraps the bot thread's target function for centralized error handling."""
+        try:
+            func(*args)
+        except Exception as e:
+            # If a critical error callback is registered (e.g., by the GUI), invoke it.
+            if self._critical_error_callback:
+                # The callback implementation is responsible for thread-safety (e.g., using root.after).
+                self._critical_error_callback(e)
+            else:
+                # Fallback for non-GUI execution: log and potentially exit.
+                self.config_manager.general_log.critical(f"Unhandled exception in bot thread: {e}", exc_info=True)
+
+    def start(self):
+        """Starts the strategy in a separate thread."""
+        if self.is_running:
+            self.config_manager.general_log.warning("Attempted to start an already running strategy.")
+            return
+
+        startup_tasks = self.get_startup_tasks()
+        self._bot_thread = threading.Thread(
+            target=self._thread_wrapper,
+            args=(run_async_main, self.config_manager, startup_tasks),
+            daemon=True,
+            name=f"BotThread-{self.config_manager.strategy}"
+        )
+        self.config_manager.general_log.info(f"Starting {self.config_manager.strategy.capitalize()} bot thread.")
+        self._bot_thread.start()
+        self.is_running = True
+
+    def stop(self, timeout: float = 45.0):
+        """
+        Stops the strategy and waits for its thread to terminate.
+        This is a blocking call.
+        """
+        if not self.is_running or not self._bot_thread:
+            self.config_manager.general_log.warning("Attempted to stop a non-running strategy.")
+            return
+
+        self.config_manager.general_log.info(f"Attempting to stop {self.config_manager.strategy} bot...")
+
+        # Signal the asyncio event loop to shut down
+        if self.config_manager.controller and self.config_manager.controller.loop:
+            loop = self.config_manager.controller.loop
+            if not loop.is_closed() and loop.is_running():
+                # Use a lock to ensure thread-safe access to the shutdown event
+                with self.config_manager.resource_lock:
+                    self.config_manager.controller.shutdown_event.set()
+        else:
+            self.config_manager.general_log.warning("No active controller/loop to signal for shutdown.")
+
+        # Wait for the thread to finish
+        self._bot_thread.join(timeout=timeout)
+
+        if self._bot_thread.is_alive():
+            self.config_manager.general_log.warning(
+                f"Bot thread for {self.config_manager.strategy} did not terminate gracefully within {timeout}s.")
+        else:
+            self.config_manager.general_log.info(f"{self.config_manager.strategy.capitalize()} bot stopped successfully.")
+
+        self.is_running = False
+        self._bot_thread = None

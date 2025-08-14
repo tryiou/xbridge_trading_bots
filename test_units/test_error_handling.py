@@ -324,7 +324,7 @@ def test_ccxt_manager_proxy_error():
         mock_detect_rpc.return_value = ("user", 12345, "pass", "/path/to/datadir")
         manager = CCXTManager(mock_config)
 
-        with patch("definitions.rpc.is_port_open", return_value=False), \
+        with patch("definitions.ccxt_manager.is_port_open", return_value=False), \
                 patch("subprocess.Popen", side_effect=Exception("Proxy failed")):
             # Patch the actual error_handler used by CCXTManager
             with patch.object(manager.error_handler, "handle") as mock_handle:

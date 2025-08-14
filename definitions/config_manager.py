@@ -28,6 +28,7 @@ class ConfigManager:
         self.logger = setup_logging(name="config_manager",
                                     level=logging.DEBUG, console=True)
         self.error_handler = ErrorHandler(self)
+        self.current_module = None
 
         if master_manager:
             # In GUI slave mode, get references to strategy-specific loggers
@@ -80,9 +81,7 @@ class ConfigManager:
             # Create new manager instances. They will be initialized with this
             # slave ConfigManager instance, giving them the correct logger.
 
-            # self.xbridge_manager = XBridgeManager(self)
-
-            self.xbridge_manager = master_manager.xbridge_manager  # we share the xbridge instance to every slaves
+            self.xbridge_manager = XBridgeManager(self)
 
             self.ccxt_manager = CCXTManager(self)
             self.logger.info(f"ccxt_instance: {str(self.ccxt_manager)}")
@@ -242,40 +241,6 @@ class ConfigManager:
             self.config_arbitrage = self._load_and_update_config("config_arbitrage.yaml")
             self.config_thorchain = self._load_and_update_config("config_thorchain.yaml")
 
-    def _init_tokens(self, **kwargs):
-        """Initialize token objects based on strategy configuration, delegated to strategy instance."""
-        tokens_list = self.strategy_instance.get_tokens_for_initialization(**kwargs)
-
-        # For CLI mode, a strategy might require tokens at init. For GUI, it's okay to be empty.
-        # The validation for required tokens should happen within the strategy or at execution time.
-        if not tokens_list:
-            return  # It's valid to have no tokens on initial GUI load.
-
-        # ENSURE BTC IS PRESENT.
-        if 'BTC' not in tokens_list:
-            self.tokens['BTC'] = Token(
-                'BTC',
-                strategy=self.strategy,  # Keep strategy for now, might be removed later
-                config_manager=self,
-                dex_enabled=False  # BTC is usually for pricing only, unless specified by strategy
-            )
-
-        # REMOVE DOUBLE ENTRIES
-        tokens_list = list(set(tokens_list))
-        for token_symbol in tokens_list:
-            # Only create if not already created (e.g., BTC)
-            if token_symbol not in self.tokens:
-                dex_enabled = self.strategy == 'arbitrage' or token_symbol != 'BTC'
-                self.tokens[token_symbol] = Token(
-                    token_symbol,
-                    strategy=self.strategy,  # Keep strategy for now, might be removed later
-                    config_manager=self,
-                    dex_enabled=dex_enabled
-                )
-
-    def _init_pairs(self, **kwargs):
-        """Initialize trading pairs based on strategy configuration, delegated to strategy instance."""
-        self.pairs = self.strategy_instance.get_pairs_for_initialization(self.tokens, **kwargs)
 
     def _init_ccxt(self):
         """Initialize CCXT instance with error handling"""
@@ -327,11 +292,8 @@ class ConfigManager:
             self.strategy_instance = strategy_class(self)
             self.strategy_instance.initialize_strategy_specifics(**kwargs)
 
-            # Initialize tokens based on strategy
-            self._init_tokens(**kwargs)
-
-            # Initialize pairs based on strategy
-            self._init_pairs(**kwargs)
+            # Delegate token and pair initialization to the strategy instance
+            self.strategy_instance.initialize_tokens_and_pairs(**kwargs)
             if self.ccxt_manager and getattr(self.ccxt_manager, 'my_ccxt', None) is None:
                 self._init_ccxt()
             # dxloadxbridgeconf is now called asynchronously in MainController.main_init_loop

@@ -14,7 +14,7 @@ class RpcTimeoutError(Exception):
 
 
 async def rpc_call(method, params=None, url="http://127.0.0.1", rpc_user=None, rpc_password=None,
-                   rpc_port=None, debug=2, timeout=30, display=True, prefix='xbridge', max_err_count=5,
+                   rpc_port=None, debug=2, timeout=30, prefix='xbridge', max_err_count=5,
                    logger=None, session=None, error_handler=None,
                    shutdown_event=None):
     """
@@ -46,6 +46,10 @@ async def rpc_call(method, params=None, url="http://127.0.0.1", rpc_user=None, r
 
     async def _rpc_call_internal(s):
         for err_count in range(max_err_count):
+            if shutdown_event and shutdown_event.is_set():
+                if logger:
+                    logger.debug(f"RPC call to {method} cancelled due to shutdown signal.")
+                return None
             response_text = None
             try:
                 async with async_timeout.timeout(timeout):
@@ -82,12 +86,11 @@ async def rpc_call(method, params=None, url="http://127.0.0.1", rpc_user=None, r
 
                         result = json_response.get('result')
                         if result is not None:
-                            if display and debug >= 2:
-                                log_func = logger.info if logger else print
+                            if logger and debug >= 2:
                                 if debug >= 3:
-                                    log_func(f"{prefix}_rpc_call({method}, {params})")
-                                elif debug == 2:
-                                    log_func(f"{prefix}_rpc_call({method})")
+                                    logger.info(f"{prefix}_rpc_call({method}, {params})")
+                                else:
+                                    logger.info(f"{prefix}_rpc_call({method})")
                             return result
                         else:
                             if logger:
@@ -119,7 +122,19 @@ async def rpc_call(method, params=None, url="http://127.0.0.1", rpc_user=None, r
                     elif logger:
                         logger.error(f"{prefix}_rpc_call unexpected error: {type(e).__name__} - {e}", exc_info=True)
 
-                await asyncio.sleep(err_count + 1)
+                if shutdown_event:
+                    try:
+                        # Wait for the shutdown event or timeout
+                        await asyncio.wait_for(shutdown_event.wait(), timeout=err_count + 1)
+                        # If wait() completes, it means the event was set.
+                        if logger:
+                            logger.debug(f"Shutdown signaled during RPC backoff for {method}. Aborting.")
+                        return None
+                    except asyncio.TimeoutError:
+                        # This is the normal case, sleep finished.
+                        pass
+                else:
+                    await asyncio.sleep(err_count + 1)
         return None
 
     if session:

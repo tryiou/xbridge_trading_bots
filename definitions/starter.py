@@ -322,11 +322,13 @@ def run_async_main(config_manager, startup_tasks=None):
             config_manager.general_log.info("Received stop signal. Initiating coordinated shutdown...")
             if controller and not controller.shutdown_event.is_set():
                 controller.shutdown_event.set()
-                await ShutdownCoordinator.unified_shutdown(config_manager)
         except RPCConfigError as e:
             config_manager.general_log.critical(f"Fatal RPC configuration error: {e}")
             raise
         finally:
+            if controller:
+                await ShutdownCoordinator.unified_shutdown(config_manager)
+
             # Unregister strategy after cleanup
             CCXTManager.unregister_strategy()
             # Give time for proxy cleanup
@@ -347,7 +349,9 @@ async def main(config_manager, loop, startup_tasks=None):
     try:
         if startup_tasks:
             config_manager.general_log.info("Running startup tasks...")
-            await asyncio.gather(*startup_tasks)
+            # Create coroutines from the callables passed in startup_tasks
+            tasks_to_run = [task() for task in startup_tasks]
+            await asyncio.gather(*tasks_to_run)
             config_manager.general_log.info("Startup tasks finished.")
 
         # Create HTTP session

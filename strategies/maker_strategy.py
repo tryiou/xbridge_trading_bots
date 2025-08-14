@@ -98,8 +98,8 @@ class MakerStrategy(BaseStrategy):
         stale orders before starting fresh.
         """
         return [
-            self.config_manager.xbridge_manager.cancelallorders(),
-            self.config_manager.xbridge_manager.dxflushcancelledorders()
+            self.config_manager.xbridge_manager.cancelallorders,
+            self.config_manager.xbridge_manager.dxflushcancelledorders
         ]
 
     async def cancel_own_orders(self):

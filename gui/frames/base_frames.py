@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING, Any, Dict, List
 from definitions.config_manager import ConfigManager
 from definitions.error_handler import OperationalError
 from definitions.errors import ConfigurationError
-from definitions.starter import run_async_main
 from gui.components.data_panels import OrdersPanel
 from gui.utils.async_updater import AsyncUpdater
 
@@ -29,7 +28,6 @@ class BaseStrategyFrame(ttk.Frame):
         self.master_config_manager = master_config_manager
         self.strategy_name = strategy_name
         self.config_manager: ConfigManager | None = None
-        self.send_process: threading.Thread | None = None
         self.cancel_all_thread: threading.Thread | None = None
         self.started = False
         self.stopping = False
@@ -43,9 +41,6 @@ class BaseStrategyFrame(ttk.Frame):
         self.orders_updater: AsyncUpdater | None = None
         self.orders_panel: OrdersPanel | None = None  # Will be set by StandardStrategyFrame or subclasses
 
-        self.stop_check_id = None  # New attribute for periodic stop check
-        self.force_stop_timeout_id = None  # New attribute for failsafe force-stop timeout
-
         self.initialize_config()
         self.create_widgets()
 
@@ -54,6 +49,11 @@ class BaseStrategyFrame(ttk.Frame):
         try:
             self.config_manager = ConfigManager(strategy=self.strategy_name, master_manager=self.master_config_manager)
             self.config_manager.initialize(loadxbridgeconf=loadxbridgeconf)
+            # Register the GUI-safe critical error handler with the strategy instance
+            if self.config_manager.strategy_instance:
+                self.config_manager.strategy_instance.register_critical_error_callback(
+                    lambda e: self.main_app.root.after(0, self._critical_error_handler, e)
+                )
         except Exception as e:
             error_msg = f"Error initializing {self.strategy_name}: {e}"
             self.main_app.status_var.set(error_msg)
@@ -74,7 +74,7 @@ class BaseStrategyFrame(ttk.Frame):
             raise RuntimeError("Config manager not initialized")
         if not hasattr(self.config_manager, 'strategy_instance'):
             raise RuntimeError("Strategy not properly initialized")
-        if self.send_process and self.send_process.is_alive():
+        if self.config_manager.strategy_instance and self.config_manager.strategy_instance.is_running:
             raise RuntimeError("Bot thread already running")
 
     def _critical_error_handler(self, error):
@@ -89,99 +89,9 @@ class BaseStrategyFrame(ttk.Frame):
                 context={"strategy": self.strategy_name}
             )
 
-    def _thread_wrapper(self, func, *args):
-        """Wrap thread execution for proper error handling"""
-        try:
-            func(*args)
-        except Exception as e:
-            self.main_app.root.after(0, self._critical_error_handler, e)
-
-    def _signal_controller_shutdown(self):
-        """Signals the strategy controller's asyncio loop to shut down."""
-        if self.config_manager and self.config_manager.controller and self.config_manager.controller.loop:
-            shutdown_event = self.config_manager.controller.shutdown_event
-            lconf = self.config_manager
-            loop = self.config_manager.controller.loop
-
-            if not loop.is_closed():
-                def set_event():
-                    with lconf.resource_lock:
-                        shutdown_event.set()
-
-                if loop.is_running():
-                    loop.call_soon_threadsafe(set_event)
-
-    def _join_bot_thread(self, timeout: float):
-        """Waits for the bot thread to terminate, with a timeout."""
-        if self.send_process:
-            self.send_process.join(timeout)
-
-            if self.send_process.is_alive():
-                if self.config_manager:  # Ensure config_manager exists before logging
-                    self.config_manager.general_log.warning("Bot thread did not terminate gracefully.")
-                    if (self.config_manager.controller and
-                            self.config_manager.controller.loop and
-                            not self.config_manager.controller.loop.is_closed()):
-                        self.config_manager.controller.loop.call_soon_threadsafe(
-                            self.config_manager.controller.shutdown_event.set)
-
-    def _start_stop_monitoring(self, reload_config: bool):
-        """Starts periodic monitoring of the bot thread's status."""
-        # Cancel any existing monitoring to prevent duplicates
-        if self.stop_check_id:
-            self.after_cancel(self.stop_check_id)
-        if self.force_stop_timeout_id:
-            self.after_cancel(self.force_stop_timeout_id)
-
-        # Schedule periodic check for thread termination
-        self.stop_check_id = self.after(250, self._check_bot_thread_status, reload_config)
-        # Schedule a failsafe force-stop after a longer timeout (e.g., 10 seconds)
-        self.force_stop_timeout_id = self.after(10000, self._force_finalize_stop, reload_config)
-
-    def _check_bot_thread_status(self, reload_config: bool):
-        """Periodically checks if the bot thread has terminated."""
-        if not self.winfo_exists():  # Check if GUI element still exists
-            self._cancel_stop_monitoring()
-            return
-
-        if self.send_process and not self.send_process.is_alive():
-            # Thread has terminated, proceed with finalization
-            if self.config_manager:
-                self.config_manager.general_log.info(
-                    f"Detected {self.strategy_name} bot thread terminated. Finalizing stop.")
-            self._finalize_stop(reload_config)
-            self._cancel_stop_monitoring()
-        else:
-            # Thread is still alive, reschedule check
-            self.stop_check_id = self.after(250, self._check_bot_thread_status, reload_config)
-
-    def _force_finalize_stop(self, reload_config: bool):
-        """Failsafe to finalize stop if the bot thread doesn't terminate gracefully."""
-        if not self.winfo_exists():  # Check if GUI element still exists
-            self._cancel_stop_monitoring()
-            return
-
-        if self.send_process and self.send_process.is_alive():
-            if self.config_manager:
-                self.config_manager.general_log.warning(
-                    f"{self.strategy_name} bot thread did not terminate gracefully after timeout. Forcing cleanup.")
-            # Attempt to join one last time with a very short timeout, then proceed
-            self.send_process.join(0.1)
-
-        self._finalize_stop(reload_config)
-        self._cancel_stop_monitoring()
-
-    def _cancel_stop_monitoring(self):
-        """Cancels any pending stop monitoring and force-stop timeouts."""
-        if self.stop_check_id:
-            self.after_cancel(self.stop_check_id)
-            self.stop_check_id = None
-        if self.force_stop_timeout_id:
-            self.after_cancel(self.force_stop_timeout_id)
-            self.force_stop_timeout_id = None
 
     def start(self):
-        """Starts the bot in a separate thread with error handling."""
+        """Starts the bot by calling the strategy's start method."""
         try:
             self._pre_start_validation()
             log = self.config_manager.general_log
@@ -189,15 +99,9 @@ class BaseStrategyFrame(ttk.Frame):
             self.stopping = False
             self.main_app.status_var.set(f"{self.strategy_name.capitalize()} bot is running...")
 
-            startup_tasks = self.config_manager.strategy_instance.get_startup_tasks()
-            self.send_process = threading.Thread(
-                target=self._thread_wrapper,
-                args=(run_async_main, self.config_manager, startup_tasks),
-                daemon=True,
-                name=f"BotThread-{self.strategy_name}"
-            )
-            log.info(f"{self.strategy_name.capitalize()} bot starting.")
-            self.send_process.start()
+            # Delegate start to the strategy instance
+            self.config_manager.strategy_instance.start()
+
             self.started = True
             self.cleaned = False  # Mark that we are starting; not cleaned yet
             self.update_button_states()
@@ -225,53 +129,35 @@ class BaseStrategyFrame(ttk.Frame):
         self.stopping = True
         self.update_button_states()
         self.main_app.status_var.set(f"Stopping {self.strategy_name} bot...")
-        self.config_manager.general_log.info(f"Attempting to stop {self.strategy_name} bot...")
 
-        # Immediately signal shutdown to the strategy's controller
-        if (hasattr(self, 'config_manager') and
-                self.config_manager and
-                hasattr(self.config_manager, 'controller')):
-            self.config_manager.controller.shutdown_event.set()
+        def stopper_thread_func():
+            """Worker function to run the blocking stop method."""
+            if self.config_manager and self.config_manager.strategy_instance:
+                self.config_manager.strategy_instance.stop()  # This is a blocking call
 
-        # Start thread to run unified shutdown for this strategy
-        shutdown_thread = threading.Thread(
-            target=self._run_unified_shutdown,
-            daemon=True
-        )
-        shutdown_thread.start()
+            # After stopping, schedule the GUI finalization on the main thread
+            if self.winfo_exists():
+                self.after(0, self._finalize_stop, reload_config)
 
-        # Start monitoring the bot thread for termination
-        self._start_stop_monitoring(reload_config)
-
-    def _run_unified_shutdown(self):
-        """Runs the unified shutdown in a background thread to cancel strategy's own orders."""
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            from definitions.shutdown import ShutdownCoordinator
-            loop.run_until_complete(ShutdownCoordinator.unified_shutdown(self.config_manager))
-            self.config_manager.general_log.info(f"Unified shutdown completed for {self.strategy_name}")
-        except Exception as e:
-            self.config_manager.general_log.error(f"Error during unified shutdown: {e}", exc_info=True)
-        finally:
-            loop.close()
+        # Run the stop logic in a separate thread to avoid blocking the GUI
+        stopper_thread = threading.Thread(target=stopper_thread_func, daemon=True,
+                                          name=f"StopperThread-{self.strategy_name}")
+        stopper_thread.start()
 
     def _finalize_stop(self, reload_config: bool = True):
         """Cleans up the state after the bot thread has stopped."""
-        self._cancel_stop_monitoring()  # Ensure monitoring is stopped
-
         if self.config_manager:
             self.config_manager.general_log.debug(
                 f"GUI: Finalizing stop for {self.strategy_name}. Reload config: {reload_config}")
 
-        if self.send_process and self.send_process.is_alive():
+        if self.config_manager and self.config_manager.strategy_instance and self.config_manager.strategy_instance.is_running:
             self.config_manager.general_log.warning("Bot thread did not terminate gracefully.")
             self.main_app.status_var.set("Bot stopped (forcefully).")
         else:
             self.main_app.status_var.set("Bot stopped.")
-            self.config_manager.general_log.info("Bot stopped successfully.")
+            if self.config_manager:
+                self.config_manager.general_log.info("Bot stopped successfully.")
 
-        self.send_process = None
         self.started = False
         self.stopping = False
         self.cleaned = True  # Mark that cleanup is complete

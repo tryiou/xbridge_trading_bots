@@ -15,6 +15,15 @@ from definitions.rpc import rpc_call, is_port_open
 
 class XBridgeManager:
     _loops = weakref.WeakSet()
+    # Class-level attributes for global state, ensuring they are shared across all instances.
+    _active_rpc_counter = 0
+    _rpc_counter_lock = threading.Lock()
+    _rpc_semaphore = None
+
+    @property
+    def active_rpc_counter(self):
+        """Provides read-only access to the shared RPC counter."""
+        return XBridgeManager._active_rpc_counter
 
     def __init__(self, config_manager):
         self.config_manager = config_manager
@@ -31,16 +40,14 @@ class XBridgeManager:
         self._cache_lock = asyncio.Lock()  # Lock for thread-safe cache access
         self.UTXO_CACHE_DURATION = 3.0  # Cache expiration time in seconds
 
-        self.active_rpc_counter = 0
-        self.rpc_counter_lock = threading.Lock()
-
-        # Semaphore for global RPC concurrency control
-        max_tasks = 5
-        try:
-            max_tasks = self.config_manager.config_xbridge.max_concurrent_tasks
-        except AttributeError:
-            self.logger.info(f"Falling back to default max_concurrent_tasks ({max_tasks})")
-        self.rpc_semaphore = threading.BoundedSemaphore(max_tasks)
+        # Initialize shared semaphore only once
+        if XBridgeManager._rpc_semaphore is None:
+            max_tasks = 5
+            try:
+                max_tasks = self.config_manager.config_xbridge.max_concurrent_tasks
+            except AttributeError:
+                self.logger.info(f"Falling back to default max_concurrent_tasks ({max_tasks})")
+            XBridgeManager._rpc_semaphore = threading.BoundedSemaphore(max_tasks)
 
         # Check if RPC port is open (synchronous check)
         if not is_port_open("127.0.0.1", self.blocknet_port_rpc):
@@ -62,18 +69,22 @@ class XBridgeManager:
 
     async def rpc_wrapper(self, method, params=None, shutdown_event=None):
         """Execute RPC call with context tracking and optional shutdown event"""
+        # If no shutdown_event is passed, get it from the controller if available
+        if shutdown_event is None and self.config_manager and self.config_manager.controller:
+            shutdown_event = self.config_manager.controller.shutdown_event
+
         # Early bailout if shutdown is signaled
         if shutdown_event and shutdown_event.is_set():
             return None
 
         # Wait for global RPC semaphore using thread pool (non-blocking for async)
         loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, self.rpc_semaphore.acquire)
+        await loop.run_in_executor(None, XBridgeManager._rpc_semaphore.acquire)
 
         try:
             # Maintain active call counter with lock
-            with self.rpc_counter_lock:
-                self.active_rpc_counter += 1
+            with XBridgeManager._rpc_counter_lock:
+                XBridgeManager._active_rpc_counter += 1
 
             # Check if shutdown occurred during semaphore acquisition
             if shutdown_event and shutdown_event.is_set():
@@ -100,11 +111,11 @@ class XBridgeManager:
                 from definitions.errors import convert_exception
                 raise convert_exception(e) from e
             finally:
-                with self.rpc_counter_lock:
-                    self.active_rpc_counter -= 1
+                with XBridgeManager._rpc_counter_lock:
+                    XBridgeManager._active_rpc_counter -= 1
         finally:
             # Release the semaphore to allow other RPC calls
-            self.rpc_semaphore.release()
+            XBridgeManager._rpc_semaphore.release()
 
     async def async_test_rpc(self):
         """Perform RPC connection test asynchronously with cancellation handling"""
@@ -226,7 +237,8 @@ class XBridgeManager:
         result = []
         failed = []
         if not myorders:
-            self.logger.info(f"No order to cancel.")
+            self.logger.info(f"No orders to cancel or failed to retrieve orders.")
+            return result
         for order in myorders:
             if order['status'] not in ("open", "new"):
                 continue
@@ -264,7 +276,7 @@ class XBridgeManager:
         result = await self.rpc_wrapper("dxgetutxos", [token, used])
 
         async with self._cache_lock:
-            self._utxo_cache[cache_key] = (current_time, result)
+            self._utxo_cache[cache_key] = (time.time(), result)
             self.logger.debug(f"Cached new UTXO data for {token} (used={used})")
         return result
 

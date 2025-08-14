@@ -222,31 +222,35 @@ class DexPair:
     def check_price_in_range(self, display=False):
         price_variation_tolerance = self.pair.config_manager.strategy_instance.get_price_variation_tolerance(self)
 
-        # The strategy itself now determines how to calculate variation based on the order side.
-        # It can return a float (for normal checks) or a list [float] for locked BUY orders.
-        var = self.pair.config_manager.strategy_instance.calculate_variation_based_on_side(
+        # The strategy now returns a tuple: (variation, is_locked)
+        var_result = self.pair.config_manager.strategy_instance.calculate_variation_based_on_side(
             self,
             self.current_order.get('side'),
             self.pair.cex.price,
             self.current_order['org_pprice']
         )
-        self._set_variation(var)
 
-        # For logging and comparison, we need the raw float value
-        compare_var = var[0] if isinstance(var, list) else var
+        # Handle different return types for backward compatibility and new explicit style
+        if isinstance(var_result, tuple):
+            variation, is_locked = var_result
+        else:  # Legacy support for float or list returns
+            variation = var_result[0] if isinstance(var_result, list) else var_result
+            is_locked = isinstance(var_result, list)
+
+        self._set_variation(variation, is_locked)
 
         if display:
-            self._log_price_check(compare_var)
+            self._log_price_check(variation)
 
-        # If var is a list, it's a signal that the order is locked and should not be cancelled.
-        if isinstance(var, list):
-            return True  # Price is considered "in range" because it's locked.
+        if is_locked:
+            return True  # Price is "in range" because the order is locked.
 
-        return self._is_price_in_range(compare_var, price_variation_tolerance)
+        return self._is_price_in_range(variation, price_variation_tolerance)
 
-    def _set_variation(self, var):
-        # Store the value, preserving the list format for locked orders.
-        self.variation = [DexPair.truncate(var[0], 3)] if isinstance(var, list) else DexPair.truncate(var, 3)
+    def _set_variation(self, variation_value, is_locked):
+        # Store as a list if locked, for GUI display purposes.
+        truncated_var = self.truncate(variation_value, 3)
+        self.variation = [truncated_var] if is_locked else truncated_var
 
     def _log_price_check(self, var):
         self.pair.config_manager.general_log.info(
@@ -318,16 +322,23 @@ class DexPair:
     async def _create_order(self, dry_mode, maker_size):
         try:
             order = await self._generate_order(dry_mode)
-            if not dry_mode:
-                self.order = order
-                if self.order and 'error' in self.order:
-                    await self._handle_order_error()
-            else:
+            if dry_mode:
                 self._log_dry_mode_order(order)
+                return
+
+            self.order = order
+            if self.order and 'error' in self.order:
+                # Let the existing error handling logic for specific codes take place
+                await self._handle_order_error()
+            # If there's no error, we're done. If there was an error, _handle_order_error
+            # has already logged it and set the state appropriately.
         except Exception as e:
+            # This will catch network errors, timeouts, etc., from rpc_call
             context = {"pair": self.pair.symbol, "stage": "order_creation"}
             err = convert_exception(e)
             await self.pair.config_manager.error_handler.handle_async(err, context)
+            # After an exception, we should also disable the pair to prevent retries
+            self.disabled = True
 
     async def _generate_order(self, dry_mode):
         maker = self.current_order['maker']

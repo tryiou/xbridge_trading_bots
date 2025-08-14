@@ -232,7 +232,7 @@ class CCXTManager:
                 used_proxy = False
                 if is_port_open("127.0.0.1", 2233) and proxy:  # CCXT PROXY
                     result = await rpc_call("ccxt_call_fetch_tickers", tuple(symbols_list), rpc_port=2233,
-                                            debug=self.config_manager.config_ccxt.debug_level, display=False,
+                                            debug=self.config_manager.config_ccxt.debug_level,
                                             logger=self.config_manager.general_log, timeout=60)
                     used_proxy = True
                 else:

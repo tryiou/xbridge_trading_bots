@@ -115,31 +115,24 @@ class PingPongStrategy(MakerStrategy):
         return dex_pair_instance.pair.cfg.get('price_variation_tolerance')
 
     def calculate_variation_based_on_side(self, dex_pair_instance, current_order_side: str, cex_price: float,
-                                          original_price: float) -> float:
+                                          original_price: float) -> tuple[float, bool]:
         """
-        Calculates the price variation to decide if an open order should be
-        cancelled and recreated.
+        Calculates price variation and determines if the order should be price-locked.
+        Returns:
+            A tuple (variation: float, is_locked: bool).
         """
-        if current_order_side == 'SELL':
-            # For SELL orders, we always track the live price. If it drops too much,
-            # we cancel and recreate to follow the market down.
-            return float(cex_price / original_price)
-
         variation = float(cex_price / original_price)
+
         if current_order_side == 'BUY':
             last_sell_price = dex_pair_instance.order_history.get('dex_price')
-            # If the live price goes *above* our last sell price, we lock the order
-            # by returning the variation in a list. This prevents a cancel/recreate
-            # while still allowing the GUI to display the real-time deviation.
             if last_sell_price and cex_price > float(last_sell_price):
                 self.config_manager.general_log.debug(
                     f"BUY order for {dex_pair_instance.pair.name} is price locked. "
                     f"Live price ({cex_price:.8f}) is above last sell price ({float(last_sell_price):.8f})."
                 )
-                return [variation]  # Return as a list to signal a lock.
+                return variation, True  # Signal a lock
 
-        # For BUY orders below the last sell price, or for any other case, return the plain float.
-        return variation
+        return variation, False
 
     def init_virtual_order_logic(self, dex_pair_instance, order_history: dict):
         if not order_history or ('side' in order_history and order_history['side'] == 'BUY'):

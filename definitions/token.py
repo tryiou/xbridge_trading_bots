@@ -243,7 +243,7 @@ class CexToken:
                 count += 1
                 try:
                     if self.token.config_manager.ccxt_manager.isportopen_sync("127.0.0.1", 2233):
-                        result = await rpc_call("fetch_ticker_block", rpc_port=2233, debug=2, display=False,
+                        result = await rpc_call("fetch_ticker_block", rpc_port=2233, debug=2,
                                                 session=session)
                         used_proxy = True
                     else:
