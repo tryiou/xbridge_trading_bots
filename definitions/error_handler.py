@@ -208,27 +208,28 @@ class ErrorHandler:
         return True  # Continue operation
 
     async def _handle_critical_async(self, error, context):
-        """Async version of handling critical errors with shutdown procedure"""
+        """Handle critical errors with shutdown procedure - async version"""
         self.logger.critical(
             f"Critical error: {error} | Context: {context}",
             exc_info=True
         )
-        # Add user notification hook
         if self.config_manager:
-            await self._async_notify_user(
-                level="critical",
-                message=f"Critical Error: {error}",
-                details=context
-            )
+            try:
+                await self._async_notify_user(
+                    level="critical",
+                    message=f"Critical Error: {error}",
+                    details=context
+                )
+            except Exception as e:
+                self.logger.warning(f"Async notification failed: {e}")
         # Initiate shutdown sequence
         if self.config_manager:
             try:
-                # Try to use async_shutdown if available
+                # Trigger async shutdown if available
                 if hasattr(self.config_manager, 'async_shutdown'):
                     await self.config_manager.async_shutdown(reason=str(error))
-                # Fallback to sync version
                 elif hasattr(self.config_manager, 'shutdown'):
                     self.config_manager.shutdown(reason=str(error))
             except Exception as e:
-                self.logger.error(f"Shutdown failed: {e}")
+                self.logger.error(f"Async shutdown failed: {e}")
         return False  # Abort operation

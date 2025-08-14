@@ -1,4 +1,3 @@
-import asyncio
 import os
 import sys
 from unittest.mock import AsyncMock, MagicMock, create_autospec, patch, mock_open
@@ -182,8 +181,7 @@ def test_is_shutting_down(dex_pair):
     assert dex_pair._is_shutting_down() is False
 
 
-@pytest.mark.asyncio
-async def test_dex_create_order_insufficient_balance(dex_pair):
+def test_dex_create_order_insufficient_balance(dex_pair):
     """Tests that create_order does not call makeorder if balance is too low."""
     # Mock strategy calls to prevent TypeErrors inside create_virtual_sell_order
     strategy_mock = dex_pair.pair.config_manager.strategy_instance
@@ -197,7 +195,14 @@ async def test_dex_create_order_insufficient_balance(dex_pair):
     mock_makeorder = AsyncMock()
     dex_pair.pair.config_manager.xbridge_manager.makeorder = mock_makeorder
 
-    await dex_pair.create_order()
+    # Use explicit event loop to avoid pytest-asyncio teardown issues
+    import asyncio
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        loop.run_until_complete(dex_pair.create_order())
+    finally:
+        loop.close()
 
     mock_makeorder.assert_not_called()
     dex_pair.pair.config_manager.general_log.error.assert_called()
@@ -206,43 +211,42 @@ async def test_dex_create_order_insufficient_balance(dex_pair):
 
 def test_dex_create_order_xb_error(dex_pair):
     """Tests that _handle_order_error is called when makeorder returns an error."""
-    async def run_test():
-        mock_makeorder = AsyncMock(return_value={'error': 'Failed to make order', 'code': 1001})
-        strategy_mock = dex_pair.pair.config_manager.strategy_instance
-        strategy_mock.calculate_sell_price.return_value = 10.0
-        strategy_mock.build_sell_order_details.return_value = (1.0, 0.01)
+    # Create an AsyncMock that returns an error response
+    mock_makeorder = AsyncMock(return_value={'error': 'Failed to make order', 'code': 1001})
 
-        dex_pair.create_virtual_sell_order()
-        dex_pair.t1.dex.free_balance = 2.0  # Sufficient balance
+    # Create a coroutine function that immediately returns None for async_notify_user
+    async def async_notify_user_mock(*args, **kwargs):
+        return None
 
-        # Use regular context manager since patch.object is synchronous
-        with patch.object(dex_pair.pair.config_manager.xbridge_manager, 'makeorder', mock_makeorder):
-            strategy_handle_error_mock = MagicMock()
-            dex_pair.pair.config_manager.strategy_instance.handle_order_status_error = strategy_handle_error_mock
+    strategy_mock = dex_pair.pair.config_manager.strategy_instance
+    strategy_mock.calculate_sell_price.return_value = 10.0
+    strategy_mock.build_sell_order_details.return_value = (1.0, 0.01)
 
-            await dex_pair.create_order()
+    dex_pair.create_virtual_sell_order()
+    dex_pair.t1.dex.free_balance = 2.0  # Sufficient balance
 
-            # Verify order was created with error
-            assert dex_pair.order == {'error': 'Failed to make order', 'code': 1001}
-            assert dex_pair.disabled is True
-            strategy_handle_error_mock.assert_called_once_with(dex_pair)
-            dex_pair.pair.config_manager.general_log.error.assert_called()
+    dex_pair.pair.config_manager.xbridge_manager.makeorder = mock_makeorder
+    
+    # Fix mock config_manager.async_notify_user
+    dex_pair.pair.config_manager.async_notify_user = async_notify_user_mock
 
-    # Create and run a new event loop for this test
+    strategy_handle_error_mock = MagicMock()
+    dex_pair.pair.config_manager.strategy_instance.handle_order_status_error = strategy_handle_error_mock
+
+    # Use explicit event loop to avoid pytest-asyncio teardown issues
+    import asyncio
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
-        loop.run_until_complete(run_test())
+        loop.run_until_complete(dex_pair.create_order())
     finally:
-        # Cleanup all remaining tasks
-        pending = asyncio.all_tasks(loop)
-        for task in pending:
-            task.cancel()
-            try:
-                loop.run_until_complete(task)
-            except asyncio.CancelledError:
-                pass
         loop.close()
+
+    # Verify order was created with error
+    assert dex_pair.order == {'error': 'Failed to make order', 'code': 1001}
+    assert dex_pair.disabled is True
+    strategy_handle_error_mock.assert_called_once_with(dex_pair)
+    dex_pair.pair.config_manager.general_log.error.assert_called()
 
 
 def test_dex_pair_read_last_order_history(dex_pair):
@@ -250,7 +254,7 @@ def test_dex_pair_read_last_order_history(dex_pair):
     # Test 1: Successful read
     mock_history = {'side': 'SELL', 'maker_size': 1.0}
     with patch('builtins.open', mock_open(read_data=yaml.dump(mock_history))), \
-         patch('yaml.safe_load', return_value=mock_history):
+            patch('yaml.safe_load', return_value=mock_history):
         dex_pair.read_last_order_history()
         assert dex_pair.order_history == mock_history
 
@@ -262,9 +266,9 @@ def test_dex_pair_read_last_order_history(dex_pair):
         dex_pair.pair.config_manager.general_log.info.assert_called()
 
     # Test 3: Corrupted YAML file
-    dex_pair.order_history = None # Reset
+    dex_pair.order_history = None  # Reset
     with patch('builtins.open', mock_open(read_data="- {")), \
-         patch('yaml.safe_load', side_effect=yaml.YAMLError):
+            patch('yaml.safe_load', side_effect=yaml.YAMLError):
         dex_pair.read_last_order_history()
         assert dex_pair.order_history is None
         dex_pair.pair.config_manager.general_log.error.assert_called()
