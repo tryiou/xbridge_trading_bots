@@ -48,6 +48,43 @@ class MockThread:
 import pytest
 
 
+def _perform_balance_aggregation(app):
+    """Helper function to aggregate balances from mock strategy frames."""
+    with app.master_config_manager.resource_lock:
+        balances = {}
+        for frame in app.strategy_frames.values():
+            if getattr(frame, 'config_manager', None) and hasattr(frame.config_manager, 'tokens'):
+                tokens = frame.config_manager.tokens
+                for token_symbol, token_obj in tokens.items():
+                    # Only process tokens that have both CEX and DEX components
+                    if getattr(token_obj, 'cex', None) and getattr(token_obj, 'dex', None):
+                        balance_total = token_obj.dex_total_balance or 0.0
+                        balance_free = token_obj.dex_free_balance or 0.0
+
+                        # Ensure usd_price is not None before using it, default to 0.0
+                        usd_price = token_obj.cex_usd_price if token_obj.cex_usd_price is not None else 0.0
+
+                        if token_symbol not in balances:
+                            # Add new token balance
+                            balances[token_symbol] = {
+                                "symbol": token_symbol,
+                                "usd_price": usd_price,
+                                "total": balance_total,
+                                "free": balance_free
+                            }
+                        else:
+                            # Update existing token balance, prioritizing positive values
+                            existing_balance = balances[token_symbol]
+
+                            # Prioritize positive or non-zero values
+                            existing_balance["total"] = max(existing_balance["total"], balance_total)
+                            existing_balance["free"] = max(existing_balance["free"], balance_free)
+                            # Prioritize non-zero usd_price
+                            existing_balance["usd_price"] = usd_price if usd_price > 0 else existing_balance[
+                                "usd_price"]
+        return list(balances.values())
+
+
 # Create session-scoped root window
 @pytest.fixture(scope="session")
 def tk_root():
@@ -438,43 +475,8 @@ def test_balance_updater_aggregation(gui_app):
         frame = app.strategy_frames[strategy]
         frame.config_manager.tokens = tokens
 
-    # Directly call the balance aggregation logic
-    with app.master_config_manager.resource_lock:
-
-        balances = {}
-        for frame in app.strategy_frames.values():
-            if getattr(frame, 'config_manager', None) and hasattr(frame.config_manager, 'tokens'):
-                tokens = frame.config_manager.tokens
-                for token_symbol, token_obj in tokens.items():
-                    # Only process tokens that have both CEX and DEX components
-                    if getattr(token_obj, 'cex', None) and getattr(token_obj, 'dex', None):
-                        balance_total = token_obj.dex_total_balance or 0.0
-                        balance_free = token_obj.dex_free_balance or 0.0
-
-                        # Ensure usd_price is not None before using it, default to 0.0
-                        usd_price = token_obj.cex_usd_price if token_obj.cex_usd_price is not None else 0.0
-
-                        if token_symbol not in balances:
-                            # Add new token balance
-                            balances[token_symbol] = {
-                                "symbol": token_symbol,
-                                "usd_price": usd_price,
-                                "total": balance_total,
-                                "free": balance_free
-                            }
-                        else:
-                            # Update existing token balance, prioritizing positive values
-                            existing_balance = balances[token_symbol]
-
-                            # Prioritize positive or non-zero values
-                            existing_balance["total"] = max(existing_balance["total"], balance_total)
-                            existing_balance["free"] = max(existing_balance["free"], balance_free)
-                            # Prioritize non-zero usd_price
-                            existing_balance["usd_price"] = usd_price if usd_price > 0 else existing_balance[
-                                "usd_price"]
-
-        # Convert the dictionary to a list for the GUI
-        data = list(balances.values())
+    # Call the balance aggregation helper
+    data = _perform_balance_aggregation(app)
 
     # Filter only the tokens we're testing (BTC, ETH, LTC)
     test_tokens = ['BTC', 'ETH', 'LTC']
@@ -524,42 +526,8 @@ def test_balance_updater_handles_none_usd_price(gui_app):
     while not app.balance_update_queue.empty():
         app.balance_update_queue.get_nowait()
 
-    # Directly call the balance aggregation logic
-    with app.master_config_manager.resource_lock:
-        balances = {}
-        for frame in app.strategy_frames.values():
-            if getattr(frame, 'config_manager', None) and hasattr(frame.config_manager, 'tokens'):
-                tokens = frame.config_manager.tokens
-                for token_symbol, token_obj in tokens.items():
-                    # Only process tokens that have both CEX and DEX components
-                    if getattr(token_obj, 'cex', None) and getattr(token_obj, 'dex', None):
-                        balance_total = token_obj.dex_total_balance or 0.0
-                        balance_free = token_obj.dex_free_balance or 0.0
-
-                        # Ensure usd_price is not None before using it, default to 0.0
-                        usd_price = token_obj.cex_usd_price if token_obj.cex_usd_price is not None else 0.0
-
-                        if token_symbol not in balances:
-                            # Add new token balance
-                            balances[token_symbol] = {
-                                "symbol": token_symbol,
-                                "usd_price": usd_price,
-                                "total": balance_total,
-                                "free": balance_free
-                            }
-                        else:
-                            # Update existing token balance, prioritizing positive values
-                            existing_balance = balances[token_symbol]
-
-                            # Prioritize positive or non-zero values
-                            existing_balance["total"] = max(existing_balance["total"], balance_total)
-                            existing_balance["free"] = max(existing_balance["free"], balance_free)
-                            # Prioritize non-zero usd_price
-                            existing_balance["usd_price"] = usd_price if usd_price > 0 else existing_balance[
-                                "usd_price"]
-
-        # Convert the dictionary to a list for the GUI
-        data = list(balances.values())
+    # Call the balance aggregation helper
+    data = _perform_balance_aggregation(app)
 
     # Filter only the tokens we're testing (BTC, ETH)
     test_tokens = ['BTC', 'ETH']
@@ -607,42 +575,8 @@ def test_balance_updater_prioritizes_positive_balances(gui_app):
         if strategy in mock_tokens:
             frame.config_manager.tokens = mock_tokens[strategy]
 
-    # Directly call the balance aggregation logic
-    with app.master_config_manager.resource_lock:
-        balances = {}
-        for frame in app.strategy_frames.values():
-            if getattr(frame, 'config_manager', None) and hasattr(frame.config_manager, 'tokens'):
-                tokens = frame.config_manager.tokens
-                for token_symbol, token_obj in tokens.items():
-                    # Only process tokens that have both CEX and DEX components
-                    if getattr(token_obj, 'cex', None) and getattr(token_obj, 'dex', None):
-                        balance_total = token_obj.dex_total_balance or 0.0
-                        balance_free = token_obj.dex_free_balance or 0.0
-
-                        # Ensure usd_price is not None before using it, default to 0.0
-                        usd_price = token_obj.cex_usd_price if token_obj.cex_usd_price is not None else 0.0
-
-                        if token_symbol not in balances:
-                            # Add new token balance
-                            balances[token_symbol] = {
-                                "symbol": token_symbol,
-                                "usd_price": usd_price,
-                                "total": balance_total,
-                                "free": balance_free
-                            }
-                        else:
-                            # Update existing token balance, prioritizing positive values
-                            existing_balance = balances[token_symbol]
-
-                            # Prioritize positive or non-zero values
-                            existing_balance["total"] = max(existing_balance["total"], balance_total)
-                            existing_balance["free"] = max(existing_balance["free"], balance_free)
-                            # Prioritize non-zero usd_price
-                            existing_balance["usd_price"] = usd_price if usd_price > 0 else existing_balance[
-                                "usd_price"]
-
-        # Convert the dictionary to a list for the GUI
-        data = list(balances.values())
+    # Call the balance aggregation helper
+    data = _perform_balance_aggregation(app)
 
     # Verify BTC balance prioritizes highest values
     btc_data = next(item for item in data if item['symbol'] == 'BTC')
@@ -681,15 +615,8 @@ def test_balance_updater_error_handling(gui_app, caplog):
         # Directly call the balance aggregation logic
         with app.master_config_manager.resource_lock:
             try:
-                # Simulate one iteration of balance collection
-                balances = {}
-                for frame in app.strategy_frames.values():
-                    if getattr(frame, 'config_manager', None) and hasattr(frame.config_manager, 'tokens'):
-                        tokens = frame.config_manager.tokens
-                        for token_symbol, token_obj in tokens.items():
-                            if getattr(token_obj, 'cex', None) and getattr(token_obj, 'dex', None):
-                                # This will raise the mocked exception
-                                pass
+                # This will raise the mocked exception
+                _perform_balance_aggregation(app)
             except Exception as e:
                 # Verify error was logged
                 assert "Test error" in caplog.text
@@ -813,42 +740,8 @@ def test_balances_when_strategies_running(gui_app):
         if strategy in mock_tokens:
             frame.config_manager.tokens = mock_tokens[strategy]
 
-    # Directly call the balance aggregation logic
-    with app.master_config_manager.resource_lock:
-        balances = {}
-        for frame in app.strategy_frames.values():
-            if getattr(frame, 'config_manager', None) and hasattr(frame.config_manager, 'tokens'):
-                tokens = frame.config_manager.tokens
-                for token_symbol, token_obj in tokens.items():
-                    # Only process tokens that have both CEX and DEX components
-                    if getattr(token_obj, 'cex', None) and getattr(token_obj, 'dex', None):
-                        balance_total = token_obj.dex_total_balance or 0.0
-                        balance_free = token_obj.dex_free_balance or 0.0
-
-                        # Ensure usd_price is not None before using it, default to 0.0
-                        usd_price = token_obj.cex_usd_price if token_obj.cex_usd_price is not None else 0.0
-
-                        if token_symbol not in balances:
-                            # Add new token balance
-                            balances[token_symbol] = {
-                                "symbol": token_symbol,
-                                "usd_price": usd_price,
-                                "total": balance_total,
-                                "free": balance_free
-                            }
-                        else:
-                            # Update existing token balance, prioritizing positive values
-                            existing_balance = balances[token_symbol]
-
-                            # Prioritize positive or non-zero values
-                            existing_balance["total"] = max(existing_balance["total"], balance_total)
-                            existing_balance["free"] = max(existing_balance["free"], balance_free)
-                            # Prioritize non-zero usd_price
-                            existing_balance["usd_price"] = usd_price if usd_price > 0 else existing_balance[
-                                "usd_price"]
-
-        # Convert the dictionary to a list for the GUI
-        data = list(balances.values())
+    # Call the balance aggregation helper
+    data = _perform_balance_aggregation(app)
 
     # Verify aggregated data is used, not initial balances
     btc_data = next(item for item in data if item['symbol'] == 'BTC')
@@ -1065,45 +958,23 @@ def test_balance_aggregation_logic(gui_app):
     app.strategy_frames['Basic Seller'].config_manager.tokens = tokens_bs
 
     # Run balance aggregation
-    with app.master_config_manager.resource_lock:
-        balances = {}
-        for frame in app.strategy_frames.values():
-            if getattr(frame, 'config_manager', None) and hasattr(frame.config_manager, 'tokens'):
-                tokens = frame.config_manager.tokens
-                for token_symbol, token_obj in tokens.items():
-                    if getattr(token_obj, 'cex', None) and getattr(token_obj, 'dex', None):
-                        balance_total = token_obj.dex_total_balance or 0.0
-                        balance_free = token_obj.dex_free_balance or 0.0
-                        usd_price = token_obj.cex_usd_price if token_obj.cex_usd_price is not None else 0.0
+    balances = {item['symbol']: item for item in _perform_balance_aggregation(app)}
 
-                        if token_symbol not in balances:
-                            balances[token_symbol] = {
-                                "symbol": token_symbol,
-                                "usd_price": usd_price,
-                                "total": balance_total,
-                                "free": balance_free
-                            }
-                        else:
-                            existing = balances[token_symbol]
-                            existing["total"] = max(existing["total"], balance_total)
-                            existing["free"] = max(existing["free"], balance_free)
-                            existing["usd_price"] = usd_price if usd_price > 0 else existing["usd_price"]
+    # Verify aggregated values
+    btc = balances['BTC']
+    assert btc['total'] == 2.5  # max(1.5, 2.5)
+    assert btc['free'] == 2.0  # max(1.0, 2.0)
+    assert btc['usd_price'] == 44000.0  # Last non-zero price
 
-        # Verify aggregated values
-        btc = balances['BTC']
-        assert btc['total'] == 2.5  # max(1.5, 2.5)
-        assert btc['free'] == 2.0  # max(1.0, 2.0)
-        assert btc['usd_price'] == 44000.0  # Last non-zero price
+    eth = balances['ETH']
+    assert eth['total'] == 10.0
+    assert eth['free'] == 8.0
+    assert eth['usd_price'] == 2500.0
 
-        eth = balances['ETH']
-        assert eth['total'] == 10.0
-        assert eth['free'] == 8.0
-        assert eth['usd_price'] == 2500.0
-
-        ltc = balances['LTC']
-        assert ltc['total'] == 100.0
-        assert ltc['free'] == 90.0
-        assert ltc['usd_price'] == 150.0
+    ltc = balances['LTC']
+    assert ltc['total'] == 100.0
+    assert ltc['free'] == 90.0
+    assert ltc['usd_price'] == 150.0
 
 
 def test_balance_aggregation_edge_cases(gui_app):
@@ -1123,40 +994,17 @@ def test_balance_aggregation_edge_cases(gui_app):
     app.strategy_frames['Arbitrage'].config_manager.tokens = tokens
 
     # Run balance aggregation
-    with app.master_config_manager.resource_lock:
-        balances = {}
-        for frame in app.strategy_frames.values():
-            if getattr(frame, 'config_manager', None) and hasattr(frame.config_manager, 'tokens'):
-                tokens = frame.config_manager.tokens
-                for token_symbol, token_obj in tokens.items():
-                    if getattr(token_obj, 'cex', None) and getattr(token_obj, 'dex', None):
-                        balance_total = token_obj.dex_total_balance or 0.0
-                        balance_free = token_obj.dex_free_balance or 0.0
-                        usd_price = token_obj.cex_usd_price if token_obj.cex_usd_price is not None else 0.0
+    balances = {item['symbol']: item for item in _perform_balance_aggregation(app)}
 
-                        if token_symbol not in balances:
-                            balances[token_symbol] = {
-                                "symbol": token_symbol,
-                                "usd_price": usd_price,
-                                "total": balance_total,
-                                "free": balance_free
-                            }
-                        else:
-                            existing_balance = balances[token_symbol]
-                            existing_balance["total"] = max(existing_balance["total"], balance_total)
-                            existing_balance["free"] = max(existing_balance["free"], balance_free)
-                            existing_balance["usd_price"] = usd_price if usd_price > 0 else existing_balance[
-                                "usd_price"]
-
-        # Verify edge case handling
-        assert balances['ZERO']['total'] == 0.0
-        assert balances['ZERO']['free'] == 0.0
-        assert balances['NEGATIVE']['total'] == -5.0
-        assert balances['NEGATIVE']['free'] == -2.0
-        assert balances['LARGE']['total'] == 1e9
-        assert balances['LARGE']['free'] == 1e8
-        assert balances['NONE']['usd_price'] == 0.0
-        assert balances['NONE']['total'] == 0.0
+    # Verify edge case handling
+    assert balances['ZERO']['total'] == 0.0
+    assert balances['ZERO']['free'] == 0.0
+    assert balances['NEGATIVE']['total'] == -5.0
+    assert balances['NEGATIVE']['free'] == -2.0
+    assert balances['LARGE']['total'] == 1e9
+    assert balances['LARGE']['free'] == 1e8
+    assert balances['NONE']['usd_price'] == 0.0
+    assert balances['NONE']['total'] == 0.0
 
 
 def test_error_propagation_to_ui(gui_app, tk_root):  # <-- Add tk_root fixture

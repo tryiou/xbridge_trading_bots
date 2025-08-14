@@ -6,6 +6,7 @@ import threading
 import time
 import tkinter as tk
 from tkinter import ttk
+from typing import Any, Dict, List
 
 from ttkbootstrap import Style
 
@@ -97,6 +98,44 @@ class MainApplication:
             gui_root=self.root
         )
         shutdown_coordinator.initiate_shutdown()
+
+    def _get_aggregated_balances_data(self) -> List[Dict[str, Any]]:
+        """Aggregates token balances from all running strategy frames."""
+        balances = {}  # Use a dictionary to aggregate balances
+
+        # Use lock to safely access tokens_dict
+        with self.master_config_manager.resource_lock:
+            for frame in self.strategy_frames.values():
+                if not getattr(frame, 'config_manager', None) or not hasattr(frame.config_manager, 'tokens'):
+                    continue
+                tokens = frame.config_manager.tokens
+                for token_symbol, token_obj in tokens.items():
+                    # Only process tokens that have both CEX and DEX components
+                    if not (getattr(token_obj, 'cex', None) and getattr(token_obj, 'dex', None)):
+                        continue
+
+                    balance_total = token_obj.dex_total_balance or 0.0
+                    balance_free = token_obj.dex_free_balance or 0.0
+                    usd_price = token_obj.cex_usd_price or 0.0
+
+                    if token_symbol not in balances:
+                        balances[token_symbol] = {
+                            "symbol": token_symbol,
+                            "usd_price": usd_price,
+                            "total": balance_total,
+                            "free": balance_free
+                        }
+                    else:
+                        existing_balance = balances[token_symbol]
+                        # Prioritize positive or non-zero values
+                        existing_balance["total"] = max(existing_balance["total"], balance_total)
+                        existing_balance["free"] = max(existing_balance["free"], balance_free)
+                        # Prioritize non-zero usd_price
+                        if usd_price > 0:
+                            existing_balance["usd_price"] = usd_price
+
+        # Convert the dictionary to a list for the GUI
+        return list(balances.values())
 
     def _init_root_window(self, root):
         """Initialize root window properties and signals."""
@@ -237,41 +276,8 @@ class MainApplication:
         """Collect balance data and push to queue with error handling."""
         try:
             # Collect balance data
-            balances = {}  # Use a dictionary to aggregate balances
+            data = self._get_aggregated_balances_data()
 
-            # Use lock to safely access tokens_dict
-            with self.master_config_manager.resource_lock:
-                for frame in self.strategy_frames.values():
-                    if not getattr(frame, 'config_manager', None) or not hasattr(frame.config_manager, 'tokens'):
-                        continue
-                    tokens = frame.config_manager.tokens
-                    for token_symbol, token_obj in tokens.items():
-                        # Only process tokens that have both CEX and DEX components
-                        if not (getattr(token_obj, 'cex', None) and getattr(token_obj, 'dex', None)):
-                            continue
-
-                        balance_total = token_obj.dex_total_balance or 0.0
-                        balance_free = token_obj.dex_free_balance or 0.0
-                        usd_price = token_obj.cex_usd_price or 0.0
-
-                        if token_symbol not in balances:
-                            balances[token_symbol] = {
-                                "symbol": token_symbol,
-                                "usd_price": usd_price,
-                                "total": balance_total,
-                                "free": balance_free
-                            }
-                        else:
-                            existing_balance = balances[token_symbol]
-                            # Prioritize positive or non-zero values
-                            existing_balance["total"] = max(existing_balance["total"], balance_total)
-                            existing_balance["free"] = max(existing_balance["free"], balance_free)
-                            # Prioritize non-zero usd_price
-                            if usd_price > 0:
-                                existing_balance["usd_price"] = usd_price
-
-            # Convert the dictionary to a list for the GUI
-            data = list(balances.values())
             if not self.running_strategies:
                 # logger.debug("No strategies running, displaying initial balances.")
                 data = self._get_initial_balances_data()

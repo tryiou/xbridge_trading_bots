@@ -21,7 +21,7 @@ External traders (arbitrageurs) trigger orders when profitable, allowing the
 strategy to function as a self-contained auction mechanism resembling an AMM.
 """
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, List, Tuple
 
@@ -41,7 +41,7 @@ class RangePosition:
     curve: str = 'linear'
     curve_strength: float = 10  # Steepness of sigmoid curve
     fee_accumulated: float = 0.0
-    created_at: datetime = datetime.now()
+    created_at: datetime = field(default_factory=datetime.now)
     percent_min_size: float = 0.0001  # New: e.g., 0.01% of allocated funds
 
 

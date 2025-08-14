@@ -2,6 +2,7 @@ import asyncio
 import json
 import os
 import sys
+import time
 import uuid
 from typing import List, Dict, Any, TYPE_CHECKING
 from unittest.mock import patch, AsyncMock, MagicMock
@@ -887,7 +888,6 @@ class ArbitrageStrategyTester:
 
     async def _test_state_serialization_deserialization(self) -> None:
         """Test TradeState serialization/deserialization robustness."""
-        import time  # Fix missing import
         test_name = "State Serialization/Deserialization"
         self.config_manager.general_log.info(f"\n--- [TEST CASE] Running: {test_name} ---")
         passed = False

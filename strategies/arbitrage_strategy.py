@@ -406,46 +406,37 @@ class ArbitrageStrategy(BaseStrategy):
             order_data = {'order_price': order_price, 'order_amount': order_amount, 'order_id': order_id}
 
             if is_bid:
-                # Leg 1: Sell t1 on XBridge, Buy t1 on Thorchain
-                t1_balance = pair_instance.t1.dex.free_balance or 0
-                if not self.dry_mode and t1_balance < order_amount:
-                    self.config_manager.general_log.debug(
-                        f"[{log_prefix}] Cannot afford XBridge bid for {order_amount:.8f} {pair_instance.t1.symbol}. "
-                        f"Have: {t1_balance:.8f}. Checking next bid."
-                    )
-                    continue
-
+                # Leg 1: Sell t1 on XBridge (we give t1), Buy t1 on Thorchain (we give t2)
+                balance_token, fee_token = pair_instance.t1, pair_instance.t1
+                required_amount = order_amount
                 order_data['cost_amount'] = order_amount
                 order_data['thorchain_swap_amount'] = order_amount * order_price
                 order_data['thorchain_from_asset'] = f"{pair_instance.t2.symbol}.{pair_instance.t2.symbol}"
                 order_data['thorchain_to_asset'] = f"{pair_instance.t1.symbol}.{pair_instance.t1.symbol}"
-                order_data['xbridge_fee'] = self.config_manager.xbridge_manager.xbridge_fees_estimate.get(
-                    pair_instance.t1.symbol, {}).get('estimated_fee_coin', 0)
-
-                self.config_manager.general_log.debug(
-                    f"[{log_prefix}] Found affordable XBridge bid: {order_amount:.8f} {pair_instance.t1.symbol} at {order_price:.8f}. Evaluating..."
-                )
             else:
-                # Leg 2: Buy t1 on XBridge, Sell t1 on Thorchain
-                xbridge_cost_t2 = order_amount * order_price
-                t2_balance = pair_instance.t2.dex.free_balance or 0
-                if not self.dry_mode and t2_balance < xbridge_cost_t2:
-                    self.config_manager.general_log.debug(
-                        f"[{log_prefix}] Cannot afford XBridge ask costing {xbridge_cost_t2:.8f} {pair_instance.t2.symbol}. "
-                        f"Have: {t2_balance:.8f}. Checking next ask."
-                    )
-                    continue
-
-                order_data['cost_amount'] = xbridge_cost_t2
+                # Leg 2: Buy t1 on XBridge (we give t2), Sell t1 on Thorchain (we give t1)
+                balance_token, fee_token = pair_instance.t2, pair_instance.t2
+                required_amount = order_amount * order_price
+                order_data['cost_amount'] = required_amount
                 order_data['thorchain_swap_amount'] = order_amount
                 order_data['thorchain_from_asset'] = f"{pair_instance.t1.symbol}.{pair_instance.t1.symbol}"
                 order_data['thorchain_to_asset'] = f"{pair_instance.t2.symbol}.{pair_instance.t2.symbol}"
-                order_data['xbridge_fee'] = self.config_manager.xbridge_manager.xbridge_fees_estimate.get(
-                    pair_instance.t2.symbol, {}).get('estimated_fee_coin', 0)
 
+            # Check for sufficient balance
+            if not self.dry_mode and (balance_token.dex.free_balance or 0) < required_amount:
                 self.config_manager.general_log.debug(
-                    f"[{log_prefix}] Found affordable XBridge ask: {order_amount:.8f} {pair_instance.t1.symbol} at {order_price:.8f}. Evaluating..."
+                    f"[{log_prefix}] Insufficient balance for {direction} order. "
+                    f"Need {required_amount:.8f} {balance_token.symbol}, "
+                    f"Have: {balance_token.dex.free_balance or 0:.8f}. Checking next order."
                 )
+                continue
+
+            # Assign fee and log that we found an affordable order
+            order_data['xbridge_fee'] = self.config_manager.xbridge_manager.xbridge_fees_estimate.get(
+                fee_token.symbol, {}).get('estimated_fee_coin', 0)
+            self.config_manager.general_log.debug(
+                f"[{log_prefix}] Found affordable XBridge {direction}: {order_amount:.8f} {pair_instance.t1.symbol} at {order_price:.8f}. Evaluating..."
+            )
 
             # --- Pre-flight Check: Ensure Thorchain path is active before getting a quote ---
             from definitions.thorchain_def import check_thorchain_path_status

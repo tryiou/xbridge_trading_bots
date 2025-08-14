@@ -1,8 +1,16 @@
 import yaml
+from typing import Any, Dict, Union
 
 
 class YamlToObject:
-    def __init__(self, yaml_data):
+    """A class to convert YAML data into a Python object with attribute access."""
+    def __init__(self, yaml_data: Union[str, Dict[str, Any]]):
+        """
+        Initializes a YamlToObject instance from a YAML file path or a dictionary.
+
+        Args:
+            yaml_data: Either a path to a YAML file or a dictionary.
+        """
         if isinstance(yaml_data, str):  # It's a path
             try:
                 with open(yaml_data, 'r') as file:
