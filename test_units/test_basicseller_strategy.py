@@ -1,4 +1,3 @@
-import asyncio
 import os
 import sys
 from contextlib import contextmanager
@@ -223,7 +222,7 @@ class BasicSellerStrategyTester:
         self.config_manager.general_log.info(f"\n--- [TEST CASE] Running: {test_name} ---")
 
         with self._patch_dependencies(), \
-             patch.object(self.config_manager.general_log, 'error') as mock_log_error:
+                patch.object(self.config_manager.general_log, 'error') as mock_log_error:
             # Act
             self.strategy.build_buy_order_details(self.pair.dex)
             self.strategy.determine_buy_price(self.pair.dex)

@@ -1,7 +1,6 @@
 # gui/main_app.py
 import logging
 import queue
-import signal
 import threading
 import time
 import tkinter as tk

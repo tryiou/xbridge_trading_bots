@@ -67,8 +67,7 @@ async def test_unified_shutdown_sequence():
 
     # Patch wait_for_pending_rpcs and _cleanup_proxy
     with patch('definitions.shutdown.wait_for_pending_rpcs', new_callable=AsyncMock) as mock_wait_rpc, \
-         patch('definitions.shutdown.CCXTManager._cleanup_proxy') as mock_cleanup_proxy:
-
+            patch('definitions.shutdown.CCXTManager._cleanup_proxy') as mock_cleanup_proxy:
         # Act
         await ShutdownCoordinator.unified_shutdown(mock_cm)
 

@@ -214,7 +214,8 @@ class BaseStrategy(ABC):
             self.config_manager.general_log.warning(
                 f"Bot thread for {self.config_manager.strategy} did not terminate gracefully within {timeout}s.")
         else:
-            self.config_manager.general_log.info(f"{self.config_manager.strategy.capitalize()} bot stopped successfully.")
+            self.config_manager.general_log.info(
+                f"{self.config_manager.strategy.capitalize()} bot stopped successfully.")
 
         self.is_running = False
         self._bot_thread = None

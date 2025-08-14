@@ -1,8 +1,7 @@
-import os
-import sys
 import json
-import time
+import os
 import shutil
+import sys
 from unittest.mock import MagicMock
 
 import pytest

@@ -1,5 +1,4 @@
 # gui/shutdown/gui_shutdown_coordinator.py
-import asyncio
 import logging
 import threading
 import time
@@ -7,7 +6,6 @@ from typing import TYPE_CHECKING, Dict, Any
 
 from definitions.config_manager import ConfigManager
 from definitions.errors import CriticalError, OperationalError
-from definitions.shutdown import ShutdownCoordinator
 
 if TYPE_CHECKING:
     from gui.frames.base_frames import BaseStrategyFrame

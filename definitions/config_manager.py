@@ -10,7 +10,6 @@ from definitions.ccxt_manager import CCXTManager
 from definitions.error_handler import ErrorHandler, OperationalError
 from definitions.errors import ConfigurationError
 from definitions.logger import setup_logger, setup_logging
-from definitions.token import Token
 from definitions.xbridge_manager import XBridgeManager
 from definitions.yaml_mix import YamlToObject
 from strategies.arbitrage_strategy import ArbitrageStrategy
@@ -35,14 +34,15 @@ class ConfigManager:
             self.general_log = logging.getLogger(f"{strategy}.general")
             self.trade_log = logging.getLogger(f"{strategy}.trade")
             self.ccxt_log = logging.getLogger(f"{strategy}.ccxt")
-            
+
             # Ensure trade logger has file handler for strategy-specific trade log
             if not self.trade_log.handlers:
                 logs_dir = os.path.join(self.ROOT_DIR, 'logs')
                 os.makedirs(logs_dir, exist_ok=True)
                 trade_log_file = os.path.join(logs_dir, f"{strategy}_trade.log")
                 trade_handler = logging.FileHandler(trade_log_file)
-                trade_handler.setFormatter(logging.Formatter('[%(asctime)s] [%(name)-20s] %(levelname)-8s - %(message)s'))
+                trade_handler.setFormatter(
+                    logging.Formatter('[%(asctime)s] [%(name)-20s] %(levelname)-8s - %(message)s'))
                 trade_handler.setLevel(logging.INFO)
                 self.trade_log.addHandler(trade_handler)
         else:
@@ -240,7 +240,6 @@ class ConfigManager:
         if self.strategy in ["arbitrage", "gui"]:
             self.config_arbitrage = self._load_and_update_config("config_arbitrage.yaml")
             self.config_thorchain = self._load_and_update_config("config_thorchain.yaml")
-
 
     def _init_ccxt(self):
         """Initialize CCXT instance with error handling"""

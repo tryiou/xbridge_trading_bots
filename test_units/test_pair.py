@@ -226,7 +226,7 @@ def test_dex_create_order_xb_error(dex_pair):
     dex_pair.t1.dex.free_balance = 2.0  # Sufficient balance
 
     dex_pair.pair.config_manager.xbridge_manager.makeorder = mock_makeorder
-    
+
     # Fix mock config_manager.async_notify_user
     dex_pair.pair.config_manager.async_notify_user = async_notify_user_mock
 

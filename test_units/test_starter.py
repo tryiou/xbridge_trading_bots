@@ -16,9 +16,8 @@ from definitions.starter import (
     PriceHandler,
     MainController,
     run_async_main,
-    main,
 )
-from definitions.errors import RPCConfigError, OperationalError
+from definitions.errors import RPCConfigError
 
 
 @pytest.fixture

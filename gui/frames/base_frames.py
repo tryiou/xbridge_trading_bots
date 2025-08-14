@@ -89,7 +89,6 @@ class BaseStrategyFrame(ttk.Frame):
                 context={"strategy": self.strategy_name}
             )
 
-
     def start(self):
         """Starts the bot by calling the strategy's start method."""
         try:

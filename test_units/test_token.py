@@ -1,4 +1,3 @@
-import asyncio
 import os
 import sys
 from unittest.mock import MagicMock, patch, AsyncMock
@@ -113,7 +112,7 @@ async def test_cex_token_update_block_ticker(token):
 
     # Test 1: Proxy is available and returns a value
     with patch('definitions.token.rpc_call', new_callable=AsyncMock) as mock_rpc, \
-         patch('aiohttp.ClientSession.get') as mock_get:
+            patch('aiohttp.ClientSession.get') as mock_get:
         mock_rpc.return_value = 0.00015
         with patch.object(token.config_manager.ccxt_manager, 'isportopen_sync', return_value=True):
             result = await token.cex.update_block_ticker()
@@ -123,7 +122,7 @@ async def test_cex_token_update_block_ticker(token):
 
     # Test 2: Proxy is not available, fallback to cryptocompare
     with patch('definitions.token.rpc_call', new_callable=AsyncMock) as mock_rpc, \
-         patch('aiohttp.ClientSession.get') as mock_get:
+            patch('aiohttp.ClientSession.get') as mock_get:
         # Mock aiohttp response
         mock_response = AsyncMock()
         mock_response.status = 200

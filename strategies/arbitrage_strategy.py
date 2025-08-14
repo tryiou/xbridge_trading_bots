@@ -687,7 +687,8 @@ class ArbitrageStrategy(BaseStrategy):
                 max_err_count=3  # Use built-in retry mechanism
             )
             if transactions is None:
-                logger.error(f"[{log_prefix}] Failed to verify refund for {token_symbol} after multiple attempts (RPC returned None).")
+                logger.error(
+                    f"[{log_prefix}] Failed to verify refund for {token_symbol} after multiple attempts (RPC returned None).")
                 return False
 
             amount_tolerance = 0.01
@@ -704,7 +705,9 @@ class ArbitrageStrategy(BaseStrategy):
                     return True
             return False
         except Exception as e:
-            logger.error(f"[{log_prefix}] An unexpected error occurred during refund verification for {token_symbol}: {e}", exc_info=True)
+            logger.error(
+                f"[{log_prefix}] An unexpected error occurred during refund verification for {token_symbol}: {e}",
+                exc_info=True)
             return False
 
     async def _get_thorchain_decimals(self, chain_symbol: str) -> int:

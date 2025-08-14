@@ -1,14 +1,13 @@
 import asyncio
 import os
 import sys
-from typing import Any, Dict, List, TYPE_CHECKING
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 # Add parent directory to path for module imports
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-
 
 from definitions.config_manager import ConfigManager
 
@@ -83,7 +82,6 @@ class PingPongStrategyTester:
         self.config_manager.tokens['BTC'].cex.usd_price = 100000.0
         self.pair.t1.cex.cex_price = self.pair.t1.cex.usd_price / 100000.0
         self.pair.t2.cex.cex_price = self.pair.t2.cex.usd_price / 100000.0
-
 
     async def _test_initial_sell_order_creation(self):
         """

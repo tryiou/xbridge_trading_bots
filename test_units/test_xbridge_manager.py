@@ -35,9 +35,9 @@ def mock_config_manager():
 def xbridge_manager(mock_config_manager):
     """Fixture to create an XBridgeManager instance with mocked dependencies."""
     with patch('definitions.xbridge_manager.detect_rpc', return_value=("user", 1234, "pass", "/tmp")), \
-         patch('definitions.xbridge_manager.is_port_open', return_value=True), \
-         patch('asyncio.run'), \
-         patch('definitions.xbridge_manager.rpc_call', new_callable=AsyncMock) as mock_rpc_call:
+            patch('definitions.xbridge_manager.is_port_open', return_value=True), \
+            patch('asyncio.run'), \
+            patch('definitions.xbridge_manager.rpc_call', new_callable=AsyncMock) as mock_rpc_call:
         manager = XBridgeManager(mock_config_manager)
         manager.mock_rpc_call = mock_rpc_call  # Attach mock for easy access in tests
         yield manager
@@ -159,7 +159,7 @@ def test_parse_xbridge_conf_success(xbridge_manager):
     manager.blocknet_datadir_path = "/mock/datadir"
 
     with patch('builtins.open', mock_open(read_data=MOCK_XBRIDGE_CONF)), \
-         patch('os.path.exists', return_value=True):
+            patch('os.path.exists', return_value=True):
         manager.parse_xbridge_conf()
 
         assert manager.xbridge_conf is not None

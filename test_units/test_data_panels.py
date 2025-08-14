@@ -8,7 +8,7 @@ import pytest
 # Add parent directory to path for module imports
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from gui.components.data_panels import BaseDataPanel, OrdersPanel, BalancesPanel
+from gui.components.data_panels import OrdersPanel, BalancesPanel
 
 
 def test_column_sorting_logic():

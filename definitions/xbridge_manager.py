@@ -73,9 +73,11 @@ class XBridgeManager:
         if shutdown_event is None and self.config_manager and self.config_manager.controller:
             shutdown_event = self.config_manager.controller.shutdown_event
 
-        # Early bailout if shutdown is signaled
+        # Early bailout if shutdown is signaled, with exceptions for cleanup RPCs
         if shutdown_event and shutdown_event.is_set():
-            return None
+            if method not in ["dxCancelOrder", "dxGetMyOrders", "dxflushcancelledorders"]:
+                self.logger.debug(f"RPC call to {method} cancelled due to shutdown signal.")
+                return None
 
         # Wait for global RPC semaphore using thread pool (non-blocking for async)
         loop = asyncio.get_running_loop()

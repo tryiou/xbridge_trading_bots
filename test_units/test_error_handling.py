@@ -11,7 +11,6 @@ import pytest
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-
 from definitions.error_handler import ErrorHandler, TransientError, OperationalError
 from definitions.errors import ConfigurationError, ExchangeError, StrategyError, CriticalError, \
     GUIRenderingError, RPCConfigError
@@ -230,7 +229,6 @@ def test_rpc_error_propagates_to_shutdown():
     with patch("definitions.shutdown.ShutdownCoordinator.unified_shutdown") as mock_shutdown, \
             patch("definitions.starter.MainController") as MockController, \
             patch("definitions.ccxt_manager.CCXTManager._cleanup_proxy") as mock_cleanup:
-
         # Simulate RPCConfigError during initialization with port details
         MockController.side_effect = RPCConfigError(
             "Invalid RPC config",

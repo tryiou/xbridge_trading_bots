@@ -31,6 +31,7 @@ async def mock_price_fetcher():
         }
         yield fetcher
 
+
 @pytest.mark.asyncio
 async def test_price_fetcher_initialization():
     """Test PriceFetcher initialization and market loading."""
@@ -55,6 +56,7 @@ async def test_price_fetcher_initialization():
             })
             mock_exchange_instance.load_markets.assert_awaited()
             assert isinstance(fetcher.ccxt_i, MagicMock), "CCXT instance not properly initialized"
+
 
 @pytest.mark.asyncio
 async def test_ccxt_ticker_fetching(mock_price_fetcher):
@@ -87,6 +89,7 @@ async def test_ccxt_ticker_fetching(mock_price_fetcher):
     await fetcher.get_ccxt_tickers("BTC/USD", "XMR/USD")
     assert mock_ccxt.fetchTickers.await_count == 3
 
+
 @pytest.mark.asyncio
 async def test_block_ticker_fetching():
     """Test custom BLOCK ticker fetching via external API."""
@@ -117,6 +120,7 @@ async def test_block_ticker_fetching():
     price = await fetcher.get_block_ticker()
     assert price == 0.0015
     session.get.assert_not_called()
+
 
 @pytest.mark.asyncio
 async def test_webserver_request_handling():
@@ -161,6 +165,7 @@ async def test_webserver_request_handling():
     response = await server.handle_request(request)
     assert response.status == 500
     assert b"Bad JSON" in response.body
+
 
 @pytest.mark.asyncio
 async def test_async_retry_decorator():

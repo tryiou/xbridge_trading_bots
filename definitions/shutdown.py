@@ -24,9 +24,8 @@ async def wait_for_pending_rpcs(config_manager: 'ConfigManager', timeout=30):  #
         elapsed = time.time() - start_time
         if int(elapsed) % 5 == 0:
             logger.info(f"Waiting on {active_rpcs} RPCs ({int(elapsed)}s/{timeout}s)...")
-            
+
         await asyncio.sleep(1)
-    
 
     logger.warning(f"RPC wait timeout after {timeout} seconds, proceeding with shutdown")
 

@@ -28,8 +28,8 @@ from definitions.errors import RPCConfigError
 def test_get_default_config_path(platform_system, expected_path_fragment):
     """Test get_default_config_path for different operating systems."""
     with patch("platform.system", return_value=platform_system), \
-         patch("os.path.exists", return_value=True), \
-         patch("os.getenv", return_value="/appdata"): # for windows
+            patch("os.path.exists", return_value=True), \
+            patch("os.getenv", return_value="/appdata"):  # for windows
         path = get_default_config_path()
         if expected_path_fragment:
             assert expected_path_fragment in path.replace("\\", "/")
@@ -41,7 +41,7 @@ def test_read_config_file_success():
     """Test reading a valid blocknet.conf file."""
     mock_conf_content = "rpcuser=testuser\nrpcpassword=testpass\nrpcport=41414\n"
     with patch("builtins.open", mock_open(read_data=mock_conf_content)), \
-         patch("os.path.exists", return_value=True):
+            patch("os.path.exists", return_value=True):
         user, password, port = read_config_file("/fake/path/blocknet.conf")
         assert user == "testuser"
         assert password == "testpass"
@@ -52,7 +52,7 @@ def test_read_config_file_missing_keys():
     """Test reading a blocknet.conf file with missing keys."""
     mock_conf_content = "rpcuser=testuser\n"
     with patch("builtins.open", mock_open(read_data=mock_conf_content)), \
-         patch("os.path.exists", return_value=True):
+            patch("os.path.exists", return_value=True):
         with pytest.raises(RPCConfigError) as excinfo:
             read_config_file("/fake/path/blocknet.conf")
         assert "Missing keys" in str(excinfo.value)
@@ -73,7 +73,7 @@ def test_read_config_file_not_found():
 def test_prompt_user_for_config_path_console():
     """Test console prompt for config path."""
     with patch("definitions.detect_rpc._prompt_with_dialog", side_effect=ImportError), \
-         patch("builtins.input", return_value="/path/from/console/blocknet.conf"):
+            patch("builtins.input", return_value="/path/from/console/blocknet.conf"):
         path = prompt_user_for_config_path()
         assert path == "/path/from/console/blocknet.conf"
 
