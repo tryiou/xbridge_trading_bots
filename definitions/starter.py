@@ -21,20 +21,31 @@ class TradingProcessor:
     def __init__(self, controller):
         self.controller = controller
         self.pairs_dict = controller.pairs_dict
+        max_tasks = getattr(controller.config_manager.config_xbridge, 'max_concurrent_tasks', 5)
+        self.semaphore = asyncio.Semaphore(max_tasks)
 
     async def process_pairs(self, target_function):
-        """Processes all pairs using the target function without concurrency limit."""
+        """Processes all pairs using the target function with a concurrency limit."""
+
+        async def sem_task(pair):
+            # Wrapper to apply semaphore to each task
+            async with self.semaphore:
+                if self.controller.shutdown_event.is_set():
+                    return
+                # Execute the original target function
+                if asyncio.iscoroutinefunction(target_function):
+                    await target_function(pair)
+                else:
+                    loop = asyncio.get_running_loop()
+                    await loop.run_in_executor(None, target_function, pair)
+
         tasks = []
         for pair in self.pairs_dict.values():
             if pair.disabled:
                 continue
             if self.controller.shutdown_event.is_set():
                 return
-            if asyncio.iscoroutinefunction(target_function):
-                tasks.append(target_function(pair))
-            else:
-                loop = asyncio.get_running_loop()
-                tasks.append(loop.run_in_executor(None, target_function, pair))
+            tasks.append(sem_task(pair))
         if tasks:
             await asyncio.gather(*tasks)
 
@@ -161,7 +172,7 @@ class PriceHandler:
             if not hasattr(self.config_manager.config_coins.usd_ticker_custom,
                            token_symbol) and symbol in self.ccxt_i.symbols:
                 try:
-                    await self._update_token_price(tickers, symbol, lastprice_string, token_data)
+                    self._update_token_price(tickers, symbol, lastprice_string, token_data)
                 except Exception as e:
                     self.config_manager.error_handler.handle(
                         OperationalError(f"Error updating {token_symbol} price: {e}"),
@@ -188,15 +199,18 @@ class PriceHandler:
             "binance": "lastPrice"
         }.get(self.config_manager.my_ccxt.id, "lastTradeRate")
 
-    async def _update_token_price(self, tickers, symbol, lastprice_string, token_data):
+    def _update_token_price(self, tickers, symbol, lastprice_string, token_data):
         if symbol in tickers:
-            last_price = float(tickers[symbol]['info'][lastprice_string])  # This is a blocking call
+            last_price = float(tickers[symbol]['info'][lastprice_string])
             if token_data.symbol == 'BTC':
                 token_data.cex.usd_price = last_price
                 token_data.cex.cex_price = 1
             else:
                 token_data.cex.cex_price = last_price
-                token_data.cex.usd_price = last_price * self.tokens_dict['BTC'].cex.usd_price
+                if self.tokens_dict['BTC'].cex.usd_price:
+                    token_data.cex.usd_price = last_price * self.tokens_dict['BTC'].cex.usd_price
+                else:
+                    token_data.cex.usd_price = None
         else:
             self.config_manager.general_log.warning(f"Missing symbol in tickers: {symbol}")
             token_data.cex.cex_price = None
@@ -299,6 +313,7 @@ def run_async_main(config_manager, startup_tasks=None):
 
     async def main_wrapper():
         CCXTManager.register_strategy()
+        controller = None
         try:
             controller = MainController(config_manager, asyncio.get_running_loop())
             config_manager.controller = controller
@@ -319,6 +334,9 @@ def run_async_main(config_manager, startup_tasks=None):
 
     try:
         asyncio.run(main_wrapper())
+    except RPCConfigError:
+        # Re-raise to be caught by higher-level handlers or tests
+        raise
     except Exception as e:
         config_manager.general_log.error(f"Unhandled exception: {e}")
         traceback.print_exc()

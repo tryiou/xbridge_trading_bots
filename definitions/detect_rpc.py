@@ -30,27 +30,29 @@ def get_default_config_path():
         return ''
 
 
+def _prompt_with_dialog():
+    from tkinter import filedialog, Tk
+    import ttkbootstrap
+    root = Tk()
+    style = ttkbootstrap.Style(theme="darkly")
+    root.style = style
+    root.withdraw()  # Hide the main window
+    config_path = filedialog.askopenfilename(
+        title="Select blocknet.conf",
+        filetypes=[("Config files", "blocknet.conf"), ("All files", "*.*")],
+        parent=root
+    )
+    root.destroy()
+    ttkbootstrap.Style.instance = None
+
+    return config_path
+
+
+def _prompt_on_console():
+    return input("Enter path to blocknet.conf (including filename): ")
+
+
 def prompt_user_for_config_path():
-    def _prompt_with_dialog():
-        from tkinter import filedialog, Tk
-        import ttkbootstrap
-        root = Tk()
-        style = ttkbootstrap.Style(theme="darkly")
-        root.style = style
-        root.withdraw()  # Hide the main window
-        config_path = filedialog.askopenfilename(
-            title="Select blocknet.conf",
-            filetypes=[("Config files", "blocknet.conf"), ("All files", "*.*")],
-            parent=root
-        )
-        root.destroy()
-        ttkbootstrap.Style.instance = None
-
-        return config_path
-
-    def _prompt_on_console():
-        return input("Enter path to blocknet.conf (including filename): ")
-
     try:
         config_path = _prompt_with_dialog()
     except (ImportError, RuntimeError):
@@ -71,6 +73,10 @@ def read_config_file(config_path):
     if not config_path:
         autoconf_rpc_log.error('Config path is empty.')
         raise RPCConfigError("Empty configuration path", context={})
+
+    rpc_user = None
+    rpc_password = None
+    rpc_port = None
 
     if os.path.exists(config_path):
         autoconf_rpc_log.debug(f'Reading config file: {config_path}')

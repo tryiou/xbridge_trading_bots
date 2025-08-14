@@ -20,20 +20,23 @@ class ErrorHandler:
     async def _async_notify_user(self, level, message, details):
         """Async version of notify_user"""
         if self.config_manager:
-            # Try to use async_notify_user if available
-            if hasattr(self.config_manager, 'async_notify_user'):
-                await self.config_manager.async_notify_user(
-                    level=level,
-                    message=message,
-                    details=details
-                )
-            # Fallback to sync version
-            elif hasattr(self.config_manager, 'notify_user'):
-                self.config_manager.notify_user(
-                    level=level,
-                    message=message,
-                    details=details
-                )
+            try:
+                # Try to use async_notify_user if available
+                if hasattr(self.config_manager, 'async_notify_user'):
+                    await self.config_manager.async_notify_user(
+                        level=level,
+                        message=message,
+                        details=details
+                    )
+                # Fallback to sync version
+                elif hasattr(self.config_manager, 'notify_user'):
+                    self.config_manager.notify_user(
+                        level=level,
+                        message=message,
+                        details=details
+                    )
+            except Exception as e:
+                self.logger.warning(f"Notification failed: {e}")
 
     def _get_full_context(self, error, context=None):
         """Merges error context with provided context"""
@@ -197,17 +200,11 @@ class ErrorHandler:
         )
         # Add user notification hook
         if self.config_manager:
-            try:
-                # Try to call notify_user directly
-                if hasattr(self.config_manager, 'notify_user'):
-                    self.config_manager.notify_user(
-                        level="warning",
-                        message=f"Operational Error: {error}",
-                        details=context
-                    )
-            except Exception as e:
-                # If direct call fails, log the error
-                self.logger.warning(f"Direct notification failed: {e}")
+            await self._async_notify_user(
+                level="warning",
+                message=f"Operational Error: {error}",
+                details=context
+            )
         return True  # Continue operation
 
     async def _handle_critical_async(self, error, context):
@@ -218,17 +215,11 @@ class ErrorHandler:
         )
         # Add user notification hook
         if self.config_manager:
-            try:
-                # Try to call notify_user directly
-                if hasattr(self.config_manager, 'notify_user'):
-                    self.config_manager.notify_user(
-                        level="critical",
-                        message=f"Critical Error: {error}",
-                        details=context
-                    )
-            except Exception as e:
-                # If direct call fails, log the error
-                self.logger.warning(f"Direct notification failed: {e}")
+            await self._async_notify_user(
+                level="critical",
+                message=f"Critical Error: {error}",
+                details=context
+            )
         # Initiate shutdown sequence
         if self.config_manager:
             try:

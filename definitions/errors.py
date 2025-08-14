@@ -82,10 +82,6 @@ class InsufficientFundsError(OperationalError):
 def convert_exception(e: Exception) -> 'AppError':
     """Convert third-party exceptions to native application error types"""
     # Handle CCXT Errors
-    from .errors import AppError, InsufficientFundsError, NetworkTimeoutError, OrderError, RPCConfigError, \
-        OperationalError
-
-    # Handle CCXT Errors
     if hasattr(e, 'name'):
         if e.name == 'InsufficientFunds':
             exc = InsufficientFundsError(str(e))

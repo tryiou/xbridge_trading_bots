@@ -18,7 +18,7 @@ def extract_dict_from_line(line):
     if match:
         try:
             return ast.literal_eval(match.group(0))
-        except Exception:
+        except (ValueError, SyntaxError):
             pass
     return None
 
@@ -113,8 +113,10 @@ def generate_completed_table(completed_cycles):
                                          "%Y-%m-%dT%H:%M:%S.%fZ")
             delta = buy_time - sell_time
             delta_str = f"{delta.days} days {delta.seconds // 3600}:{(delta.seconds // 60) % 60}:{delta.seconds % 60}"
-        except:
-            delta_str = ""
+        except (ValueError, TypeError) as e:
+            logger.warning(
+                f"Could not parse timestamp to calculate execution time for order pair: {sell_order.get('id')}, {buy_order.get('id')}. Error: {e}")
+            delta_str = "N/A"
 
         profit = float(sell_order['taker_size']) - float(buy_order['maker_size'])
         row2 = [

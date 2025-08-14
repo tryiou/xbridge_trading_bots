@@ -66,8 +66,15 @@ class TradeState:
         state_dir = cls._get_state_dir(strategy)
         if not os.path.exists(state_dir):
             return []
+        unfinished_trades = []
         unfinished_files = [os.path.join(state_dir, f) for f in os.listdir(state_dir) if f.endswith('.json')]
-        return [json.load(open(f)) for f in unfinished_files]
+        for f_path in unfinished_files:
+            try:
+                with open(f_path, 'r') as fp:
+                    unfinished_trades.append(json.load(fp))
+            except json.JSONDecodeError:
+                strategy.config_manager.general_log.error(f"Corrupted state file found and skipped: {f_path}")
+        return unfinished_trades
 
     @classmethod
     def cleanup_all_states(cls, strategy: 'ArbitrageStrategy'):

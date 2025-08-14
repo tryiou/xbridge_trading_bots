@@ -79,17 +79,23 @@ def silence_noisy_loggers():
 
 def setup_logger(strategy=None, ROOT_DIR=None):
     if strategy:
+        # Ensure logs directory exists
+        logs_dir = os.path.join(ROOT_DIR, 'logs')
+        os.makedirs(logs_dir, exist_ok=True)
+        
         general_log = setup_logging(name=f"{strategy}.general",
-                                    log_file=ROOT_DIR + '/logs/' + strategy + '_general.log',
+                                    log_file=os.path.join(logs_dir, strategy + '_general.log'),
                                     level=logging.DEBUG,  # Changed to DEBUG for comprehensive logging
                                     console=True)
         general_log.propagate = True
+        
         trade_log = setup_logging(name=f"{strategy}.trade",
-                                  log_file=ROOT_DIR + '/logs/' + strategy + '_trade.log',
+                                  log_file=os.path.join(logs_dir, strategy + '_trade.log'),
                                   level=logging.INFO,
                                   console=False)
+        
         ccxt_log = setup_logging(name=f"{strategy}.ccxt",
-                                 log_file=ROOT_DIR + '/logs/' + strategy + '_ccxt.log',
+                                 log_file=os.path.join(logs_dir, strategy + '_ccxt.log'),
                                  level=logging.INFO,
                                  console=True)
 

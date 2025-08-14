@@ -12,13 +12,6 @@ import pytest
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
-# Helper to run async tests
-def run_async(coro):
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    return loop.run_until_complete(coro)
-
-
 from definitions.error_handler import ErrorHandler, TransientError, OperationalError
 from definitions.errors import ConfigurationError, ExchangeError, StrategyError, CriticalError, \
     GUIRenderingError, RPCConfigError
@@ -249,12 +242,10 @@ def test_rpc_error_propagates_to_shutdown():
         )
 
         with patch.object(mock_config.general_log, 'critical') as mock_critical:
-            try:
+            with pytest.raises(RPCConfigError):
                 run_async_main(mock_config)
-            except SystemExit:
-                pass
 
-            # Verify RPC port details in context                                                                                                                                           
+            # Verify RPC port details in context
             assert "/bad/path" in mock_critical.call_args[0][
                 0]  # From error context
             assert "2233" in mock_critical.call_args[0][
@@ -267,9 +258,8 @@ def test_rpc_error_propagates_to_shutdown():
 
             assert "RPCConfigError" in mock_critical.call_args[0][0]
 
-        # Error classification tests
 
-
+# Error classification tests
 @pytest.mark.parametrize("error,expected_type", [
     (ConfigurationError("Invalid config"), OperationalError),
     (RPCConfigError("Invalid RPC path"), OperationalError),  # New test case

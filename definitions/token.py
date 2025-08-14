@@ -4,6 +4,8 @@ import time
 import aiohttp
 import yaml
 
+from definitions.rpc import rpc_call
+
 
 class Token:
     """Represents a cryptocurrency token with DEX and CEX trading capabilities.
@@ -236,7 +238,6 @@ class CexToken:
         done = False
         used_proxy = False
         result = None
-        from definitions.rpc import rpc_call  # Local import to avoid circular dependency issues at module level
         async with aiohttp.ClientSession() as session:
             while not done:
                 count += 1

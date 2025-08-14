@@ -303,7 +303,7 @@ class DexPair:
         maker_size = f"{self.current_order['maker_size']:.6f}"
         bal = self._get_balance()
 
-        if self._is_balance_valid(bal, maker_size):
+        if self._is_balance_valid(bal, maker_size) and float(bal) >= float(maker_size):
             await self._create_order(dry_mode, maker_size)
         else:
             self.pair.config_manager.general_log.error(
@@ -316,23 +316,18 @@ class DexPair:
         return bal is not None and maker_size.replace('.', '').isdigit()
 
     async def _create_order(self, dry_mode, maker_size):
-        if float(self._get_balance()) > float(maker_size):
-            try:
-                order = await self._generate_order(dry_mode)
-                if not dry_mode:
-                    self.order = order
-                    if self.order and 'error' in self.order:
-                        self._handle_order_error()
-                else:
-                    self._log_dry_mode_order(order)
-            except Exception as e:
-                context = {"pair": self.pair.symbol, "stage": "order_creation"}
-                err = convert_exception(e)
-                err.context = context
-                await self.pair.config_manager.error_handler.handle_async(err)
-        else:
-            self.pair.config_manager.general_log.error(
-                f"dex_create_order, balance too low: {self._get_balance()}, need: {maker_size} {self.current_order['maker']}")
+        try:
+            order = await self._generate_order(dry_mode)
+            if not dry_mode:
+                self.order = order
+                if self.order and 'error' in self.order:
+                    await self._handle_order_error()
+            else:
+                self._log_dry_mode_order(order)
+        except Exception as e:
+            context = {"pair": self.pair.symbol, "stage": "order_creation"}
+            err = convert_exception(e)
+            await self.pair.config_manager.error_handler.handle_async(err, context)
 
     async def _generate_order(self, dry_mode):
         maker = self.current_order['maker']
@@ -350,7 +345,7 @@ class DexPair:
         return await self.pair.config_manager.xbridge_manager.makeorder(maker, maker_size, maker_address, taker,
                                                                         taker_size, taker_address)
 
-    def _handle_order_error(self):
+    async def _handle_order_error(self):
         # Store the original error object before it's potentially modified
         original_order_error = self.order
 

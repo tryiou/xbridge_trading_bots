@@ -30,11 +30,20 @@ class ConfigManager:
         self.error_handler = ErrorHandler(self)
 
         if master_manager:
-            # In GUI slave mode, just get a reference to the existing loggers.
-            # The GUI's setup_logging will handle their configuration.
+            # In GUI slave mode, get references to strategy-specific loggers
             self.general_log = logging.getLogger(f"{strategy}.general")
             self.trade_log = logging.getLogger(f"{strategy}.trade")
             self.ccxt_log = logging.getLogger(f"{strategy}.ccxt")
+            
+            # Ensure trade logger has file handler for strategy-specific trade log
+            if not self.trade_log.handlers:
+                logs_dir = os.path.join(self.ROOT_DIR, 'logs')
+                os.makedirs(logs_dir, exist_ok=True)
+                trade_log_file = os.path.join(logs_dir, f"{strategy}_trade.log")
+                trade_handler = logging.FileHandler(trade_log_file)
+                trade_handler.setFormatter(logging.Formatter('[%(asctime)s] [%(name)-20s] %(levelname)-8s - %(message)s'))
+                trade_handler.setLevel(logging.INFO)
+                self.trade_log.addHandler(trade_handler)
         else:
             # In standalone or master GUI mode, set up the loggers from scratch.
             self.general_log, self.trade_log, self.ccxt_log = setup_logger(strategy, self.ROOT_DIR)
