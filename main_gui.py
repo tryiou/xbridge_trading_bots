@@ -1,3 +1,4 @@
+import os
 import signal
 import sys
 
@@ -20,20 +21,15 @@ def signal_handler(sig, frame):
 
 
 if __name__ == '__main__':
-    # Signal that the application is running in GUI mode.
-    # This allows other modules to adjust their behavior (e.g., logging).
+
+    # Set up signal handler for Ctrl+C
+    signal.signal(signal.SIGINT, signal_handler)
     set_gui_mode(True)
 
     app = MainApplication()
-    # Set up protocol for window close button
     app.root.protocol("WM_DELETE_WINDOW", app.on_closing)
-    # Set up signal handler for Ctrl+C
-    signal.signal(signal.SIGINT, signal_handler)
     try:
         app.root.mainloop()
     except KeyboardInterrupt:
         print("\nKeyboard interrupt detected. Shutting down...")
-        # The signal_handler should have already scheduled on_closing,
-        # but this acts as a fallback if the signal is caught directly here.
-        if app:
-            app.on_closing()
+

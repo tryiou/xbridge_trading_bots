@@ -48,7 +48,7 @@ class XBridgeManager:
                 max_tasks = self.config_manager.config_xbridge.max_concurrent_tasks
             except AttributeError:
                 self.logger.info(f"Falling back to default max_concurrent_tasks ({max_tasks})")
-            XBridgeManager._rpc_semaphore = threading.BoundedSemaphore(max_tasks)
+            XBridgeManager._rpc_semaphore = asyncio.BoundedSemaphore(max_tasks)
 
         # Check if RPC port is open (synchronous check)
         if not is_port_open("127.0.0.1", self.blocknet_port_rpc):
@@ -80,40 +80,33 @@ class XBridgeManager:
                 self.logger.debug(f"RPC call to {method} cancelled due to shutdown signal.")
                 return None
 
-        # Wait for global RPC semaphore using thread pool (non-blocking for async)
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, XBridgeManager._rpc_semaphore.acquire)
-
-        try:
-            # Maintain active call counter with lock
+        async with XBridgeManager._rpc_semaphore:
             with XBridgeManager._rpc_counter_lock:
                 XBridgeManager._active_rpc_counter += 1
-            # Default parameters
-            if params is None:
-                params = []
-
-            # Make the actual RPC call (exceptions are converted to native types)
+                
             try:
-                return await rpc_call(
-                    method=method,
-                    params=params,
-                    rpc_user=self.blocknet_user_rpc,
-                    rpc_password=self.blocknet_password_rpc,
-                    rpc_port=self.blocknet_port_rpc,
-                    debug=self.config_manager.config_xbridge.debug_level,
-                    logger=self.logger,
-                    session=None,  # Create new session per call
-                    shutdown_event=shutdown_event
-                )
-            except Exception as e:
-                from definitions.errors import convert_exception
-                raise convert_exception(e) from e
+                # Default parameters
+                if params is None:
+                    params = []
+
+                try:
+                    return await rpc_call(
+                        method=method,
+                        params=params,
+                        rpc_user=self.blocknet_user_rpc,
+                        rpc_password=self.blocknet_password_rpc,
+                        rpc_port=self.blocknet_port_rpc,
+                        debug=self.config_manager.config_xbridge.debug_level,
+                        logger=self.logger,
+                        session=None,  # Create new session per call
+                        shutdown_event=shutdown_event
+                    )
+                except Exception as e:
+                    from definitions.errors import convert_exception
+                    raise convert_exception(e) from e
             finally:
                 with XBridgeManager._rpc_counter_lock:
                     XBridgeManager._active_rpc_counter -= 1
-        finally:
-            # Release the semaphore to allow other RPC calls
-            XBridgeManager._rpc_semaphore.release()
 
     async def async_test_rpc(self):
         """Perform RPC connection test asynchronously with cancellation handling"""
@@ -276,7 +269,7 @@ class XBridgeManager:
 
         with XBridgeManager._utxo_cache_lock:
             XBridgeManager._utxo_cache[cache_key] = (time.time(), result)
-            self.logger.debug(f"Cached new class-level UTXO data for {token} (used={used})")
+            # self.logger.debug(f"Cached new class-level UTXO data for {token} (used={used})")
         return result
 
     async def getlocaltokens(self):

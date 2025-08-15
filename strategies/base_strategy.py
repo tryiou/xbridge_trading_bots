@@ -191,7 +191,7 @@ class BaseStrategy(ABC):
         Stops the strategy and waits for its thread to terminate.
         This is a blocking call.
         """
-        if not self.is_running or not self._bot_thread:
+        if not self.is_running:
             self.config_manager.general_log.warning("Attempted to stop a non-running strategy.")
             return
 
@@ -207,15 +207,16 @@ class BaseStrategy(ABC):
         else:
             self.config_manager.general_log.warning("No active controller/loop to signal for shutdown.")
 
-        # Wait for the thread to finish
-        self._bot_thread.join(timeout=timeout)
+        # Wait for the thread to finish (only if it's a separate thread)
+        if self._bot_thread:
+            self._bot_thread.join(timeout=timeout)
 
-        if self._bot_thread.is_alive():
-            self.config_manager.general_log.warning(
-                f"Bot thread for {self.config_manager.strategy} did not terminate gracefully within {timeout}s.")
-        else:
-            self.config_manager.general_log.info(
-                f"{self.config_manager.strategy.capitalize()} bot stopped successfully.")
+            if self._bot_thread.is_alive():
+                self.config_manager.general_log.warning(
+                    f"Bot thread for {self.config_manager.strategy} did not terminate gracefully within {timeout}s.")
+            else:
+                self.config_manager.general_log.info(
+                    f"{self.config_manager.strategy.capitalize()} bot stopped successfully.")
 
         self.is_running = False
         self._bot_thread = None

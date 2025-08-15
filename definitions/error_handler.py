@@ -96,23 +96,23 @@ class ErrorHandler:
         """Handle transient errors with retry logic"""
         # For testing purposes, simulate retry logic
         if getattr(self.config_manager, '_is_testing', False) or self._is_testing:
-            # In tests, we just sleep once to verify retry behavior
             time.sleep(0.1)
             return True
 
+        attempt = context.get('err_count', 0)
+        if attempt >= self.max_retries:
+            self.logger.error(
+                f"Transient error max retries exceeded: {error} | Context: {context}"
+            )
+            return False
+
         # Implement actual retry logic with exponential backoff
         self.logger.warning(
-            f"Transient error (will retry {self.max_retries} times): {error} | Context: {context}"
+            f"Transient error (attempt {attempt + 1}/{self.max_retries}): {error} | Context: {context}"
         )
-        for attempt in range(self.max_retries):
-            delay = self.retry_delays[attempt] if attempt < len(self.retry_delays) else self.retry_delays[-1]
-            time.sleep(delay)
-            return True  # Signal to retry operation after delay
-
-        self.logger.error(
-            f"Transient error max retries exceeded: {error} | Context: {context}"
-        )
-        return False
+        delay = self.retry_delays[attempt] if attempt < len(self.retry_delays) else self.retry_delays[-1]
+        time.sleep(delay)
+        return True  # Signal to retry operation after delay
 
     def _handle_operational(self, error, context):
         """Handle operational errors with logging and continuation"""
@@ -159,10 +159,16 @@ class ErrorHandler:
             try:
                 # Try to use async_shutdown if available
                 if hasattr(self.config_manager, 'async_shutdown'):
-                    # Run in a new event loop
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    loop.run_until_complete(self.config_manager.async_shutdown(reason=str(error)))
+                    # Schedule shutdown on the running loop if it exists, otherwise run in a new one.
+                    try:
+                        loop = asyncio.get_running_loop()
+                        if loop.is_running():
+                            loop.create_task(self.config_manager.async_shutdown(reason=str(error)))
+                        else:
+                            # This case is unlikely but handles a stopped loop
+                            asyncio.run(self.config_manager.async_shutdown(reason=str(error)))
+                    except RuntimeError:  # No running loop
+                        asyncio.run(self.config_manager.async_shutdown(reason=str(error)))
                 # Fallback to sync version
                 elif hasattr(self.config_manager, 'shutdown'):
                     self.config_manager.shutdown(reason=str(error))
@@ -174,23 +180,23 @@ class ErrorHandler:
         """Async version of handling transient errors with retry logic"""
         # For testing purposes, simulate retry logic
         if getattr(self.config_manager, '_is_testing', False) or self._is_testing:
-            # In tests, we just sleep once to verify retry behavior
             await asyncio.sleep(0.1)
             return True
 
+        attempt = context.get('err_count', 0)
+        if attempt >= self.max_retries:
+            self.logger.error(
+                f"Transient error max retries exceeded: {error} | Context: {context}"
+            )
+            return False
+
         # Implement actual retry logic with exponential backoff
         self.logger.warning(
-            f"Transient error (will retry {self.max_retries} times): {error} | Context: {context}"
+            f"Transient error (attempt {attempt + 1}/{self.max_retries}): {error} | Context: {context}"
         )
-        for attempt in range(self.max_retries):
-            delay = self.retry_delays[attempt] if attempt < len(self.retry_delays) else self.retry_delays[-1]
-            await asyncio.sleep(delay)
-            return True  # Signal to retry operation after delay
-
-        self.logger.error(
-            f"Transient error max retries exceeded: {error} | Context: {context}"
-        )
-        return False
+        delay = self.retry_delays[attempt] if attempt < len(self.retry_delays) else self.retry_delays[-1]
+        await asyncio.sleep(delay)
+        return True  # Signal to retry operation after delay
 
     async def _handle_operational_async(self, error, context):
         """Async version of handling operational errors with logging and continuation"""

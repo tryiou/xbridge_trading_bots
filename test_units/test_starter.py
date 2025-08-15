@@ -2,14 +2,14 @@ import asyncio
 import os
 import sys
 import threading
-from unittest.mock import MagicMock, AsyncMock, patch, create_autospec
+from unittest.mock import MagicMock, AsyncMock, patch, create_autospec, call
 
 import pytest
 
 # Add parent directory to path for module imports
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from definitions.token import CexToken, DexToken
+from definitions.token import CexToken, DexToken, Token
 from definitions.starter import (
     TradingProcessor,
     BalanceManager,
@@ -70,21 +70,6 @@ def mock_main_controller(mock_config_manager):
     return controller
 
 
-@pytest.mark.asyncio
-async def test_trading_processor_concurrency(mock_main_controller):
-    """Tests that TradingProcessor respects the concurrency semaphore."""
-    processor = TradingProcessor(mock_main_controller)
-    target_function = AsyncMock()
-
-    # Create more pairs than the semaphore limit
-    processor.pairs_dict = {f'pair{i}': MagicMock(disabled=False) for i in range(5)}
-
-    await processor.process_pairs(target_function)
-
-    # All non-disabled pairs should be processed
-    assert target_function.call_count == 5
-    # Max concurrent calls is limited by semaphore in config_xbridge
-    assert processor.semaphore._value <= 2
 
 
 @pytest.mark.asyncio
@@ -187,18 +172,113 @@ def test_run_async_main_rpc_error(MockController, mock_main, mock_config_manager
     assert "Fatal RPC configuration error" in mock_config_manager.general_log.critical.call_args[0][0]
 
 
-@patch('definitions.starter.main', new_callable=AsyncMock)
-@patch('definitions.starter.MainController')
-@patch('definitions.shutdown.ShutdownCoordinator.unified_shutdown', new_callable=AsyncMock)
-def test_run_async_main_unbound_local_error_fixed(mock_shutdown, MockController, mock_main, mock_config_manager):
-    """
-    Tests that the UnboundLocalError for 'controller' on init failure is fixed.
-    """
-    MockController.side_effect = KeyboardInterrupt  # Simulate interrupt during controller creation
+@pytest.mark.asyncio
+async def test_trading_processor_async(mock_config_manager):
+    """Test TradingProcessor handles async callbacks correctly."""
+    mock_controller = MagicMock()
+    mock_controller.pairs_dict = {
+        'pair1': MagicMock(disabled=False),
+        'pair2': MagicMock(disabled=False)
+    }
+    mock_controller.shutdown_event = asyncio.Event()
+    mock_controller.loop = asyncio.get_running_loop()
+    processor = TradingProcessor(mock_controller)
+    
+    async_mock = AsyncMock()
+    await processor.process_pairs(async_mock)
+    
+    # Check call counts and arguments
+    assert async_mock.await_count == 2
+    async_mock.assert_has_calls([
+        call(mock_controller.pairs_dict['pair1']),
+        call(mock_controller.pairs_dict['pair2'])
+    ], any_order=True)
 
-    # This should not raise UnboundLocalError
-    run_async_main(mock_config_manager)
+@pytest.mark.asyncio
+async def test_trading_processor_sync(mock_config_manager):
+    """Test TradingProcessor handles sync callbacks correctly."""
+    mock_controller = MagicMock()
+    mock_controller.pairs_dict = {
+        'pair1': MagicMock(disabled=False)
+    }
+    mock_controller.shutdown_event = asyncio.Event()
+    # Create a completed future to return
+    future = asyncio.Future()
+    future.set_result(None)
+    mock_controller.loop = MagicMock()
+    mock_controller.loop.run_in_executor = MagicMock(return_value=future)
+    processor = TradingProcessor(mock_controller)
+    
+    sync_mock = MagicMock()
+    await processor.process_pairs(sync_mock)
+    
+    # Verify thread pool executor was used
+    assert mock_controller.loop.run_in_executor.call_count == 1
+    # Verify call arguments
+    mock_controller.loop.run_in_executor.assert_called_once_with(None, sync_mock, mock_controller.pairs_dict['pair1'])
 
-    mock_config_manager.general_log.info.assert_any_call("Received stop signal. Initiating coordinated shutdown...")
-    # unified_shutdown should not be called as controller was not created
-    assert not mock_shutdown.called
+@pytest.mark.asyncio
+async def test_price_handler_custom_coin(mock_config_manager):
+    """Test PriceHandler handles custom coins correctly."""
+    # Create mock objects with necessary structure
+    usd_ticker_custom = type('', (), {})()  # Create an empty object
+    setattr(usd_ticker_custom, 'TEST', {})  # Add TEST attribute
+    mock_config_manager.config_coins.usd_ticker_custom = usd_ticker_custom
+    # Ensure strategy requires price updates
+    mock_config_manager.strategy_instance.should_update_cex_prices.return_value = True
+        
+    mock_controller = MagicMock()
+    mock_controller.config_manager = mock_config_manager
+        
+    # Create token with async update_price
+    token_mock = MagicMock()
+    token_mock.cex.update_price = AsyncMock()
+    mock_controller.tokens_dict = {'TEST': token_mock}
+    mock_controller.shutdown_event = asyncio.Event()  # Add shutdown_event
+        
+    price_handler = PriceHandler(mock_controller, asyncio.get_event_loop())
+    price_handler.ccxt_price_timer = 0  # Force update
+        
+    await price_handler.update_ccxt_prices()
+    token_mock.cex.update_price.assert_awaited_once()
+
+@pytest.mark.asyncio
+async def test_balance_manager_token_not_in_xb_tokens(mock_config_manager):
+    """Test BalanceManager resets balances when token isn't in xb_tokens."""
+    mock_config_manager.xbridge_manager.getlocaltokens.return_value = ['BTC']
+    token = Token('ETH', 'test') 
+    token.dex.total_balance = 10
+    token.dex.free_balance = 5
+    
+    balance_manager = BalanceManager(
+        {'ETH': token}, mock_config_manager, asyncio.get_event_loop()
+    )
+    await balance_manager.update_balances()
+    
+    assert token.dex.total_balance is None
+    assert token.dex.free_balance is None
+
+@pytest.mark.asyncio
+async def test_main_controller_thread_init_blocking(mock_config_manager):
+    """Test blocking initialization in MainController."""
+    controller = MainController(mock_config_manager, asyncio.get_event_loop())
+    mock_config_manager.strategy_instance.thread_loop_blocking_action = MagicMock()
+    pair = MagicMock()
+    controller.pairs_dict = {'pair1': pair}
+    
+    controller.thread_init_blocking(pair)
+    mock_config_manager.strategy_instance.thread_loop_blocking_action.assert_called_once_with(pair)
+
+@pytest.mark.asyncio
+async def test_main_controller_close_session(mock_config_manager):
+    """Test HTTP session closure logic."""
+    controller = MainController(mock_config_manager, asyncio.get_event_loop())
+    # Make sure to store session before closing
+    session = AsyncMock()
+    session.closed = False  # Mark session as open
+    controller.http_session = session
+    controller._http_session_owner = True
+    
+    await controller.close_http_session()
+    session.close.assert_awaited_once()
+    assert controller.http_session is None

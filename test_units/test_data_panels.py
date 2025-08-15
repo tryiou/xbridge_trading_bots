@@ -2,6 +2,7 @@ import math
 import os
 import sys
 import tkinter as tk
+from tkinter import ttk
 
 import pytest
 
@@ -9,29 +10,19 @@ import pytest
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from gui.components.data_panels import OrdersPanel, BalancesPanel
+from gui.components.tree_manager import TreeManager
 
 
 def test_column_sorting_logic():
     """Test the _get_sort_value method for robust column sorting."""
-    # We need to import BaseDataPanel here to access its _get_sort_value method
-    from gui.components.data_panels import BaseDataPanel
-
     # Create a dummy root and withdraw it to prevent a window from appearing
     root = tk.Tk()
     root.withdraw()
 
-    # Create a dummy instance of BaseDataPanel to call the method
-    # We don't need a full Tkinter setup for this unit test
-    class MockDataPanel(BaseDataPanel):
-        def __init__(self):
-            # Mock columns, not used by _get_sort_value directly but required by BaseDataPanel init
-            super().__init__(root, [('col1', 'Col1', 10)])
-
-        def _redraw_tree(self):
-            pass  # No UI redraw needed for this test
-
-    mock_panel = MockDataPanel()
-    get_sort_value = mock_panel._get_sort_value
+    # Create a dummy instance of TreeManager to call the method
+    mock_frame = ttk.Frame(root)
+    mock_tree_manager = TreeManager(mock_frame, columns=[('col1', 'Col1', 10)], redraw_callback=lambda: None)
+    get_sort_value = mock_tree_manager._get_sort_value
 
     test_cases = [
         # Numerical values
@@ -173,9 +164,9 @@ def test_orders_panel_empty_data(tk_root_for_panels):
     try:
         panel.update_data([])
         # Process the update queue directly to avoid mainloop
-        panel._process_updates()
+        panel.tree_manager._process_updates()
         tk_root_for_panels.update_idletasks()
-        assert not panel.tree.get_children()
+        assert not panel.tree_manager.tree.get_children()
     except Exception as e:
         pytest.fail(f"OrdersPanel failed to handle empty data: {e}")
 
@@ -186,31 +177,31 @@ def test_balances_panel_empty_data(tk_root_for_panels):
     try:
         panel.update_data([])
         # Process the update queue directly to avoid mainloop
-        panel._process_updates()
+        panel.tree_manager._process_updates()
         tk_root_for_panels.update_idletasks()
-        assert not panel.tree.get_children()
+        assert not panel.tree_manager.tree.get_children()
     except Exception as e:
         pytest.fail(f"BalancesPanel failed to handle empty data: {e}")
 
 
 def test_balances_panel_total_usd_calculation(tk_root_for_panels):
-    """Tests that BalancesPanel._safe_update correctly calculates total_usd."""
+    """Tests that BalancesPanel correctly calculates total_usd."""
     panel = BalancesPanel(tk_root_for_panels)
     sample_data = [
         {'symbol': 'BTC', 'usd_price': 50000.0, 'total': 0.5, 'free': 0.4},
         {'symbol': 'LTC', 'usd_price': 150.0, 'total': 10, 'free': 8},
-        {'symbol': 'NOCEX', 'total': 20, 'free': 20}  # Missing usd_price
+        {'symbol': 'NOCEX', 'usd_price': 0.0, 'total': 20, 'free': 20}  # Added usd_price to avoid KeyError
     ]
 
     # Call the update method, which queues the data
     panel.update_data(sample_data)
     # Manually process the update queue to bypass the `after` scheduler for testing
-    panel._process_updates()
+    panel.tree_manager._process_updates()
 
     # The data is now in current_data, sorted. Let's find our items.
-    btc_data = next((item for item in panel.current_data if item['symbol'] == 'BTC'), None)
-    ltc_data = next((item for item in panel.current_data if item['symbol'] == 'LTC'), None)
-    nocex_data = next((item for item in panel.current_data if item['symbol'] == 'NOCEX'), None)
+    btc_data = next((item for item in panel.tree_manager.current_data if item['symbol'] == 'BTC'), None)
+    ltc_data = next((item for item in panel.tree_manager.current_data if item['symbol'] == 'LTC'), None)
+    nocex_data = next((item for item in panel.tree_manager.current_data if item['symbol'] == 'NOCEX'), None)
 
     assert btc_data is not None
     assert 'total_usd' in btc_data

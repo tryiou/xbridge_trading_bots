@@ -217,17 +217,7 @@ class MainApplication:
         """Handles application closing event by signaling shutdown coordinator"""
         self.status_var.set("Shutting down... Please wait.")
 
-        # Signal the balance updater thread to stop
-        if hasattr(self, 'balance_stop_event'):
-            self.balance_stop_event.set()
-        if hasattr(self, 'balance_updater_thread') and self.balance_updater_thread.is_alive():
-            self.balance_updater_thread.join(2.0)  # Give thread 2 seconds to exit
-
-        shutdown_coordinator = GUIShutdownCoordinator(
-            config_manager=self.master_config_manager,
-            strategies=self.strategy_frames,
-            gui_root=self.root
-        )
+        shutdown_coordinator = GUIShutdownCoordinator(main_app=self)
         shutdown_coordinator.initiate_shutdown()
 
     def _run_balance_updater(self):

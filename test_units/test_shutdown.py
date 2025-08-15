@@ -65,9 +65,8 @@ async def test_unified_shutdown_sequence():
     mock_cm.http_session = AsyncMock()
     mock_cm.http_session.close = AsyncMock()
 
-    # Patch wait_for_pending_rpcs and _cleanup_proxy
-    with patch('definitions.shutdown.wait_for_pending_rpcs', new_callable=AsyncMock) as mock_wait_rpc, \
-            patch('definitions.shutdown.CCXTManager._cleanup_proxy') as mock_cleanup_proxy:
+    # Patch wait_for pending RPCs
+    with patch('definitions.shutdown.wait_for_pending_rpcs', new_callable=AsyncMock) as mock_wait_rpc:
         # Act
         await ShutdownCoordinator.unified_shutdown(mock_cm)
 
@@ -83,6 +82,3 @@ async def test_unified_shutdown_sequence():
 
         # 4. Closed HTTP session
         mock_cm.http_session.close.assert_awaited_once()
-
-        # 5. Cleaned up proxy
-        mock_cleanup_proxy.assert_called_once()

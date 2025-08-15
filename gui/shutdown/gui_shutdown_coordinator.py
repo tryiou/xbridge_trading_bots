@@ -4,10 +4,10 @@ import threading
 import time
 from typing import TYPE_CHECKING, Dict, Any
 
-from definitions.config_manager import ConfigManager
 from definitions.errors import CriticalError, OperationalError
 
 if TYPE_CHECKING:
+    from gui.main_app import MainApplication
     from gui.frames.base_frames import BaseStrategyFrame
 
 logger = logging.getLogger(__name__)
@@ -20,17 +20,16 @@ class GUIShutdownCoordinator:
     and GUI-related background tasks with centralized error handling.
     """
 
-    def __init__(self, config_manager: ConfigManager, strategies: Dict[str, "BaseStrategyFrame"], gui_root: Any):
+    def __init__(self, main_app: "MainApplication"):
         """
         Initializes the GUI Shutdown Coordinator.
 
-        :param config_manager: The master ConfigManager instance.
-        :param strategies: A dictionary of active strategy frames.
-        :param gui_root: The main Tkinter root window.
+        :param main_app: The main application instance.
         """
-        self.master_config_manager = config_manager
-        self.strategy_frames = strategies
-        self.gui_root = gui_root
+        self.main_app = main_app
+        self.master_config_manager = main_app.master_config_manager
+        self.strategy_frames = main_app.strategy_frames
+        self.gui_root = main_app.root
         self._shutdown_in_progress = False
 
     def initiate_shutdown(self):
@@ -63,20 +62,28 @@ class GUIShutdownCoordinator:
     def _perform_shutdown_tasks(self):
         """Performs the actual shutdown tasks in a separate thread with error handling."""
         try:
-            frames_to_stop = []
-            # Stop all running strategies by calling their frame's stop method.
+            # 1. Stop GUI-specific background tasks like balance updater
+            logger.info("Stopping balance updater thread...")
+            if hasattr(self.main_app, 'balance_stop_event'):
+                self.main_app.balance_stop_event.set()
+            if hasattr(self.main_app, 'balance_updater_thread') and self.main_app.balance_updater_thread.is_alive():
+                self.main_app.balance_updater_thread.join(2.0)
+            logger.info("Balance updater stopped.")
+
+            # 2. Stop all running strategies
+            stopper_threads = []
             for name, frame in self.strategy_frames.items():
                 if frame.started:
                     logger.info(f"Stopping {name} strategy...")
-                    frame.stop(reload_config=False)
-                    frames_to_stop.append(frame)
+                    thread = frame.stop(reload_config=False)
+                    if thread:
+                        stopper_threads.append(thread)
 
-            # Wait for all strategies to confirm they have stopped.
-            for frame in frames_to_stop:
-                while frame.started:
-                    time.sleep(0.1)  # Poll until the frame's `started` flag is False.
+            # Wait for all stopper threads to complete.
+            for thread in stopper_threads:
+                thread.join()
 
-            if frames_to_stop:
+            if stopper_threads:
                 logger.info("All strategies have been stopped.")
         except Exception as e:
             error_msg = f"Critical error during GUI shutdown: {e}"
@@ -86,7 +93,7 @@ class GUIShutdownCoordinator:
             )
         finally:
             # Brief pause to allow in-flight operations to settle/terminate
-            time.sleep(0.5)
+            # time.sleep(0.5)
             # Finalize GUI resources after stopping threads
             self.gui_root.after(0, self._finalize_gui_exit)
 

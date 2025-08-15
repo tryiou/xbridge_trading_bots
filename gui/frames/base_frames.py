@@ -4,7 +4,7 @@ import asyncio
 import logging
 import threading
 from tkinter import ttk
-from typing import TYPE_CHECKING, Any, Dict, List
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from definitions.config_manager import ConfigManager
 from definitions.error_handler import OperationalError
@@ -121,9 +121,9 @@ class BaseStrategyFrame(ttk.Frame):
                 logger.error(error_msg, exc_info=True)
             self.stop(reload_config=False)
 
-    def stop(self, reload_config: bool = True):
+    def stop(self, reload_config: bool = True) -> Optional[threading.Thread]:
         if not self.config_manager or not self.started or self.stopping:
-            return
+            return None
 
         self.stopping = True
         self.update_button_states()
@@ -142,6 +142,7 @@ class BaseStrategyFrame(ttk.Frame):
         stopper_thread = threading.Thread(target=stopper_thread_func, daemon=True,
                                           name=f"StopperThread-{self.strategy_name}")
         stopper_thread.start()
+        return stopper_thread
 
     def _finalize_stop(self, reload_config: bool = True):
         """Cleans up the state after the bot thread has stopped."""

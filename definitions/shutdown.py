@@ -41,22 +41,10 @@ class ShutdownCoordinator:
         try:
             logger = config_manager.general_log if config_manager else logging.getLogger("unified_shutdown")
 
-            if not config_manager:
-                logger.warning("Shutdown called without a config_manager. Limited cleanup possible.")
-                CCXTManager._cleanup_proxy()
-                return
-
-            # 1. Signal controller shutdown
-            if config_manager.controller:
-                logger.debug("Setting controller shutdown event")
-                with config_manager.resource_lock:
-                    config_manager.controller.shutdown_event.set()
-                logger.info("Controller shutdown event set")
-
-            # 2. Wait for pending RPCs
+            # 1. Wait for pending RPCs
             await wait_for_pending_rpcs(config_manager, timeout=30)
 
-            # 3. Cancel strategy's own orders
+            # 2. Cancel strategy's own orders
             if config_manager.strategy_instance:
                 try:
                     if isinstance(config_manager.strategy_instance, MakerStrategy):
@@ -65,28 +53,24 @@ class ShutdownCoordinator:
                         logger.info(f"Cancelled {count} strategy orders")
                     else:
                         logger.info("Skipping order cancellation - not a maker strategy")
+                except asyncio.CancelledError:
+                    logger.warning("Order cancellation was cancelled during shutdown.")
+                    raise
                 except Exception as e:
                     context = {"phase": "shutdown", "operation": "order_cancellation"}
                     converted = convert_exception(e)
-                    converted.context = context
+                    converted.context.update(context)
                     await config_manager.error_handler.handle_async(converted)
             else:
                 logger.warning("No strategy instance available for order cancellation")
 
-            # 4. Common resource cleanup
-            if hasattr(config_manager, 'http_session') and config_manager.http_session:
-                try:
-                    await config_manager.http_session.close()
-                    logger.debug("HTTP session closed")
-                except Exception as e:
-                    logger.error(f"Error closing HTTP session: {e}", exc_info=True)
-
-            # 5. proxy termination
-            CCXTManager._cleanup_proxy()
+        except asyncio.CancelledError:
+            logging.getLogger("unified_shutdown").warning("Shutdown was cancelled.")
+            raise
         except Exception as e:
             if config_manager:
                 converted = convert_exception(e)
-                converted.context = {"phase": "shutdown"}
+                converted.context.update({"phase": "shutdown"})
                 await config_manager.error_handler.handle_async(converted)
             else:
                 # If config_manager is None, we have no error handler, so just log
