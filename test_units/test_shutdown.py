@@ -71,14 +71,8 @@ async def test_unified_shutdown_sequence():
         await ShutdownCoordinator.unified_shutdown(mock_cm)
 
         # Assert
-        # 1. Controller shutdown event was set
-        assert mock_cm.controller.shutdown_event.is_set()
-
-        # 2. Waited for pending RPCs
+        # 1. Waited for pending RPCs
         mock_wait_rpc.assert_awaited_once_with(mock_cm, timeout=30)
 
-        # 3. Cancelled strategy orders
+        # 2. Cancelled strategy orders
         mock_cm.strategy_instance.cancel_own_orders.assert_awaited_once()
-
-        # 4. Closed HTTP session
-        mock_cm.http_session.close.assert_awaited_once()

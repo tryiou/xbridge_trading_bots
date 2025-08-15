@@ -494,7 +494,7 @@ def run_async_main(config_manager: 'ConfigManager', startup_tasks: Optional[List
             config_manager.controller = controller
             config_manager.strategy_instance.is_running = True
             await main(config_manager, loop, startup_tasks)
-        except (SystemExit, KeyboardInterrupt, asyncio.CancelledError):
+        except (SystemExit, asyncio.CancelledError):
             config_manager.general_log.info("Received stop signal. Initiating coordinated shutdown...")
             if config_manager.strategy_instance:
                 config_manager.strategy_instance.stop()

@@ -145,22 +145,6 @@ async def test_main_controller_loops(mock_main_controller):
 
 @patch('definitions.starter.main', new_callable=AsyncMock)
 @patch('definitions.starter.MainController')
-@patch('definitions.shutdown.ShutdownCoordinator.unified_shutdown', new_callable=AsyncMock)
-def test_run_async_main_keyboard_interrupt(mock_shutdown, MockController, mock_main, mock_config_manager):
-    """Tests graceful shutdown on KeyboardInterrupt."""
-    mock_main.side_effect = KeyboardInterrupt
-    mock_controller_instance = MockController.return_value
-    mock_controller_instance.shutdown_event.is_set.return_value = False
-
-    run_async_main(mock_config_manager)
-
-    mock_shutdown.assert_awaited_once_with(mock_config_manager)
-    mock_controller_instance.shutdown_event.set.assert_called_once()
-    mock_config_manager.general_log.info.assert_any_call("Received stop signal. Initiating coordinated shutdown...")
-
-
-@patch('definitions.starter.main', new_callable=AsyncMock)
-@patch('definitions.starter.MainController')
 def test_run_async_main_rpc_error(MockController, mock_main, mock_config_manager):
     """Tests that RPCConfigError during init is caught and logged."""
     MockController.side_effect = RPCConfigError("Test RPC Error")

@@ -360,11 +360,7 @@ def test_shutdown_sequence(gui_app):
 
     # Create a side effect for on_closing that creates a coordinator
     def on_closing_side_effect():
-        coordinator = GUIShutdownCoordinator(
-            config_manager=app.master_config_manager,
-            strategies=app.strategy_frames,
-            gui_root=app.root
-        )
+        coordinator = GUIShutdownCoordinator(main_app=app)
         coordinator_instances.append(coordinator)
 
     app.on_closing.side_effect = on_closing_side_effect
