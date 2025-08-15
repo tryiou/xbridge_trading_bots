@@ -49,6 +49,17 @@ def parse_log_file(log_file_path):
     return finished_orders, xbridge_orders
 
 
+def _get_xbridge_order_details(order_id, instance_name, xbridge_orders):
+    """Fetches and prepares xbridge order details."""
+    xbridge_order_list = xbridge_orders.get(order_id)
+    if not xbridge_order_list:
+        logger.warning(f"Could not find xbridge order details for finished order ID: {order_id}")
+        return None
+    xbridge_order = xbridge_order_list[0]
+    xbridge_order['instance_name'] = instance_name
+    return xbridge_order
+
+
 def process_orders(finished_orders, xbridge_orders):
     """Process orders to identify completed and in-progress cycles."""
     completed_cycles = []
@@ -58,22 +69,13 @@ def process_orders(finished_orders, xbridge_orders):
         current_sell = None
         for order in orders_list:
             if order['side'] == 'SELL':
-                order_id = order['orderid']
-                xbridge_order_list = xbridge_orders.get(order_id)
-                if not xbridge_order_list:
-                    logger.warning(f"Could not find xbridge order details for finished order ID: {order_id}")
+                current_sell = _get_xbridge_order_details(order['orderid'], instance_name, xbridge_orders)
+                if not current_sell:
                     continue
-                xbridge_order = xbridge_order_list[0]
-                xbridge_order['instance_name'] = instance_name
-                current_sell = xbridge_order
             elif order['side'] == 'BUY' and current_sell is not None:
-                order_id = order['orderid']
-                xbridge_order_list = xbridge_orders.get(order_id)
-                if not xbridge_order_list:
-                    logger.warning(f"Could not find xbridge order details for finished order ID: {order_id}")
+                current_buy = _get_xbridge_order_details(order['orderid'], instance_name, xbridge_orders)
+                if not current_buy:
                     continue
-                current_buy = xbridge_order_list[0]
-                current_buy['instance_name'] = instance_name
                 completed_cycles.append((current_sell, current_buy))
                 current_sell = None
 
@@ -180,18 +182,6 @@ def generate_inprogress_table(in_progress_cycle):
 
     return inprogress_table_data
 
-
-def calculate_profit_summary(completed_cycles):
-    """Calculate profit summary from completed cycles."""
-    profit_info = defaultdict(lambda: {'total_profit': 0.0, 'asset': None})
-
-    for sell_order, buy_order in completed_cycles:
-        instance_name = sell_order.get('instance_name', '')
-        profit = float(sell_order['taker_size']) - float(buy_order['maker_size'])
-        profit_info[instance_name]['total_profit'] += profit
-        profit_info[instance_name]['asset'] = buy_order['maker']
-
-    return profit_info
 
 
 def display_tables(completed_data, inprogress_data, profit_info):

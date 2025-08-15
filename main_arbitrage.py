@@ -1,11 +1,8 @@
 import argparse
-import asyncio
-import os
-import signal
-import sys
 
 from definitions.config_manager import ConfigManager
 from definitions.starter import run_async_main
+from definitions.cli_runner import run_cli
 
 
 def start():
@@ -59,18 +56,4 @@ def start():
 
 
 if __name__ == '__main__':
-    # Ensure proper event loop policy for Windows                                                                                                                                         
-    if os.name == 'nt':
-        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-
-
-    def handle_sigint(signum, frame):
-        raise KeyboardInterrupt
-
-
-    signal.signal(signal.SIGINT, handle_sigint)
-    try:
-        start()
-    except KeyboardInterrupt:
-        print("Caught shutdown signal - exiting gracefully")
-        sys.exit(1)
+    run_cli(start)

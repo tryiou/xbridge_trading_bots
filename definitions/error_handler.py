@@ -38,6 +38,19 @@ class ErrorHandler:
             except Exception as e:
                 self.logger.warning(f"Notification failed: {e}")
 
+    def _notify_user_sync(self, level, message, details):
+        """Sync version of notify_user with fallback and error logging."""
+        if self.config_manager:
+            try:
+                if hasattr(self.config_manager, 'notify_user'):
+                    self.config_manager.notify_user(
+                        level=level,
+                        message=message,
+                        details=details
+                    )
+            except Exception as e:
+                self.logger.warning(f"Notification failed: {e}")
+
     def _get_full_context(self, error, context=None):
         """Merges error context with provided context"""
         # Start with error's own context if present
@@ -120,19 +133,11 @@ class ErrorHandler:
             f"Operational error: {error} | Context: {context}",
             exc_info=True
         )
-        # Add user notification hook
-        if self.config_manager:
-            try:
-                # Try to call notify_user directly
-                if hasattr(self.config_manager, 'notify_user'):
-                    self.config_manager.notify_user(
-                        level="warning",
-                        message=f"Operational Error: {error}",
-                        details=context
-                    )
-            except Exception as e:
-                # If direct call fails, log the error
-                self.logger.warning(f"Direct notification failed: {e}")
+        self._notify_user_sync(
+            level="warning",
+            message=f"Operational Error: {error}",
+            details=context
+        )
         return True  # Continue operation
 
     def _handle_critical(self, error, context):
@@ -141,19 +146,11 @@ class ErrorHandler:
             f"Critical error: {error} | Context: {context}",
             exc_info=True
         )
-        # Add user notification hook
-        if self.config_manager:
-            try:
-                # Try to call notify_user directly
-                if hasattr(self.config_manager, 'notify_user'):
-                    self.config_manager.notify_user(
-                        level="critical",
-                        message=f"Critical Error: {error}",
-                        details=context
-                    )
-            except Exception as e:
-                # If direct call fails, log the error
-                self.logger.warning(f"Direct notification failed: {e}")
+        self._notify_user_sync(
+            level="critical",
+            message=f"Critical Error: {error}",
+            details=context
+        )
         # Initiate shutdown sequence
         if self.config_manager:
             try:

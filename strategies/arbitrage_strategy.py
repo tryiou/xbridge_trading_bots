@@ -133,10 +133,6 @@ class ArbitrageStrategy(BaseStrategy):
         # Taker strategy might not need history files in the same way, but can be used for logging trades
         return f"{self.config_manager.ROOT_DIR}/data/arbitrage_{pair_name.replace('/', '_')}_trades.log"
 
-    def get_dex_token_address_file_path(self, token_symbol: str) -> str:
-        # Not strictly needed for taking, but good to have for balance checks
-        return f"{self.config_manager.ROOT_DIR}/data/arbitrage_{token_symbol}_addr.yaml"
-
     def get_operation_interval(self) -> int:
         return 60
 

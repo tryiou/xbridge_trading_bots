@@ -48,12 +48,7 @@ class BasicSellerStrategy(MakerStrategy):
             return [kwargs['token_to_sell'], kwargs['token_to_buy']]
 
         # Otherwise, get tokens from the config file.
-        tokens_list = [cfg['pair'].split("/")[0] for cfg in self.config_manager.config_basicseller.seller_configs if
-                       cfg.get('enabled', True)]
-        tokens_list.extend(
-            [cfg['pair'].split("/")[1] for cfg in self.config_manager.config_basicseller.seller_configs if
-             cfg.get('enabled', True)])
-        return list(set(tokens_list))
+        return self.get_tokens_from_pair_configs(self.config_manager.config_basicseller.seller_configs)
 
     def get_pairs_for_initialization(self, tokens_dict, **kwargs) -> dict:
         from definitions.pair import Pair  # Import here to avoid circular dependency
@@ -97,12 +92,6 @@ class BasicSellerStrategy(MakerStrategy):
             )
         return pairs
 
-    def get_dex_history_file_path(self, pair_name: str) -> str:
-        unique_id = pair_name.replace("/", "_")
-        return f"{self.config_manager.ROOT_DIR}/data/basic_seller_{unique_id}_last_order.yaml"
-
-    def get_dex_token_address_file_path(self, token_symbol: str) -> str:
-        return f"{self.config_manager.ROOT_DIR}/data/basic_seller_{token_symbol}_addr.yaml"
 
     def build_sell_order_details(self, dex_pair_instance, manual_dex_price=None) -> tuple:
         # BasicSeller specific logic for amount and offset for sell side

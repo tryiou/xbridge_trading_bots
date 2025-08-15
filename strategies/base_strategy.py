@@ -1,6 +1,6 @@
 import threading
 from abc import ABC, abstractmethod
-from typing import Optional, Callable
+from typing import Optional, Callable, List, Dict, Any
 
 from definitions.errors import BlockchainError, OperationalError, OrderError, InsufficientFundsError, \
     NetworkTimeoutError, RPCConfigError, convert_exception
@@ -66,19 +66,29 @@ class BaseStrategy(ABC):
         # Initialize pairs
         self.config_manager.pairs = self.get_pairs_for_initialization(self.config_manager.tokens, **kwargs)
 
-    @abstractmethod
     def get_dex_history_file_path(self, pair_name: str) -> str:
         """
         Returns the file path for storing DEX order history for a given pair.
+        This can be overridden by subclasses if a different naming scheme is needed.
         """
-        pass
+        unique_id = pair_name.replace("/", "_")
+        return f"{self.config_manager.ROOT_DIR}/data/{self.config_manager.strategy}_{unique_id}_last_order.yaml"
 
-    @abstractmethod
     def get_dex_token_address_file_path(self, token_symbol: str) -> str:
         """
         Returns the file path for storing DEX token address for a given token.
         """
-        pass
+        return f"{self.config_manager.ROOT_DIR}/data/{self.config_manager.strategy}_{token_symbol}_addr.yaml"
+
+    def get_tokens_from_pair_configs(self, pair_configs: List[Dict[str, Any]]) -> List[str]:
+        """Helper to extract unique token symbols from a list of pair configuration dictionaries."""
+        tokens = set()
+        for cfg in pair_configs:
+            if cfg.get('enabled', True):
+                t1, t2 = cfg['pair'].split('/')
+                tokens.add(t1)
+                tokens.add(t2)
+        return list(tokens)
 
     @abstractmethod
     def should_update_cex_prices(self) -> bool:

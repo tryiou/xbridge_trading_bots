@@ -3,6 +3,7 @@ import logging
 import os
 import signal
 from functools import wraps
+from typing import Any
 
 import aiohttp
 import ccxt.async_support as ccxt
@@ -258,7 +259,16 @@ class WebServer:
         self.periodic_task = None
         self.refresh_interval = 15
 
+    def _error_response(self, code: int, message: str, request_id: Any, status: int) -> web.Response:
+        """Creates and returns a standardized JSON-RPC error web response."""
+        return web.json_response({
+            "jsonrpc": "2.0",
+            "error": {"code": code, "message": message},
+            "id": request_id
+        }, status=status)
+
     async def handle_request(self, request: web.Request) -> web.Response:
+        data = None
         try:
             data = await request.json()
             method = data.get('method')
@@ -281,28 +291,13 @@ class WebServer:
         except ccxt.BadRequest as e:
             logger.warning(f"Invalid request parameters: {e}")
             error_msg = f"Symbol type conflict: {e}".split(':')[-1].strip()
-            return web.json_response({
-                "jsonrpc": "2.0",
-                "error": {"code": 400, "message": error_msg},
-                "id": data.get("id") if 'data' in locals() else None
-            }, status=400)
+            return self._error_response(400, error_msg, data.get("id") if data else None, 400)
         except ccxt.BaseError as e:
             logger.error(f"CCXT error: {e}")
-            return web.json_response({
-                "jsonrpc": "2.0",
-                "error": {"code": 502, "message": f"Exchange error: {e}"},
-                "id": data.get("id") if 'data' in locals() else None
-            }, status=502)
+            return self._error_response(502, f"Exchange error: {e}", data.get("id") if data else None, 502)
         except Exception as e:
             logger.error(f"Error handling request: {e}", exc_info=True)
-            # Handle case where data couldn't be parsed
-            error_id = data.get("id") if 'data' in locals() else None
-            error_response = {
-                "jsonrpc": "2.0",
-                "error": {"code": 500, "message": str(e)},
-                "id": error_id
-            }
-            return web.json_response(error_response, status=500)
+            return self._error_response(500, str(e), data.get("id") if data else None, 500)
 
     async def _run_periodically(self):
         """Periodically refreshes all tickers."""

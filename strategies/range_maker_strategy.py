@@ -341,10 +341,6 @@ class RangeMakerStrategy(BaseStrategy):
         unique_id = pair_name.replace("/", "_")
         return f"{self.config_manager.ROOT_DIR}/data/range_maker_{unique_id}_history.yaml"
 
-    def get_dex_token_address_file_path(self, token_symbol: str) -> str:
-        """Path for storing token addresses"""
-        return f"{self.config_manager.ROOT_DIR}/data/range_maker_{token_symbol}_addr.yaml"
-
     async def thread_init_async_action(self, pair_instance):
         """Initial setup for pairs - no action needed for range maker"""
         pass

@@ -13,19 +13,6 @@ class MakerStrategy(BaseStrategy):
     orders on the DEX order book (e.g., PingPong, BasicSeller).
     """
 
-    def get_dex_history_file_path(self, pair_name: str) -> str:
-        """
-        Returns the file path for storing DEX order history for a given pair.
-        This can be overridden by subclasses if a different naming scheme is needed.
-        """
-        unique_id = pair_name.replace("/", "_")
-        return f"{self.config_manager.ROOT_DIR}/data/{self.config_manager.strategy}_{unique_id}_last_order.yaml"
-
-    def get_dex_token_address_file_path(self, token_symbol: str) -> str:
-        """
-        Returns the file path for storing the DEX token address for a given token.
-        """
-        return f"{self.config_manager.ROOT_DIR}/data/{self.config_manager.strategy}_{token_symbol}_addr.yaml"
 
     @abstractmethod
     def build_sell_order_details(self, dex_pair_instance: 'DexPair', manual_dex_price=None) -> tuple:
