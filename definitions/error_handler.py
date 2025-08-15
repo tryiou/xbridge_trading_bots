@@ -127,30 +127,40 @@ class ErrorHandler:
         time.sleep(delay)
         return True  # Signal to retry operation after delay
 
-    def _handle_operational(self, error, context):
-        """Handle operational errors with logging and continuation"""
+    def _handle_operational_logic(self, error, context):
+        """Shared logic for handling operational errors."""
         self.logger.error(
             f"Operational error: {error} | Context: {context}",
             exc_info=True
         )
-        self._notify_user_sync(
-            level="warning",
-            message=f"Operational Error: {error}",
-            details=context
-        )
+        return {
+            "level": "warning",
+            "message": f"Operational Error: {error}",
+            "details": context
+        }
+
+    def _handle_operational(self, error, context):
+        """Handle operational errors with logging and continuation"""
+        notification_details = self._handle_operational_logic(error, context)
+        self._notify_user_sync(**notification_details)
         return True  # Continue operation
 
-    def _handle_critical(self, error, context):
-        """Handle critical errors with shutdown procedure"""
+    def _handle_critical_logic(self, error, context):
+        """Shared logic for handling critical errors."""
         self.logger.critical(
             f"Critical error: {error} | Context: {context}",
             exc_info=True
         )
-        self._notify_user_sync(
-            level="critical",
-            message=f"Critical Error: {error}",
-            details=context
-        )
+        return {
+            "level": "critical",
+            "message": f"Critical Error: {error}",
+            "details": context
+        }
+
+    def _handle_critical(self, error, context):
+        """Handle critical errors with shutdown procedure"""
+        notification_details = self._handle_critical_logic(error, context)
+        self._notify_user_sync(**notification_details)
         # Initiate shutdown sequence
         if self.config_manager:
             try:
@@ -197,32 +207,17 @@ class ErrorHandler:
 
     async def _handle_operational_async(self, error, context):
         """Async version of handling operational errors with logging and continuation"""
-        self.logger.error(
-            f"Operational error: {error} | Context: {context}",
-            exc_info=True
-        )
+        notification_details = self._handle_operational_logic(error, context)
         # Add user notification hook
-        if self.config_manager:
-            await self._async_notify_user(
-                level="warning",
-                message=f"Operational Error: {error}",
-                details=context
-            )
+        await self._async_notify_user(**notification_details)
         return True  # Continue operation
 
     async def _handle_critical_async(self, error, context):
         """Handle critical errors with shutdown procedure - async version"""
-        self.logger.critical(
-            f"Critical error: {error} | Context: {context}",
-            exc_info=True
-        )
+        notification_details = self._handle_critical_logic(error, context)
         if self.config_manager:
             try:
-                await self._async_notify_user(
-                    level="critical",
-                    message=f"Critical Error: {error}",
-                    details=context
-                )
+                await self._async_notify_user(**notification_details)
             except Exception as e:
                 self.logger.warning(f"Async notification failed: {e}")
         # Initiate shutdown sequence

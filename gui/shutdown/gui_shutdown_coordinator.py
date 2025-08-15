@@ -1,14 +1,12 @@
 # gui/shutdown/gui_shutdown_coordinator.py
 import logging
 import threading
-import time
-from typing import TYPE_CHECKING, Dict, Any
+from typing import TYPE_CHECKING
 
 from definitions.errors import CriticalError, OperationalError
 
 if TYPE_CHECKING:
     from gui.main_app import MainApplication
-    from gui.frames.base_frames import BaseStrategyFrame
 
 logger = logging.getLogger(__name__)
 

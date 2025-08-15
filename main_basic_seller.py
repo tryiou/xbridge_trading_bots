@@ -1,10 +1,9 @@
 import argparse
 import logging
-import sys
 
+from definitions.cli_runner import run_cli
 from definitions.config_manager import ConfigManager
 from definitions.starter import run_async_main
-from definitions.cli_runner import run_cli
 
 
 class ValidatePercentArg(argparse.Action):

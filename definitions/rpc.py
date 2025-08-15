@@ -1,11 +1,27 @@
 import asyncio
 import socket
+import threading
 
 import aiohttp
 import async_timeout
 from aiohttp import BasicAuth, ClientError
 
 from definitions.error_handler import TransientError, OperationalError
+
+
+class AsyncThreadingSemaphore:
+    """A wrapper to use a threading.BoundedSemaphore in an async context."""
+
+    def __init__(self, value=1):
+        self._semaphore = threading.BoundedSemaphore(value)
+
+    async def __aenter__(self):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._semaphore.acquire)
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        self._semaphore.release()
 
 
 class RpcTimeoutError(Exception):

@@ -13,7 +13,6 @@ class MakerStrategy(BaseStrategy):
     orders on the DEX order book (e.g., PingPong, BasicSeller).
     """
 
-
     @abstractmethod
     def build_sell_order_details(self, dex_pair_instance: 'DexPair', manual_dex_price=None) -> tuple:
         """

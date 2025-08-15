@@ -3,7 +3,7 @@ import logging
 import queue
 import re
 from tkinter import ttk
-from typing import List, Dict, Tuple, Any, Callable
+from typing import List, Dict, Tuple, Callable
 
 logger = logging.getLogger(__name__)
 

@@ -3,7 +3,6 @@ import logging
 import time
 from typing import TYPE_CHECKING
 
-from definitions.ccxt_manager import CCXTManager
 from definitions.errors import convert_exception
 
 if TYPE_CHECKING:

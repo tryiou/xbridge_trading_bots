@@ -1,7 +1,18 @@
+import argparse
 import asyncio
 import os
 import signal
 import sys
+
+
+def add_custom_help(parser: argparse.ArgumentParser):
+    """Adds a custom help argument to the parser to support -h, --help, and -help."""
+    parser.add_argument(
+        "-h", "-help", "--help",
+        action="help",
+        default=argparse.SUPPRESS,
+        help="Show this help message and exit."
+    )
 
 
 def run_cli(start_func):

@@ -1,4 +1,3 @@
-import os
 import signal
 import sys
 
@@ -32,4 +31,3 @@ if __name__ == '__main__':
         app.root.mainloop()
     except KeyboardInterrupt:
         print("\nKeyboard interrupt detected. Shutting down...")
-

@@ -1,4 +1,3 @@
-import asyncio
 import os
 import sys
 from typing import TYPE_CHECKING
@@ -15,8 +14,6 @@ if TYPE_CHECKING:
     from strategies.pingpong_strategy import PingPongStrategy
 
 from contextlib import contextmanager
-
-from definitions.starter import TradingProcessor, MainController
 
 
 class PingPongStrategyTester:
@@ -346,7 +343,6 @@ class PingPongStrategyTester:
             # Cleanup
             self.pair.t1.dex.free_balance = original_balance
 
-
     async def _test_error_swap_status_disables_pair(self):
         """
         Tests that a pair is disabled when an 'error swap' status is encountered.
@@ -530,8 +526,6 @@ async def test_order_expiration_recreates_order(pingpong_tester):
 @pytest.mark.asyncio
 async def test_insufficient_balance(pingpong_tester):
     await pingpong_tester._test_insufficient_balance()
-
-
 
 
 @pytest.mark.asyncio

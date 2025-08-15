@@ -146,7 +146,7 @@ class BalanceManager:
                     token_data.dex.total_balance = None
                     token_data.dex.free_balance = None
                     return
-                    
+
                 utxos = await self.config_manager.xbridge_manager.gettokenutxo(token_data.symbol, used=True)
                 bal, bal_free = self._calculate_balances(utxos)
                 token_data.dex.total_balance = bal
@@ -171,17 +171,17 @@ class BalanceManager:
         """
         if not isinstance(utxos, list):
             return (0.0, 0.0)
-            
+
         bal: float = 0.0
         bal_free: float = 0.0
-        
+
         for utxo in utxos:
             amount = float(utxo.get('amount', 0))
             bal += amount
             # UTXOs without order IDs are free (not locked in orders)
             if not utxo.get('orderid'):
                 bal_free += amount
-                
+
         return (bal, bal_free)
 
 

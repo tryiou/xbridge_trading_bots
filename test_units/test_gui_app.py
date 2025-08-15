@@ -133,9 +133,6 @@ def test_gui_initialization(gui_app, tk_root):
     assert 'Basic Seller' in tab_texts, "Basic Seller tab is missing"
     assert 'Arbitrage' in tab_texts, "Arbitrage tab is missing"
     assert 'Logs' in tab_texts, "Logs tab is missing"
-    assert 'Basic Seller' in tab_texts, "Basic Seller tab is missing"
-    assert 'Arbitrage' in tab_texts, "Arbitrage tab is missing"
-    assert 'Logs' in tab_texts, "Logs tab is missing"
 
 
 def test_start_stop_button_initial_state(gui_app):

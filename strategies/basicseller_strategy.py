@@ -92,7 +92,6 @@ class BasicSellerStrategy(MakerStrategy):
             )
         return pairs
 
-
     def build_sell_order_details(self, dex_pair_instance, manual_dex_price=None) -> tuple:
         # BasicSeller specific logic for amount and offset for sell side
         amount = dex_pair_instance.pair.amount_token_to_sell

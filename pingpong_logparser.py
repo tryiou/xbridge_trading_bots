@@ -183,7 +183,6 @@ def generate_inprogress_table(in_progress_cycle):
     return inprogress_table_data
 
 
-
 def display_tables(completed_data, inprogress_data, profit_info):
     """Display the completed, in-progress, and profit summary tables."""
     # Display Completed Cycles Table

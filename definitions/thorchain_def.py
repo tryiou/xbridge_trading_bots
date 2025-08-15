@@ -6,6 +6,17 @@ import aiohttp
 from definitions.rpc import rpc_call
 
 
+async def _fetch_thorchain_api(session: aiohttp.ClientSession, url: str, error_message: str):
+    """Helper function to fetch data from a Thorchain API endpoint."""
+    try:
+        async with session.get(url) as response:
+            response.raise_for_status()
+            return await response.json()
+    except Exception as e:
+        logging.error(f"{error_message}: {e}")
+        return None
+
+
 async def get_thorchain_quote(from_asset: str, to_asset: str, amount: float, session: aiohttp.ClientSession,
                               quote_url: str):
     """
@@ -16,16 +27,10 @@ async def get_thorchain_quote(from_asset: str, to_asset: str, amount: float, ses
     # And asset format is CHAIN.SYMBOL, e.g. BTC.BTC
     amount_1e8 = int(amount * (10 ** 8))
     url = f"{quote_url}/quote/swap?from_asset={from_asset.upper()}&to_asset={to_asset.upper()}&amount={amount_1e8}"
-
-    try:
-        async with session.get(url) as response:
-            response.raise_for_status()
-            quote = await response.json()
-            # The quote contains expected output, fees, slippage, and the memo to use for the swap.
-            return quote
-    except Exception as e:
-        logging.error(f"Error fetching Thorchain quote for {from_asset}->{to_asset}: {e}")
-        return None
+    error_message = f"Error fetching Thorchain quote for {from_asset}->{to_asset}"
+    quote = await _fetch_thorchain_api(session, url, error_message)
+    # The quote contains expected output, fees, slippage, and the memo to use for the swap.
+    return quote
 
 
 async def get_inbound_addresses(session: aiohttp.ClientSession, api_url: str):
@@ -34,14 +39,8 @@ async def get_inbound_addresses(session: aiohttp.ClientSession, api_url: str):
     This is necessary to know where to send funds for a swap.
     """
     url = f"{api_url}/thorchain/inbound_addresses"
-    try:
-        async with session.get(url) as response:
-            response.raise_for_status()
-            addresses = await response.json()
-            return addresses
-    except Exception as e:
-        logging.error(f"Error fetching Thorchain inbound addresses: {e}")
-        return None
+    error_message = "Error fetching Thorchain inbound addresses"
+    return await _fetch_thorchain_api(session, url, error_message)
 
 
 async def check_thorchain_path_status(from_chain: str, to_chain: str, session: aiohttp.ClientSession, api_url: str) -> \

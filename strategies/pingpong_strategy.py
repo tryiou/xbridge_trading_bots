@@ -44,7 +44,6 @@ class PingPongStrategy(MakerStrategy):
             )
         return pairs
 
-
     def build_sell_order_details(self, dex_pair_instance) -> tuple:
         # PingPong specific logic for amount and offset for sell side
         usd_amount = dex_pair_instance.pair.cfg['usd_amount']

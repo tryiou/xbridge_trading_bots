@@ -10,7 +10,7 @@ import weakref
 from definitions.detect_rpc import detect_rpc
 from definitions.errors import RPCConfigError
 from definitions.logger import setup_logging
-from definitions.rpc import rpc_call, is_port_open
+from definitions.rpc import rpc_call, is_port_open, AsyncThreadingSemaphore
 
 
 class XBridgeManager:
@@ -48,7 +48,7 @@ class XBridgeManager:
                 max_tasks = self.config_manager.config_xbridge.max_concurrent_tasks
             except AttributeError:
                 self.logger.info(f"Falling back to default max_concurrent_tasks ({max_tasks})")
-            XBridgeManager._rpc_semaphore = asyncio.BoundedSemaphore(max_tasks)
+            XBridgeManager._rpc_semaphore = AsyncThreadingSemaphore(max_tasks)
 
         # Check if RPC port is open (synchronous check)
         if not is_port_open("127.0.0.1", self.blocknet_port_rpc):
@@ -83,7 +83,7 @@ class XBridgeManager:
         async with XBridgeManager._rpc_semaphore:
             with XBridgeManager._rpc_counter_lock:
                 XBridgeManager._active_rpc_counter += 1
-                
+
             try:
                 # Default parameters
                 if params is None:
@@ -256,7 +256,7 @@ class XBridgeManager:
     async def gettokenutxo(self, token, used=False):
         cache_key = f"{token}_{used}"
         current_time = time.time()
-        
+
         # Check cache under class lock (thread-safe)
         with XBridgeManager._utxo_cache_lock:
             cached_data = XBridgeManager._utxo_cache.get(cache_key)

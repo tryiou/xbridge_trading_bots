@@ -49,7 +49,7 @@ class CCXTManager:
             else:
                 cls._proxy_logger.warning(f"unregister_strategy called with refcount <= 0")
                 new_refcount = 0
-            
+
             # Trigger cleanup when refcount reaches zero
             if new_refcount == 0 and cls._proxy_process:
                 if cls._proxy_process.poll() is None:
@@ -63,8 +63,8 @@ class CCXTManager:
         self.config_manager = config_manager  # Store ConfigManager reference
         # Instance doesn't need its own proxy_process reference
         self.error_handler = ErrorHandler(config_manager, logger=self.config_manager.ccxt_log)
-        self.logger = self.config_manager.ccxt_log  
-        
+        self.logger = self.config_manager.ccxt_log
+
     @classmethod
     def _cleanup_proxy(cls):
         """Coordinate proxy termination only when no strategies are running"""
@@ -73,27 +73,27 @@ class CCXTManager:
             current_refcount = cls._proxy_ref_count
             # Double-check refcount under lock
             if cls._proxy_ref_count > 0:
-                cls._proxy_logger.info( 
+                cls._proxy_logger.info(
                     f"[PROXY.MAINTENANCE] Aborting cleanup - strategies still running: refcount={cls._proxy_ref_count}"
                 )
                 return
-                
+
             if cls._proxy_process is None:
-                cls._proxy_logger.info( 
+                cls._proxy_logger.info(
                     "[PROXY.MAINTENANCE] Proxy process already terminated"
                 )
                 return
-                
+
             try:
                 if cls._proxy_process.poll() is None:
-                    cls._proxy_logger.info( 
+                    cls._proxy_logger.info(
                         f"[PROXY.MAINTENANCE] Terminating proxy process (refcount={current_refcount})..."
                     )
                     cls._proxy_process.terminate()
                     try:
                         cls._proxy_process.wait(timeout=5.0)
                     except (subprocess.TimeoutExpired, TimeoutError):
-                        cls._proxy_logger.info( 
+                        cls._proxy_logger.info(
                             "[PROXY.MAINTENANCE] Forcing proxy termination after 5s timeout"
                         )
                         cls._proxy_process.kill()
@@ -101,26 +101,26 @@ class CCXTManager:
                             cls._proxy_process.wait(timeout=1.0)
                         except (subprocess.TimeoutExpired, TimeoutError):
                             pass
-                            
+
                     if cls._proxy_process.poll() is None:
-                        cls._proxy_logger.warning( 
+                        cls._proxy_logger.warning(
                             "[PROXY.MAINTENANCE] Proxy failed to terminate after kill"
                         )
                     else:
-                        cls._proxy_logger.info( 
+                        cls._proxy_logger.info(
                             "[PROXY.MAINTENANCE] Proxy terminated successfully"
                         )
                 else:
-                    cls._proxy_logger.info( 
+                    cls._proxy_logger.info(
                         "[PROXY.MAINTENANCE] Proxy process already dead"
                     )
             except Exception as e:
-                cls._proxy_logger.error( 
+                cls._proxy_logger.error(
                     f"[PROXY.MAINTENANCE] Error during termination: {str(e)}"
                 )
             finally:
                 cls._proxy_process = None
-                cls._proxy_logger.info( 
+                cls._proxy_logger.info(
                     "[PROXY.MAINTENANCE] Proxy state cleared"
                 )
 
@@ -320,7 +320,8 @@ class CCXTManager:
                     stderr=subprocess.DEVNULL,
                     creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == 'nt' else 0
                 )
-                CCXTManager._proxy_logger.info(f"[PROXY.STARTUP] Command: {' '.join(start_cmd)} PID={CCXTManager._proxy_process.pid}")
+                CCXTManager._proxy_logger.info(
+                    f"[PROXY.STARTUP] Command: {' '.join(start_cmd)} PID={CCXTManager._proxy_process.pid}")
 
                 # Verify proxy started properly
                 proxy_started = False

@@ -1,8 +1,8 @@
 import argparse
 
+from definitions.cli_runner import run_cli, add_custom_help
 from definitions.config_manager import ConfigManager
 from definitions.starter import run_async_main  # Import run_async_main
-from definitions.cli_runner import run_cli
 
 
 def start():
@@ -15,12 +15,7 @@ def start():
         add_help=False
     )
 
-    parser.add_argument(
-        "-h", "-help", "--help",
-        action="help",
-        default=argparse.SUPPRESS,
-        help="Show this help message and exit."
-    )
+    add_custom_help(parser)
 
     parser.parse_args()
 
