@@ -46,10 +46,6 @@ async def rpc_call(method, params=None, url="http://127.0.0.1", rpc_user=None, r
 
     async def _rpc_call_internal(s):
         for err_count in range(max_err_count):
-            if shutdown_event and shutdown_event.is_set():
-                if logger:
-                    logger.debug(f"RPC call to {method} cancelled due to shutdown signal.")
-                return None
             response_text = None
             try:
                 async with async_timeout.timeout(timeout):

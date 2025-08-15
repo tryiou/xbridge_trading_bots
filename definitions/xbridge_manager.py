@@ -19,6 +19,10 @@ class XBridgeManager:
     _active_rpc_counter = 0
     _rpc_counter_lock = threading.Lock()
     _rpc_semaphore = None
+    # Class-level UTXO cache and lock for thread-safe access
+    _utxo_cache = {}
+    _utxo_cache_lock = threading.Lock()
+    UTXO_CACHE_DURATION = 3.0  # Cache expiration time in seconds
 
     @property
     def active_rpc_counter(self):
@@ -36,9 +40,6 @@ class XBridgeManager:
             raise
         self.xbridge_conf = None
         self.xbridge_fees_estimate = {}
-        self._utxo_cache = {}  # Cache for dxgetutxos results: {token_symbol: (timestamp, utxos_data)}
-        self._cache_lock = asyncio.Lock()  # Lock for thread-safe cache access
-        self.UTXO_CACHE_DURATION = 3.0  # Cache expiration time in seconds
 
         # Initialize shared semaphore only once
         if XBridgeManager._rpc_semaphore is None:
@@ -87,11 +88,6 @@ class XBridgeManager:
             # Maintain active call counter with lock
             with XBridgeManager._rpc_counter_lock:
                 XBridgeManager._active_rpc_counter += 1
-
-            # Check if shutdown occurred during semaphore acquisition
-            if shutdown_event and shutdown_event.is_set():
-                return None
-
             # Default parameters
             if params is None:
                 params = []
@@ -266,20 +262,21 @@ class XBridgeManager:
 
     async def gettokenutxo(self, token, used=False):
         cache_key = f"{token}_{used}"
-        async with self._cache_lock:
-            cached_data = self._utxo_cache.get(cache_key)
-            current_time = time.time()
-
-            if cached_data and (current_time - cached_data[0]) < self.UTXO_CACHE_DURATION:
-                self.logger.debug(f"Returning cached UTXO data for {token} (used={used})")
+        current_time = time.time()
+        
+        # Check cache under class lock (thread-safe)
+        with XBridgeManager._utxo_cache_lock:
+            cached_data = XBridgeManager._utxo_cache.get(cache_key)
+            if cached_data and (current_time - cached_data[0]) < XBridgeManager.UTXO_CACHE_DURATION:
+                self.logger.debug(f"Returning class-level cached UTXO data for {token} (used={used})")
                 return cached_data[1]
 
         # If not cached or expired, make the RPC call
         result = await self.rpc_wrapper("dxgetutxos", [token, used])
 
-        async with self._cache_lock:
-            self._utxo_cache[cache_key] = (time.time(), result)
-            self.logger.debug(f"Cached new UTXO data for {token} (used={used})")
+        with XBridgeManager._utxo_cache_lock:
+            XBridgeManager._utxo_cache[cache_key] = (time.time(), result)
+            self.logger.debug(f"Cached new class-level UTXO data for {token} (used={used})")
         return result
 
     async def getlocaltokens(self):
