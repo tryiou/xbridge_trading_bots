@@ -21,23 +21,9 @@ class TradingProcessor:
     def __init__(self, controller):
         self.controller = controller
         self.pairs_dict = controller.pairs_dict
-        max_tasks = getattr(controller.config_manager.config_xbridge, 'max_concurrent_tasks', 5)
-        self.semaphore = asyncio.Semaphore(max_tasks)
 
     async def process_pairs(self, target_function):
-        """Processes all pairs using the target function with a concurrency limit."""
-
-        async def sem_task(pair):
-            # Wrapper to apply semaphore to each task
-            async with self.semaphore:
-                if self.controller.shutdown_event.is_set():
-                    return
-                # Execute the original target function
-                if asyncio.iscoroutinefunction(target_function):
-                    await target_function(pair)
-                else:
-                    loop = asyncio.get_running_loop()
-                    await loop.run_in_executor(None, target_function, pair)
+        """Processes all pairs using the target function, without concurrency limits."""
 
         tasks = []
         for pair in self.pairs_dict.values():
@@ -45,7 +31,12 @@ class TradingProcessor:
                 continue
             if self.controller.shutdown_event.is_set():
                 return
-            tasks.append(sem_task(pair))
+            # Execute the original target function
+            if asyncio.iscoroutinefunction(target_function):
+                tasks.append(target_function(pair))
+            else:
+                loop = asyncio.get_running_loop()
+                tasks.append(loop.run_in_executor(None, target_function, pair))
         if tasks:
             await asyncio.gather(*tasks)
 
