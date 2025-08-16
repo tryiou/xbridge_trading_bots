@@ -4,12 +4,12 @@ from .maker_strategy import MakerStrategy
 class PingPongStrategy(MakerStrategy):
     def __init__(self, config_manager, controller=None):
         super().__init__(config_manager, controller)
-        self.config_pingppong = config_manager.config_pingppong  # Direct access to pingpong config
+        self.config_pingpong = config_manager.config_pingpong  # Direct access to pingpong config
 
     def initialize_strategy_specifics(self, **kwargs):
         # PingPong doesn't need specific args passed from CLI, its config is loaded
         self.config_manager.general_log.info("--- PingPong Strategy Parameters ---")
-        enabled_pairs = [p for p in self.config_pingppong.pair_configs if p.get('enabled', True)]
+        enabled_pairs = [p for p in self.config_pingpong.pair_configs if p.get('enabled', True)]
         if not enabled_pairs:
             self.config_manager.general_log.info("  - No enabled pairs found in config_pingpong.yaml.")
         else:
@@ -24,16 +24,12 @@ class PingPongStrategy(MakerStrategy):
         self.config_manager.general_log.info("------------------------------------")
 
     def get_tokens_for_initialization(self, **kwargs) -> list:
-        tokens_list = [cfg['pair'].split("/")[0] for cfg in self.config_pingppong.pair_configs if
-                       cfg.get('enabled', True)]
-        tokens_list.extend(
-            [cfg['pair'].split("/")[1] for cfg in self.config_pingppong.pair_configs if cfg.get('enabled', True)])
-        return list(set(tokens_list))
+        return self.get_tokens_from_pair_configs(self.config_pingpong.pair_configs)
 
     def get_pairs_for_initialization(self, tokens_dict, **kwargs) -> dict:
         from definitions.pair import Pair  # Import here to avoid circular dependency
         pairs = {}
-        enabled_pairs = [cfg for cfg in self.config_pingppong.pair_configs if cfg.get('enabled', True)]
+        enabled_pairs = [cfg for cfg in self.config_pingpong.pair_configs if cfg.get('enabled', True)]
         for cfg in enabled_pairs:
             t1, t2 = cfg['pair'].split("/")
             pair_name = f"{cfg['name']}"
@@ -47,13 +43,6 @@ class PingPongStrategy(MakerStrategy):
                 config_manager=self.config_manager
             )
         return pairs
-
-    def get_dex_history_file_path(self, pair_name: str) -> str:
-        unique_id = pair_name.replace("/", "_")
-        return f"{self.config_manager.ROOT_DIR}/data/pingpong_{unique_id}_last_order.yaml"
-
-    def get_dex_token_address_file_path(self, token_symbol: str) -> str:
-        return f"{self.config_manager.ROOT_DIR}/data/pingpong_{token_symbol}_addr.yaml"
 
     def build_sell_order_details(self, dex_pair_instance) -> tuple:
         # PingPong specific logic for amount and offset for sell side
@@ -115,32 +104,24 @@ class PingPongStrategy(MakerStrategy):
         return dex_pair_instance.pair.cfg.get('price_variation_tolerance')
 
     def calculate_variation_based_on_side(self, dex_pair_instance, current_order_side: str, cex_price: float,
-                                          original_price: float) -> float:
+                                          original_price: float) -> tuple[float, bool]:
         """
-        Calculates the price variation to decide if an open order should be
-        cancelled and recreated.
+        Calculates price variation and determines if the order should be price-locked.
+        Returns:
+            A tuple (variation: float, is_locked: bool).
         """
-        if current_order_side == 'SELL':
-            # For SELL orders, we always track the live price. If it drops too much,
-            # we cancel and recreate to follow the market down.
-            return float(cex_price / original_price)
-
         variation = float(cex_price / original_price)
+
         if current_order_side == 'BUY':
             last_sell_price = dex_pair_instance.order_history.get('dex_price')
-            # If the live price goes *above* our last sell price, we lock the order
-            # by returning the variation in a list. This prevents a cancel/recreate
-            # while still allowing the GUI to display the real-time deviation.
             if last_sell_price and cex_price > float(last_sell_price):
                 self.config_manager.general_log.debug(
                     f"BUY order for {dex_pair_instance.pair.name} is price locked. "
                     f"Live price ({cex_price:.8f}) is above last sell price ({float(last_sell_price):.8f})."
                 )
-                return [variation]  # Return as a list to signal a lock.
+                return variation, True  # Signal a lock
 
-        # For BUY orders below the last sell price, or for any other case, return the plain float.
-        return variation
-
+        return variation, False
 
     def init_virtual_order_logic(self, dex_pair_instance, order_history: dict):
         if not order_history or ('side' in order_history and order_history['side'] == 'BUY'):

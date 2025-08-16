@@ -18,7 +18,7 @@ def extract_dict_from_line(line):
     if match:
         try:
             return ast.literal_eval(match.group(0))
-        except Exception:
+        except (ValueError, SyntaxError):
             pass
     return None
 
@@ -49,6 +49,17 @@ def parse_log_file(log_file_path):
     return finished_orders, xbridge_orders
 
 
+def _get_xbridge_order_details(order_id, instance_name, xbridge_orders):
+    """Fetches and prepares xbridge order details."""
+    xbridge_order_list = xbridge_orders.get(order_id)
+    if not xbridge_order_list:
+        logger.warning(f"Could not find xbridge order details for finished order ID: {order_id}")
+        return None
+    xbridge_order = xbridge_order_list[0]
+    xbridge_order['instance_name'] = instance_name
+    return xbridge_order
+
+
 def process_orders(finished_orders, xbridge_orders):
     """Process orders to identify completed and in-progress cycles."""
     completed_cycles = []
@@ -58,13 +69,13 @@ def process_orders(finished_orders, xbridge_orders):
         current_sell = None
         for order in orders_list:
             if order['side'] == 'SELL':
-                id = order['orderid']
-                xbridge_order = xbridge_orders.get(id)[0]
-                xbridge_order['instance_name'] = instance_name
-                current_sell = xbridge_order
+                current_sell = _get_xbridge_order_details(order['orderid'], instance_name, xbridge_orders)
+                if not current_sell:
+                    continue
             elif order['side'] == 'BUY' and current_sell is not None:
-                current_buy = xbridge_orders.get(order['orderid'])[0]
-                current_buy['instance_name'] = instance_name
+                current_buy = _get_xbridge_order_details(order['orderid'], instance_name, xbridge_orders)
+                if not current_buy:
+                    continue
                 completed_cycles.append((current_sell, current_buy))
                 current_sell = None
 
@@ -83,7 +94,7 @@ def generate_completed_table(completed_cycles):
         # Add a check to ensure both orders have the necessary data before processing
         required_keys = ['maker', 'taker', 'maker_size', 'taker_size']
         if not all(key in sell_order for key in required_keys) or \
-           not all(key in buy_order for key in required_keys):
+                not all(key in buy_order for key in required_keys):
             logger.warning(f"Skipping incomplete completed cycle. SELL: {sell_order}, BUY: {buy_order}")
             continue
 
@@ -113,8 +124,10 @@ def generate_completed_table(completed_cycles):
                                          "%Y-%m-%dT%H:%M:%S.%fZ")
             delta = buy_time - sell_time
             delta_str = f"{delta.days} days {delta.seconds // 3600}:{(delta.seconds // 60) % 60}:{delta.seconds % 60}"
-        except:
-            delta_str = ""
+        except (ValueError, TypeError) as e:
+            logger.warning(
+                f"Could not parse timestamp to calculate execution time for order pair: {sell_order.get('id')}, {buy_order.get('id')}. Error: {e}")
+            delta_str = "N/A"
 
         profit = float(sell_order['taker_size']) - float(buy_order['maker_size'])
         row2 = [
@@ -168,19 +181,6 @@ def generate_inprogress_table(in_progress_cycle):
         inprogress_table_data.append(row)
 
     return inprogress_table_data
-
-
-def calculate_profit_summary(completed_cycles):
-    """Calculate profit summary from completed cycles."""
-    profit_info = defaultdict(lambda: {'total_profit': 0.0, 'asset': None})
-
-    for sell_order, buy_order in completed_cycles:
-        instance_name = sell_order.get('instance_name', '')
-        profit = float(sell_order['taker_size']) - float(buy_order['maker_size'])
-        profit_info[instance_name]['total_profit'] += profit
-        profit_info[instance_name]['asset'] = buy_order['maker']
-
-    return profit_info
 
 
 def display_tables(completed_data, inprogress_data, profit_info):

@@ -1,5 +1,4 @@
 .idea/
-doc/
 config/api_keys.local.json
 config/config_ccxt.yaml
 config/config_coins.yaml
@@ -8,6 +7,7 @@ config/config_blocknet.yaml
 config/config_xbridge.yaml
 config/config_thorchain.yaml
 config/config_arbitrage.yaml
+config/config_basic_seller.yaml
 data/
 logs/
 .history
@@ -18,3 +18,11 @@ logs/
 .aider.chat.history.md
 __pycache__
 *.pyc
+
+
+doc/
+deprecated_frames.py
+*.csv
+*.txt
+*.sh
+*.mp4

@@ -1,17 +1,39 @@
 import asyncio
-import time
 import math
+import time
 
 import yaml
 
+from definitions.errors import convert_exception
 from definitions.token import Token
 
 
 class Pair:
-    def __init__(self, token1: Token, token2: Token, config_manager, cfg: dict, amount_token_to_sell=None,
-                 min_sell_price_usd=None,
-                 sell_price_offset=None,
-                 strategy=None, dex_enabled=True, partial_percent=None):
+    """Represents a trading pair between two tokens.
+    
+    Manages both DEX and CEX trading operations.
+    
+    Attributes:
+        cfg: Pair configuration dictionary
+        name: Unique name identifier
+        strategy: Trading strategy name
+        t1: First token in pair
+        t2: Second token in pair
+        symbol: Trading symbol (e.g., 'BTC/BLOCK')
+        disabled: Flag if pair is disabled
+        variation: Price variation threshold
+        dex_enabled: Flag if DEX trading is enabled
+        amount_token_to_sell: Sell amount for token
+        min_sell_price_usd: Minimum USD sell price
+        sell_price_offset: Fractional offset for sell price
+        config_manager: Master configuration manager
+        dex: DexPair instance for DEX operations
+        cex: CexPair instance for CEX operations
+    """
+
+    def __init__(self, token1: Token, token2: Token, config_manager, cfg: dict, amount_token_to_sell: float = None,
+                 min_sell_price_usd: float = None, sell_price_offset: float = None, strategy: str = None,
+                 dex_enabled: bool = True, partial_percent: float = None):
         self.cfg = cfg
         self.name = cfg['name']
         self.strategy = strategy  # e.g.,  pingpong, basic_seller
@@ -34,6 +56,32 @@ class Pair:
 
 
 class DexPair:
+    """Handles DEX trading operations for a token pair.
+    
+    Implements order creation, cancellation, and tracking.
+    
+    Class Constants:
+        STATUS_OPEN (0): Order is open
+        STATUS_FINISHED (1): Order is finished
+        STATUS_OTHERS (2): Order is in other state
+        STATUS_ERROR_SWAP (-1): Swap error occurred
+        STATUS_CANCELLED_WITHOUT_CALL (-2): Order cancelled without explicit call
+        
+    Attributes:
+        pair: Parent Pair object
+        t1: First token in pair
+        t2: Second token in pair
+        symbol: Trading symbol
+        order_history: Last completed order details
+        current_order: Current virtual order
+        disabled: Flag if DEX operations disabled
+        variation: Current price variation
+        partial_percent: Partial order percentage
+        orderbook: Current DEX orderbook
+        orderbook_timer: Last orderbook update timestamp
+        order: Active order on DEX
+    """
+
     # Constants for status codes
     STATUS_OPEN = 0
     STATUS_FINISHED = 1
@@ -43,7 +91,7 @@ class DexPair:
 
     PRICE_VARIATION_TOLERANCE_DEFAULT = 0.01
 
-    def __init__(self, pair, partial_percent):
+    def __init__(self, pair: Pair, partial_percent: float):
         self.pair = pair
         self.t1 = pair.t1
         self.t2 = pair.t2
@@ -89,17 +137,24 @@ class DexPair:
         except Exception as e:
             self.pair.config_manager.general_log.error(f"error write_pair_last_order_history: {type(e)}, {e}")
 
-    def create_virtual_sell_order(self):
-        self.current_order = self._build_sell_order()
+    def _log_virtual_order(self, side: str, maker_symbol: str, taker_symbol: str):
         self.pair.config_manager.general_log.info(
-            f"Virtual sell order created for {self.pair.name} | "
+            f"Virtual {side} order created for {self.pair.name} | "
             f"Symbol: {self.symbol} | "
-            f"Maker: {self.t1.symbol} | "
-            f"Taker: {self.t2.symbol} | "
+            f"Maker: {maker_symbol} | "
+            f"Taker: {taker_symbol} | "
             f"Maker size: {self.current_order['maker_size']:.6f} | "
             f"Taker size: {self.current_order['taker_size']:.6f} | "
             f"Price: {self.current_order['dex_price']:.8f}"
         )
+
+    def create_virtual_sell_order(self):
+        self.current_order = self._build_sell_order()
+        self._log_virtual_order("sell", self.t1.symbol, self.t2.symbol)
+
+    def create_virtual_buy_order(self):
+        self.current_order = self._build_buy_order()
+        self._log_virtual_order("buy", self.t2.symbol, self.t1.symbol)
 
     @staticmethod
     def truncate(value: float, digits: int = 8) -> float:
@@ -110,7 +165,7 @@ class DexPair:
             return value
         stepper = 10.0 ** digits
         return math.trunc(stepper * value) / stepper
-        
+
     def _construct_order_dict(self, side, maker_token, taker_token, maker_size, taker_size, original_price,
                               final_price):
         """A helper to construct the common order dictionary structure."""
@@ -146,18 +201,6 @@ class DexPair:
             original_price=original_price, final_price=final_price
         )
 
-    def create_virtual_buy_order(self):
-        self.current_order = self._build_buy_order()
-        self.pair.config_manager.general_log.info(
-            f"Virtual buy order created for {self.pair.name} | "
-            f"Symbol: {self.symbol} | "
-            f"Maker: {self.t2.symbol} | "
-            f"Taker: {self.t1.symbol} | "
-            f"Maker size: {self.current_order['maker_size']:.6f} | "
-            f"Taker size: {self.current_order['taker_size']:.6f} | "
-            f"Price: {self.current_order['dex_price']:.8f}"
-        )
-
     def _build_buy_order(self):
         original_price = self.pair.config_manager.strategy_instance.determine_buy_price(self)
         taker_size, spread = self.pair.config_manager.strategy_instance.build_buy_order_details(self)
@@ -174,31 +217,35 @@ class DexPair:
     def check_price_in_range(self, display=False):
         price_variation_tolerance = self.pair.config_manager.strategy_instance.get_price_variation_tolerance(self)
 
-        # The strategy itself now determines how to calculate variation based on the order side.
-        # It can return a float (for normal checks) or a list [float] for locked BUY orders.
-        var = self.pair.config_manager.strategy_instance.calculate_variation_based_on_side(
+        # The strategy now returns a tuple: (variation, is_locked)
+        var_result = self.pair.config_manager.strategy_instance.calculate_variation_based_on_side(
             self,
             self.current_order.get('side'),
             self.pair.cex.price,
             self.current_order['org_pprice']
         )
-        self._set_variation(var)
 
-        # For logging and comparison, we need the raw float value
-        compare_var = var[0] if isinstance(var, list) else var
+        # Handle different return types for backward compatibility and new explicit style
+        if isinstance(var_result, tuple):
+            variation, is_locked = var_result
+        else:  # Legacy support for float or list returns
+            variation = var_result[0] if isinstance(var_result, list) else var_result
+            is_locked = isinstance(var_result, list)
+
+        self._set_variation(variation, is_locked)
 
         if display:
-            self._log_price_check(compare_var)
+            self._log_price_check(variation)
 
-        # If var is a list, it's a signal that the order is locked and should not be cancelled.
-        if isinstance(var, list):
-            return True  # Price is considered "in range" because it's locked.
+        if is_locked:
+            return True  # Price is "in range" because the order is locked.
 
-        return self._is_price_in_range(compare_var, price_variation_tolerance)
+        return self._is_price_in_range(variation, price_variation_tolerance)
 
-    def _set_variation(self, var):
-        # Store the value, preserving the list format for locked orders.
-        self.variation = [DexPair.truncate(var[0], 3)] if isinstance(var, list) else DexPair.truncate(var, 3)
+    def _set_variation(self, variation_value, is_locked):
+        # Store as a list if locked, for GUI display purposes.
+        truncated_var = self.truncate(variation_value, 3)
+        self.variation = [truncated_var] if is_locked else truncated_var
 
     def _log_price_check(self, var):
         self.pair.config_manager.general_log.info(
@@ -220,12 +267,12 @@ class DexPair:
         if not self.disabled:
             self.pair.config_manager.strategy_instance.init_virtual_order_logic(self, self.order_history)
             if display:
-                self._log_virtual_order()
+                self._log_virtual_order_price()
 
     def _is_pair_disabled(self, disabled_coins):  # Moved here from _initialize_order
         return disabled_coins and (self.t1.symbol in disabled_coins or self.t2.symbol in disabled_coins)
 
-    def _log_virtual_order(self):
+    def _log_virtual_order_price(self):
         self.pair.config_manager.general_log.info(
             f"live pair prices : {DexPair.truncate(self.pair.cex.price)} {self.symbol} | "
             f"{self.t1.symbol}/USD: {DexPair.truncate(self.t1.cex.usd_price, 3)} | "
@@ -239,14 +286,23 @@ class DexPair:
         self.order = None
 
     async def create_order(self, dry_mode=False):
-        self.order = None
+        # First check if pair is already disabled                                                                                                                                               
         if self.disabled:
             return
+
+            # Check the global shutdown state
+        if self._is_shutting_down():
+            self.pair.config_manager.general_log.warning(
+                f"Skipping order creation for {self.symbol} - shutdown in progress"
+            )
+            return
+
+        self.order = None
 
         maker_size = f"{self.current_order['maker_size']:.6f}"
         bal = self._get_balance()
 
-        if self._is_balance_valid(bal, maker_size):
+        if self._is_balance_valid(bal, maker_size) and float(bal) >= float(maker_size):
             await self._create_order(dry_mode, maker_size)
         else:
             self.pair.config_manager.general_log.error(
@@ -259,17 +315,25 @@ class DexPair:
         return bal is not None and maker_size.replace('.', '').isdigit()
 
     async def _create_order(self, dry_mode, maker_size):
-        if float(self._get_balance()) > float(maker_size):
+        try:
             order = await self._generate_order(dry_mode)
-            if not dry_mode:
-                self.order = order
-                if self.order and 'error' in self.order:
-                    self._handle_order_error()
-            else:
+            if dry_mode:
                 self._log_dry_mode_order(order)
-        else:
-            self.pair.config_manager.general_log.error(
-                f"dex_create_order, balance too low: {self._get_balance()}, need: {maker_size} {self.current_order['maker']}")
+                return
+
+            self.order = order
+            if self.order and 'error' in self.order:
+                # Let the existing error handling logic for specific codes take place
+                await self._handle_order_error()
+            # If there's no error, we're done. If there was an error, _handle_order_error
+            # has already logged it and set the state appropriately.
+        except Exception as e:
+            # This will catch network errors, timeouts, etc., from rpc_call
+            context = {"pair": self.pair.symbol, "stage": "order_creation"}
+            err = convert_exception(e)
+            await self.pair.config_manager.error_handler.handle_async(err, context)
+            # After an exception, we should also disable the pair to prevent retries
+            self.disabled = True
 
     async def _generate_order(self, dry_mode):
         maker = self.current_order['maker']
@@ -287,7 +351,7 @@ class DexPair:
         return await self.pair.config_manager.xbridge_manager.makeorder(maker, maker_size, maker_address, taker,
                                                                         taker_size, taker_address)
 
-    def _handle_order_error(self):
+    async def _handle_order_error(self):
         # Store the original error object before it's potentially modified
         original_order_error = self.order
 
@@ -432,33 +496,62 @@ class DexPair:
             await self.create_order()  # Attempt to place it again
 
     async def at_order_finished(self, disabled_coins):
+        """Handle order completion workflow."""
+        side = self._determine_order_side()
+        self._log_finished_order_details(side)
+
+        self.order_history = self.current_order
+        self.write_last_order_history()
+        await self._update_taker_address()
+        await self.pair.config_manager.strategy_instance.handle_finished_order(self, disabled_coins)
+
+    def _determine_order_side(self) -> str:
+        """Determine order side based on maker token."""
         if self.current_order['maker'] == self.pair.t1.symbol:
-            side = 'SELL'
-        else:
-            side = 'BUY'
-        dict = {
+            return 'SELL'
+        return 'BUY'
+
+    def _construct_order_summary(self, side: str) -> dict:
+        """Construct order summary dictionary for logging."""
+        return {
             "name": self.pair.cfg['name'],
             "pair": self.pair.symbol,
             "side": side,
             "orderid": self.order['id']
         }
-        msg = f"order FINISHED: {dict}"
-        self.pair.config_manager.general_log.info(msg)
-        self.pair.config_manager.trade_log.info(msg)
-        msg = f"virtual order: {self.current_order}"
-        self.pair.config_manager.trade_log.info(msg)
-        msg = f"xbridge order: {self.order}"
-        self.pair.config_manager.trade_log.info(msg)
-        self.order_history = self.current_order
-        self.write_last_order_history()
 
-        if self.order and 'taker' in self.order:
-            if self.order['taker'] == self.t1.symbol:
-                await self.t1.dex.request_addr()
-            elif self.order['taker'] == self.t2.symbol:
-                await self.t2.dex.request_addr()
+    def _log_finished_order_details(self, side: str):
+        """Log detailed information about finished orders."""
+        order_summary = self._construct_order_summary(side)
 
-        await self.pair.config_manager.strategy_instance.handle_finished_order(self, disabled_coins)
+        self.pair.config_manager.general_log.info(f"order FINISHED: {order_summary}")
+        self.pair.config_manager.trade_log.info(f"order FINISHED: {order_summary}")
+        self.pair.config_manager.trade_log.info(f"virtual order: {self.current_order}")
+        self.pair.config_manager.trade_log.info(f"xbridge order: {self.order}")
+
+    async def _update_taker_address(self):
+        """Request address update for taker token."""
+        if not self.order or 'taker' not in self.order:
+            return
+
+        if self.order['taker'] == self.t1.symbol:
+            await self.t1.dex.request_addr()
+        elif self.order['taker'] == self.t2.symbol:
+            await self.t2.dex.request_addr()
+
+    def _is_shutting_down(self) -> bool:
+        """Check if shutdown has been requested"""
+        try:
+            if (self.pair.config_manager and
+                    self.pair.config_manager.controller and
+                    self.pair.config_manager.controller.shutdown_event and
+                    self.pair.config_manager.controller.shutdown_event.is_set()):
+                return True
+        except Exception as e:
+            self.pair.config_manager.general_log.error(
+                f"Error checking shutdown status: {e}"
+            )
+        return False
 
 
 class CexPair:
@@ -473,7 +566,10 @@ class CexPair:
 
     async def update_pricing(self, display=False):
         await self._update_token_prices()
-        self.price = self.t1.cex.cex_price / self.t2.cex.cex_price
+        if self.t1.cex.cex_price is not None and self.t2.cex.cex_price is not None and self.t2.cex.cex_price != 0:
+            self.price = self.t1.cex.cex_price / self.t2.cex.cex_price
+        else:
+            self.price = None
         if display:
             self.pair.config_manager.general_log.info(
                 f"update_pricing: {self.t1.symbol} btc_p: {self.t1.cex.cex_price}, "

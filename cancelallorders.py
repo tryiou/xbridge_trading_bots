@@ -22,6 +22,7 @@ if __name__ == '__main__':
         def __init__(self, logger):
             self.general_log = logger
             self.config_xbridge = MinimalXBridgeConfig()
+            self.controller = None
 
 
     # Setup a basic logger for this script

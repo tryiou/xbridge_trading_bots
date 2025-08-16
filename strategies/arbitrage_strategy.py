@@ -6,6 +6,9 @@ import uuid
 from itertools import combinations
 from typing import List, Dict, Any, Optional, Callable, Coroutine, TYPE_CHECKING
 
+import aiohttp
+
+from definitions.error_handler import OperationalError
 from definitions.trade_state import TradeState
 from strategies.base_strategy import BaseStrategy
 
@@ -13,7 +16,6 @@ if TYPE_CHECKING:
     from definitions.config_manager import ConfigManager
     from definitions.pair import Pair
     from definitions.starter import MainController
-    import aiohttp
 
 
 class ArbitrageStrategy(BaseStrategy):
@@ -35,10 +37,17 @@ class ArbitrageStrategy(BaseStrategy):
         self.thor_tx_url = "https://thornode.ninerealms.com/thorchain/tx"
         self.thorchain_asset_decimals: Dict[str, int] = {}
 
-    def initialize_strategy_specifics(self, dry_mode: bool = True, min_profit_margin: float = 0.01,
+    def initialize_strategy_specifics(self, dry_mode: bool = None, min_profit_margin: float = None,
                                       test_mode: bool = False, **kwargs):
-        self.dry_mode = dry_mode
-        self.min_profit_margin = min_profit_margin
+        # Load defaults from config file first
+        config = self.config_manager.config_arbitrage
+        config_dry_mode = getattr(config, 'dry_mode', True)
+        config_min_profit = getattr(config, 'min_profit_margin', 0.01)
+
+        # CLI/direct-call arguments take precedence over the config file.
+        # This makes the strategy robust whether launched from CLI or GUI.
+        self.dry_mode = dry_mode if dry_mode is not None else config_dry_mode
+        self.min_profit_margin = min_profit_margin if min_profit_margin is not None else config_min_profit
         self.test_mode = test_mode
         # Safely access monitoring config using attribute access, falling back to defaults.
         self._load_strategy_configs()
@@ -54,31 +63,39 @@ class ArbitrageStrategy(BaseStrategy):
         self.config_manager.general_log.info(f"  - Fee Token: {fee_token}")
         self.config_manager.general_log.info(f"  - Test Mode: {self.test_mode}")
         self.config_manager.general_log.info("------------------------------------")
+
     def _load_strategy_configs(self):
         """Loads strategy-specific configurations from the config files, with fallbacks."""
+        try:
+            def get_nested_attr(obj, attrs, default):
+                """Safely gets a nested attribute from an object."""
+                for attr in attrs:
+                    obj = getattr(obj, attr, None)
+                    if obj is None:
+                        return default
+                return obj
 
-        def get_nested_attr(obj, attrs, default):
-            """Safely gets a nested attribute from an object."""
-            for attr in attrs:
-                obj = getattr(obj, attr, None)
-                if obj is None:
-                    return default
-            return obj
-
-        self.xb_monitor_timeout = get_nested_attr(self.config_manager.config_xbridge, ['monitoring', 'timeout'],
-                                                  self.xb_monitor_timeout)
-        self.xb_monitor_poll = get_nested_attr(self.config_manager.config_xbridge, ['monitoring', 'poll_interval'],
-                                               self.xb_monitor_poll)
-        self.thor_monitor_timeout = get_nested_attr(self.config_manager.config_thorchain, ['monitoring', 'timeout'],
-                                                    self.thor_monitor_timeout)
-        self.thor_monitor_poll = get_nested_attr(self.config_manager.config_thorchain, ['monitoring', 'poll_interval'],
-                                                 self.thor_monitor_poll)
-        self.thor_api_url = get_nested_attr(self.config_manager.config_thorchain, ['api', 'thornode_url'],
-                                            self.thor_api_url)
-        self.thor_quote_url = get_nested_attr(self.config_manager.config_thorchain, ['api', 'thornode_quote_url'],
-                                              self.thor_quote_url)
-        self.thor_tx_url = get_nested_attr(self.config_manager.config_thorchain, ['api', 'thornode_tx_url'],
-                                           self.thor_tx_url)
+            self.xb_monitor_timeout = get_nested_attr(self.config_manager.config_xbridge, ['monitoring', 'timeout'],
+                                                      self.xb_monitor_timeout)
+            self.xb_monitor_poll = get_nested_attr(self.config_manager.config_xbridge, ['monitoring', 'poll_interval'],
+                                                   self.xb_monitor_poll)
+            self.thor_monitor_timeout = get_nested_attr(self.config_manager.config_thorchain, ['monitoring', 'timeout'],
+                                                        self.thor_monitor_timeout)
+            self.thor_monitor_poll = get_nested_attr(self.config_manager.config_thorchain,
+                                                     ['monitoring', 'poll_interval'],
+                                                     self.thor_monitor_poll)
+            self.thor_api_url = get_nested_attr(self.config_manager.config_thorchain, ['api', 'thornode_url'],
+                                                self.thor_api_url)
+            self.thor_quote_url = get_nested_attr(self.config_manager.config_thorchain, ['api', 'thornode_quote_url'],
+                                                  self.thor_quote_url)
+            self.thor_tx_url = get_nested_attr(self.config_manager.config_thorchain, ['api', 'thornode_tx_url'],
+                                               self.thor_tx_url)
+        except Exception as e:
+            self.config_manager.error_handler.handle(
+                OperationalError(f"Error loading strategy configs: {str(e)}"),
+                context={"stage": "_load_strategy_configs"}
+            )
+            raise
 
     def get_tokens_for_initialization(self, **kwargs) -> List[str]:
         """Gets the list of tokens from the arbitrage config file."""
@@ -116,10 +133,6 @@ class ArbitrageStrategy(BaseStrategy):
         # Taker strategy might not need history files in the same way, but can be used for logging trades
         return f"{self.config_manager.ROOT_DIR}/data/arbitrage_{pair_name.replace('/', '_')}_trades.log"
 
-    def get_dex_token_address_file_path(self, token_symbol: str) -> str:
-        # Not strictly needed for taking, but good to have for balance checks
-        return f"{self.config_manager.ROOT_DIR}/data/arbitrage_{token_symbol}_addr.yaml"
-
     def get_operation_interval(self) -> int:
         return 60
 
@@ -138,7 +151,10 @@ class ArbitrageStrategy(BaseStrategy):
                     f"Bot is monitoring for refund. Trading will resume automatically."
                 )
             except (IOError, json.JSONDecodeError) as e:
-                self.config_manager.general_log.error(f"Could not read pause file at {self.pause_file_path}: {e}")
+                self.config_manager.error_handler.handle(
+                    OperationalError(f"Could not read pause file: {str(e)}"),
+                    context={"file": self.pause_file_path}
+                )
             return
 
         check_id = str(uuid.uuid4())
@@ -173,8 +189,13 @@ class ArbitrageStrategy(BaseStrategy):
             self.config_manager.general_log.debug(f"Sorted xbridge_asks: {xbridge_asks}")
             self.config_manager.general_log.debug(f"Sorted xbridge_bids: {xbridge_bids}")
         except Exception as e:
-            self.config_manager.general_log.error(
-                f"[{log_prefix}] Error fetching XBridge order book for {pair_instance.symbol}: {e}", exc_info=True)
+            self.config_manager.error_handler.handle(
+                OperationalError(f"Error fetching XBridge order book: {str(e)}"),
+                context={
+                    "pair": pair_instance.symbol,
+                    "log_prefix": log_prefix
+                }
+            )
             return
 
         # 2. Check both arbitrage legs
@@ -274,10 +295,15 @@ class ArbitrageStrategy(BaseStrategy):
             )
         except Exception as e:
             direction_desc = "Sell->Buy" if is_bid else "Buy->Sell"
-            self.config_manager.general_log.error(
-                f"[{log_prefix}] Exception during Thorchain quote fetch for {pair_instance.symbol} ({direction_desc}): {e}",
-                exc_info=True)
-            return None  # Stop on error
+            self.config_manager.error_handler.handle(
+                OperationalError(f"Thorchain quote fetch failed: {str(e)}"),
+                context={
+                    "pair": pair_instance.symbol,
+                    "direction": direction_desc,
+                    "log_prefix": log_prefix
+                }
+            )
+            return None
 
         if not (thorchain_quote and thorchain_quote.get('expected_amount_out')):
             direction_desc = "Sell->Buy" if is_bid else "Buy->Sell"
@@ -332,7 +358,7 @@ class ArbitrageStrategy(BaseStrategy):
             short_header = f"Buy {pair_instance.t1.symbol} on XBridge -> Sell on Thorchain"
 
         opportunity_details = f"Arbitrage Found ({short_header}): Net Profit: {profit_data['net_profit_ratio']:.2f}% on {pair_instance.symbol}." if \
-        profit_data['is_profitable'] else None
+            profit_data['is_profitable'] else None
 
         execution_data = {
             'leg': 1 if is_bid else 2,
@@ -360,8 +386,7 @@ class ArbitrageStrategy(BaseStrategy):
     async def _check_arbitrage_leg(self, pair_instance: 'Pair', order_book: List[List[str]], check_id: str,
                                    direction: str) -> Optional[Dict[str, Any]]:
         """
-        Private method to handle both arbitrage legs.
-        Preserves exact original logic for both bid and ask scenarios.
+        Private method to handle both arbitrage legs by parameterizing the logic.
         """
         if not order_book:
             return None
@@ -372,59 +397,44 @@ class ArbitrageStrategy(BaseStrategy):
         for order in order_book:
             order_price = float(order[0])
             order_amount = float(order[1])
-            order_id = order[2]
-            order_data = {'order_price': order_price, 'order_amount': order_amount, 'order_id': order_id}
+            order_data = {'order_price': order_price, 'order_amount': order_amount, 'order_id': order[2]}
 
             if is_bid:
-                # Leg 1: Sell t1 on XBridge, Buy t1 on Thorchain
-                t1_balance = pair_instance.t1.dex.free_balance or 0
-                if not self.dry_mode and t1_balance < order_amount:
-                    self.config_manager.general_log.debug(
-                        f"[{log_prefix}] Cannot afford XBridge bid for {order_amount:.8f} {pair_instance.t1.symbol}. "
-                        f"Have: {t1_balance:.8f}. Checking next bid."
-                    )
-                    continue
-
+                # Leg 1: Sell t1 on XBridge (cost is t1), Buy t1 on Thorchain (swap with t2)
+                balance_token, fee_token = pair_instance.t1, pair_instance.t1
+                required_balance = order_amount
                 order_data['cost_amount'] = order_amount
                 order_data['thorchain_swap_amount'] = order_amount * order_price
                 order_data['thorchain_from_asset'] = f"{pair_instance.t2.symbol}.{pair_instance.t2.symbol}"
                 order_data['thorchain_to_asset'] = f"{pair_instance.t1.symbol}.{pair_instance.t1.symbol}"
-                order_data['xbridge_fee'] = self.config_manager.xbridge_manager.xbridge_fees_estimate.get(
-                    pair_instance.t1.symbol, {}).get('estimated_fee_coin', 0)
-
-                self.config_manager.general_log.debug(
-                    f"[{log_prefix}] Found affordable XBridge bid: {order_amount:.8f} {pair_instance.t1.symbol} at {order_price:.8f}. Evaluating..."
-                )
             else:
-                # Leg 2: Buy t1 on XBridge, Sell t1 on Thorchain
-                xbridge_cost_t2 = order_amount * order_price
-                t2_balance = pair_instance.t2.dex.free_balance or 0
-                if not self.dry_mode and t2_balance < xbridge_cost_t2:
-                    self.config_manager.general_log.debug(
-                        f"[{log_prefix}] Cannot afford XBridge ask costing {xbridge_cost_t2:.8f} {pair_instance.t2.symbol}. "
-                        f"Have: {t2_balance:.8f}. Checking next ask."
-                    )
-                    continue
-
-                order_data['cost_amount'] = xbridge_cost_t2
+                # Leg 2: Buy t1 on XBridge (cost is t2), Sell t1 on Thorchain (swap with t1)
+                balance_token, fee_token = pair_instance.t2, pair_instance.t2
+                required_balance = order_amount * order_price
+                order_data['cost_amount'] = required_balance
                 order_data['thorchain_swap_amount'] = order_amount
                 order_data['thorchain_from_asset'] = f"{pair_instance.t1.symbol}.{pair_instance.t1.symbol}"
                 order_data['thorchain_to_asset'] = f"{pair_instance.t2.symbol}.{pair_instance.t2.symbol}"
-                order_data['xbridge_fee'] = self.config_manager.xbridge_manager.xbridge_fees_estimate.get(
-                    pair_instance.t2.symbol, {}).get('estimated_fee_coin', 0)
 
+            # Common logic for both legs starts here
+            if not self.dry_mode and (balance_token.dex.free_balance or 0) < required_balance:
                 self.config_manager.general_log.debug(
-                    f"[{log_prefix}] Found affordable XBridge ask: {order_amount:.8f} {pair_instance.t1.symbol} at {order_price:.8f}. Evaluating..."
+                    f"[{log_prefix}] Insufficient balance for {direction} order. "
+                    f"Need {required_balance:.8f} {balance_token.symbol}, "
+                    f"Have: {balance_token.dex.free_balance or 0:.8f}. Checking next order."
                 )
+                continue
 
-            # --- Pre-flight Check: Ensure Thorchain path is active before getting a quote ---
+            order_data['xbridge_fee'] = self.config_manager.xbridge_manager.xbridge_fees_estimate.get(
+                fee_token.symbol, {}).get('estimated_fee_coin', 0)
+            self.config_manager.general_log.debug(
+                f"[{log_prefix}] Found affordable XBridge {direction}: {order_amount:.8f} {pair_instance.t1.symbol} at {order_price:.8f}. Evaluating..."
+            )
+
             from definitions.thorchain_def import check_thorchain_path_status
-            thor_from_chain = order_data['thorchain_from_asset'].split('.')[0]
-            thor_to_chain = order_data['thorchain_to_asset'].split('.')[0]
-
             is_path_active, reason = await check_thorchain_path_status(
-                from_chain=thor_from_chain,
-                to_chain=thor_to_chain,
+                from_chain=order_data['thorchain_from_asset'].split('.')[0],
+                to_chain=order_data['thorchain_to_asset'].split('.')[0],
                 session=self.http_session,
                 api_url=self.thor_api_url
             )
@@ -433,14 +443,11 @@ class ArbitrageStrategy(BaseStrategy):
                 self.config_manager.general_log.warning(
                     f"[{log_prefix}] Skipping opportunity for {pair_instance.symbol}: {reason}"
                 )
-                # Stop checking this leg for this cycle since the path is halted.
-                return None
+                return None  # Path is halted, so no other orders in this book will work.
 
-            # This is the first affordable order, so we evaluate it and then stop.
             return await self._evaluate_opportunity(pair_instance, order_data, check_id, is_bid)
 
-        # If loop finishes, no affordable orders were found
-        return None
+        return None  # No affordable orders were found
 
     async def execute_arbitrage(self, leg_result: Dict[str, Any], check_id: str):
         """Executes the arbitrage trade for a profitable leg."""
@@ -478,8 +485,13 @@ class ArbitrageStrategy(BaseStrategy):
             )
 
             if not xb_result or not xb_result.get('id'):
-                self.config_manager.general_log.error(
-                    f"[{log_prefix}] XBridge trade failed to initiate or was already taken. Aborting arbitrage.")
+                self.config_manager.error_handler.handle(
+                    OperationalError("XBridge trade failed to initiate or was already taken"),
+                    context={
+                        "order_id": exec_data['xbridge_order_id'],
+                        "log_prefix": log_prefix
+                    }
+                )
                 state.archive("xbridge-init-failed")
                 return
 
@@ -491,8 +503,12 @@ class ArbitrageStrategy(BaseStrategy):
             # --- Step 2: Monitor XBridge Trade ---
             xbridge_completed = await self._monitor_xbridge_order(xb_trade_id, check_id)
             if not xbridge_completed:
-                self.config_manager.general_log.error(
-                    f"[{log_prefix}] XBridge trade {xb_trade_id} did not complete successfully. Aborting arbitrage."
+                self.config_manager.error_handler.handle(
+                    OperationalError("XBridge trade did not complete successfully"),
+                    context={
+                        "xbridge_trade_id": xb_trade_id,
+                        "log_prefix": log_prefix
+                    }
                 )
                 state.archive("xbridge-monitor-failed")
                 return
@@ -508,13 +524,13 @@ class ArbitrageStrategy(BaseStrategy):
             await self._reevaluate_and_execute_thorchain(state, state.state_data)
 
         except Exception as e:
-            self.config_manager.general_log.error(
-                f"[{log_prefix}] An unexpected error occurred during arbitrage execution: {e}", exc_info=True
-            )
-            # The state data might not have thor_txid if the exception was early.
-            last_known_xb_id = state.state_data.get('xbridge_trade_id', 'N/A')
-            self.config_manager.general_log.critical(
-                f"[{log_prefix}] Arbitrage failed. Last known XBridge ID: {last_known_xb_id}. Manual intervention may be required."
+            self.config_manager.error_handler.handle(
+                OperationalError(f"Arbitrage execution failed: {str(e)}"),
+                context={
+                    "last_known_xb_id": state.state_data.get('xbridge_trade_id', 'N/A'),
+                    "log_prefix": log_prefix
+                },
+                exc_info=True
             )
             state.archive("execution-error")
 
@@ -629,8 +645,9 @@ class ArbitrageStrategy(BaseStrategy):
         self.config_manager.general_log.info(
             f"[{state.log_prefix}] Verifying return of {refund_amount} {refund_asset}...")
 
-        refund_confirmed = await self._verify_refund_received(refund_asset, refund_amount, state.check_id,
-                                                              since_timestamp)
+        async with aiohttp.ClientSession() as req_session:
+            refund_confirmed = await self._verify_refund_received(refund_asset, refund_amount, state.check_id,
+                                                                  since_timestamp, req_session)
 
         if refund_confirmed:
             self.config_manager.general_log.info(
@@ -648,7 +665,7 @@ class ArbitrageStrategy(BaseStrategy):
                 f"[{state.log_prefix}] Refund not yet confirmed. Will check again next cycle.")
 
     async def _verify_refund_received(self, token_symbol: str, expected_amount: float, check_id: str,
-                                      since_timestamp: Optional[float] = None) -> bool:
+                                      since_timestamp: Optional[float] = None, session=None) -> bool:
         from definitions.rpc import rpc_call
         logger = self.config_manager.general_log
         log_prefix = check_id if self.test_mode else check_id[:8]
@@ -658,44 +675,36 @@ class ArbitrageStrategy(BaseStrategy):
             logger.error(f"[{log_prefix}] No RPC configuration for {token_symbol} to verify refund.")
             return False
 
-        # Retry logic for RPC call to handle transient node issues
-        max_retries = 3
-        retry_delay = 5  # seconds
-        for attempt in range(max_retries):
-            try:
-                transactions = await rpc_call(
-                    method="listtransactions", params=["*", 500, 0], url=f"http://{coin_conf.get('ip', '127.0.0.1')}",
-                    # Increased count for safety
-                    rpc_user=coin_conf.get('username'), rpc_port=coin_conf.get('port'),
-                    rpc_password=coin_conf.get('password'), logger=logger
-                )
-                if transactions is not None:
-                    # If the call was successful, proceed with verification
-                    amount_tolerance = 0.01  # 1% tolerance
-                    min_amount = expected_amount * (1 - amount_tolerance)
+        try:
+            transactions = await rpc_call(
+                method="listtransactions", params=["*", 500, 0], url=f"http://{coin_conf.get('ip', '127.0.0.1')}",
+                rpc_user=coin_conf.get('username'), rpc_port=coin_conf.get('port'),
+                rpc_password=coin_conf.get('password'), logger=logger, session=session,
+                max_err_count=3  # Use built-in retry mechanism
+            )
+            if transactions is None:
+                logger.error(
+                    f"[{log_prefix}] Failed to verify refund for {token_symbol} after multiple attempts (RPC returned None).")
+                return False
 
-                    for tx in reversed(transactions):
-                        # If we have a timestamp, only consider transactions after that time.
-                        if since_timestamp and tx.get('timereceived', 0) < since_timestamp:
-                            continue
+            amount_tolerance = 0.01
+            min_amount = expected_amount * (1 - amount_tolerance)
 
-                        if tx.get('category') == 'receive' and tx.get('amount', 0) >= min_amount and not tx.get(
-                                'abandoned', False):
-                            logger.info(
-                                f"[{log_prefix}] Found potential refund transaction: {tx.get('txid')} for {tx.get('amount')} {token_symbol}.")
-                            return True
-                    return False  # No refund found in the transaction list
+            for tx in reversed(transactions):
+                if since_timestamp and tx.get('timereceived', 0) < since_timestamp:
+                    continue
 
-                # If transactions is None, fall through to the retry logic
-            except Exception as e:
-                logger.warning(
-                    f"[{log_prefix}] Attempt {attempt + 1}/{max_retries} failed for listtransactions: {e}. Retrying in {retry_delay}s...")
-
-            if attempt < max_retries - 1:
-                await asyncio.sleep(retry_delay)
-
-        logger.error(f"[{log_prefix}] Failed to verify refund for {token_symbol} after {max_retries} attempts.")
-        return False
+                if tx.get('category') == 'receive' and tx.get('amount', 0) >= min_amount and not tx.get('abandoned',
+                                                                                                        False):
+                    logger.info(
+                        f"[{log_prefix}] Found potential refund transaction: {tx.get('txid')} for {tx.get('amount')} {token_symbol}.")
+                    return True
+            return False
+        except Exception as e:
+            logger.error(
+                f"[{log_prefix}] An unexpected error occurred during refund verification for {token_symbol}: {e}",
+                exc_info=True)
+            return False
 
     async def _get_thorchain_decimals(self, chain_symbol: str) -> int:
         """

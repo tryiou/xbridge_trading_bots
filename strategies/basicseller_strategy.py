@@ -24,56 +24,73 @@ class BasicSellerStrategy(MakerStrategy):
         self.config_manager.general_log.info("--- Basic Seller Strategy Parameters ---")
         self.config_manager.general_log.info(f"  - Token to Sell: {self.token_to_sell}")
         self.config_manager.general_log.info(f"  - Token to Buy: {self.token_to_buy}")
-        self.config_manager.general_log.info(f"  - Amount to Sell: {self.amount_token_to_sell} {self.token_to_sell}")
-        self.config_manager.general_log.info(f"  - Minimum Sell Price: ${self.min_sell_price_usd:.4f} USD")
-        self.config_manager.general_log.info(f"  - Sell Price Upscale: {self.sell_price_offset * 100:.2f}%")
+        if self.amount_token_to_sell is not None:
+            self.config_manager.general_log.info(
+                f"  - Amount to Sell: {self.amount_token_to_sell} {self.token_to_sell}")
+        else:
+            self.config_manager.general_log.info(f"  - Amount to Sell: None")
+        if self.min_sell_price_usd is not None:
+            self.config_manager.general_log.info(f"  - Minimum Sell Price: ${self.min_sell_price_usd:.4f} USD")
+        else:
+            self.config_manager.general_log.info(f"  - Minimum Sell Price: None")
+        if self.sell_price_offset is not None:
+            self.config_manager.general_log.info(f"  - Sell Price Upscale: {self.sell_price_offset * 100:.2f}%")
+        else:
+            self.config_manager.general_log.info(f"  - Sell Price Upscale: None")
         if self.partial_percent:
             self.config_manager.general_log.info(
                 f"  - Partial Order Minimum Size: {self.partial_percent * 100:.1f}% of total")
         self.config_manager.general_log.info("---------------------------------------")
 
     def get_tokens_for_initialization(self, **kwargs) -> list:
-        # These come from CLI args
-        token_to_sell = kwargs.get('token_to_sell')
-        token_to_buy = kwargs.get('token_to_buy')
-        if token_to_sell is None or token_to_buy is None:
-            raise ValueError("TokenToSell and TokenToBuy must be provided for BasicSeller strategy.")
-        return [token_to_sell, token_to_buy]
+        # If CLI args are provided, use them for backward compatibility.
+        if kwargs.get('token_to_sell') and kwargs.get('token_to_buy'):
+            return [kwargs['token_to_sell'], kwargs['token_to_buy']]
+
+        # Otherwise, get tokens from the config file.
+        return self.get_tokens_from_pair_configs(self.config_manager.config_basicseller.seller_configs)
 
     def get_pairs_for_initialization(self, tokens_dict, **kwargs) -> dict:
         from definitions.pair import Pair  # Import here to avoid circular dependency
         pairs = {}
-        token_to_sell = kwargs.get('token_to_sell')
-        token_to_buy = kwargs.get('token_to_buy')
-        amount_token_to_sell = kwargs.get('amount_token_to_sell')
-        min_sell_price_usd = kwargs.get('min_sell_price_usd')
-        sell_price_offset = kwargs.get('sell_price_offset')
-        partial_percent = kwargs.get('partial_percent')
 
-        if token_to_sell is None or token_to_buy is None:
-            raise ValueError("Need at least two tokens for basic_seller strategy")
+        # Handle CLI mode for backward compatibility
+        if kwargs.get('token_to_sell') and kwargs.get('token_to_buy'):
+            token_to_sell = kwargs['token_to_sell']
+            token_to_buy = kwargs['token_to_buy']
+            # Create a unique name for the CLI-based pair
+            pair_key = f"{token_to_sell}_{token_to_buy}_cli"
+            pairs[pair_key] = Pair(
+                token1=tokens_dict[token_to_sell],
+                token2=tokens_dict[token_to_buy],
+                cfg={'name': pair_key, 'enabled': True},
+                strategy="basic_seller",
+                amount_token_to_sell=kwargs.get('amount_token_to_sell'),
+                min_sell_price_usd=kwargs.get('min_sell_price_usd'),
+                sell_price_offset=kwargs.get('sell_price_offset'),
+                partial_percent=kwargs.get('partial_percent'),
+                config_manager=self.config_manager
+            )
+            return pairs
 
-        pair_key = f"{token_to_sell}/{token_to_buy}"
-
-        pairs[pair_key] = Pair(
-            token1=tokens_dict[token_to_sell],
-            token2=tokens_dict[token_to_buy],
-            cfg={'name': "basic_seller"},  # Basic seller doesn't use a config file for pairs
-            strategy="basic_seller",
-            amount_token_to_sell=amount_token_to_sell,
-            min_sell_price_usd=min_sell_price_usd,
-            sell_price_offset=sell_price_offset,
-            partial_percent=partial_percent,
-            config_manager=self.config_manager
-        )
+        # Handle config file mode (for GUI)
+        enabled_sellers = [cfg for cfg in self.config_manager.config_basicseller.seller_configs if
+                           cfg.get('enabled', True)]
+        for cfg in enabled_sellers:
+            t1, t2 = cfg['pair'].split("/")
+            pair_name = cfg['name']
+            pairs[pair_name] = Pair(
+                token1=tokens_dict[t1],
+                token2=tokens_dict[t2],
+                cfg=cfg,
+                strategy="basic_seller",
+                amount_token_to_sell=cfg.get('amount_to_sell'),
+                min_sell_price_usd=cfg.get('min_sell_price_usd'),
+                sell_price_offset=cfg.get('sell_price_offset'),
+                partial_percent=cfg.get('partial_percent'),
+                config_manager=self.config_manager
+            )
         return pairs
-
-    def get_dex_history_file_path(self, pair_name: str) -> str:
-        unique_id = pair_name.replace("/", "_")
-        return f"{self.config_manager.ROOT_DIR}/data/basic_seller_{unique_id}_last_order.yaml"
-
-    def get_dex_token_address_file_path(self, token_symbol: str) -> str:
-        return f"{self.config_manager.ROOT_DIR}/data/basic_seller_{token_symbol}_addr.yaml"
 
     def build_sell_order_details(self, dex_pair_instance, manual_dex_price=None) -> tuple:
         # BasicSeller specific logic for amount and offset for sell side
@@ -124,9 +141,9 @@ class BasicSellerStrategy(MakerStrategy):
             await dex_pair_instance.create_order(dry_mode=False)
 
     async def handle_finished_order(self, dex_pair_instance, disabled_coins: list):
-        self.config_manager.general_log.info('Order sold, signaling bot termination.')
-        if self.controller:
-            self.controller.shutdown_event.set()
+        self.config_manager.general_log.info(
+            f"Sell order for '{dex_pair_instance.pair.name}' completed successfully. Disabling instance.")
+        dex_pair_instance.disabled = True  # Mark this seller instance as complete.
 
     async def handle_error_swap_status(self, dex_pair_instance):
         self.config_manager.general_log.error(

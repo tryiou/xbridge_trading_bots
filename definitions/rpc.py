@@ -1,24 +1,40 @@
 import asyncio
+import socket
+import threading
 
 import aiohttp
+import async_timeout
 from aiohttp import BasicAuth, ClientError
 
+from definitions.error_handler import TransientError, OperationalError
 
-async def handle_error(e, err_count, method, params, prefix, logger=None, response_text=None):
-    msg = f"{prefix}_rpc_call( {method}, {params} )"
-    log_func = logger.warning if logger else print
-    log_func(f"{msg} - {type(e)}, {e}")
-    if response_text:
-        log_func(f"Raw RPC response content: {response_text}")
 
-    await asyncio.sleep(err_count + 1)
+class AsyncThreadingSemaphore:
+    """A wrapper to use a threading.BoundedSemaphore in an async context."""
+
+    def __init__(self, value=1):
+        self._semaphore = threading.BoundedSemaphore(value)
+
+    async def __aenter__(self):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._semaphore.acquire)
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        self._semaphore.release()
+
+
+class RpcTimeoutError(Exception):
+    """Custom exception for RPC timeout handling"""
+    pass
 
 
 async def rpc_call(method, params=None, url="http://127.0.0.1", rpc_user=None, rpc_password=None,
-                   rpc_port=None, debug=2, timeout=120, display=True, prefix='xbridge', max_err_count=3,
-                   logger=None, session=None):
+                   rpc_port=None, debug=2, timeout=30, prefix='xbridge', max_err_count=5,
+                   logger=None, session=None, error_handler=None,
+                   shutdown_event=None):
     """
-    Make an async JSON-RPC call.
+    Make an async JSON-RPC call with centralized error handling.
 
     :param method: RPC method to call.
     :param params: Parameters for the RPC call.
@@ -32,8 +48,9 @@ async def rpc_call(method, params=None, url="http://127.0.0.1", rpc_user=None, r
     :param prefix: Prefix for debug messages.
     :param max_err_count: Maximum number of retries in case of errors.
     :param logger: Optional logger instance to use for messages.
-    :param session: Optional aiohttp.ClientSession instance. If not provided, a new one is created.
-    :return: Result of the RPC call, or None if no result is obtained after max attempts.
+    :param session: Optional aiohttp.ClientSession instance.
+    :param error_handler: ErrorHandler instance for centralized error handling.
+    :return: Result of the RPC call, or None if failed after max attempts.
     """
     if params is None:
         params = []
@@ -45,51 +62,91 @@ async def rpc_call(method, params=None, url="http://127.0.0.1", rpc_user=None, r
 
     async def _rpc_call_internal(s):
         for err_count in range(max_err_count):
+            response_text = None
             try:
-                response_text = None
-                async with s.post(url, json=payload, headers=headers, auth=auth, timeout=client_timeout) as response:
-                    # Read response text first for better error logging
-                    response_text = await response.text()
-                    response.raise_for_status()  # Raises an exception for 4xx/5xx responses
+                async with async_timeout.timeout(timeout):
+                    async with s.post(url,
+                                      json=payload,
+                                      headers=headers,
+                                      auth=auth,
+                                      timeout=client_timeout) as response:
+                        response_text = await response.text()
+                        response.raise_for_status()
 
+                        try:
+                            json_response = await response.json()
+                        except aiohttp.ContentTypeError:
+                            raise OperationalError(
+                                "RPC response is not valid JSON",
+                                context={"content": response_text}
+                            )
+
+                        if 'error' in json_response and json_response['error'] is not None:
+                            error_msg = json_response['error'].get('message', 'Unknown RPC error')
+                            error_code = json_response['error'].get('code', -1)
+                            if error_handler:
+                                error_handler.handle(
+                                    OperationalError(
+                                        f"RPC error {error_code}: {error_msg}",
+                                        {"method": method, "params": params}
+                                    ),
+                                    context={"prefix": prefix, "err_count": err_count}
+                                )
+                            elif logger:
+                                logger.warning(f"{prefix}_rpc_call: RPC error {error_code} - {error_msg}")
+                            return json_response
+
+                        result = json_response.get('result')
+                        if result is not None:
+                            if logger and debug >= 2:
+                                if debug >= 3:
+                                    logger.info(f"{prefix}_rpc_call({method}, {params})")
+                                else:
+                                    logger.info(f"{prefix}_rpc_call({method})")
+                            return result
+                        else:
+                            if logger:
+                                logger.warning(f"{prefix}_rpc_call: Missing result in response")
+                            return None
+            except Exception as e:
+                context = {
+                    "method": method,
+                    "params": params,
+                    "prefix": prefix,
+                    "err_count": err_count,
+                    "response_text": response_text
+                }
+
+                if isinstance(e, (ClientError, asyncio.TimeoutError, OperationalError)):
+                    if error_handler:
+                        error_class = TransientError if isinstance(e, asyncio.TimeoutError) else OperationalError
+                        if not error_handler.handle(error_class(str(e)), context=context):
+                            return None
+                    elif logger:
+                        logger.warning(f"{prefix}_rpc_call error: {type(e).__name__} - {e}")
+                else:  # Unexpected exception
+                    if error_handler:
+                        if not error_handler.handle(
+                                OperationalError(f"Unexpected error: {str(e)}"),
+                                context=context
+                        ):
+                            return None
+                    elif logger:
+                        logger.error(f"{prefix}_rpc_call unexpected error: {type(e).__name__} - {e}", exc_info=True)
+
+                if shutdown_event:
                     try:
-                        json_response = await response.json()
-                    except aiohttp.ContentTypeError:
-                        # If response is not JSON, log raw text and raise an error
-                        raise ValueError(f"RPC response is not valid JSON. Content: {response_text}")
-
-                    # Check for JSON-RPC level error first
-                    if 'error' in json_response and json_response['error'] is not None:
-                        log_func = logger.warning if logger else print
-                        log_func(
-                            f"{prefix}_rpc_call( {method}, {params} ) - Received JSON-RPC error: {json_response['error']}")
-                        return json_response  # Return the full error object
-
-                    result = json_response.get('result')
-                    if result is not None:
-                        if display and debug >= 2:
-                            log_func = logger.info if logger else print
-                            # Level 2: Log method name only
-                            if debug == 2:
-                                msg = f"{prefix}_rpc_call( {method} )"
-                                log_func(msg)
-                            # Level 3: Log method and parameters
-                            elif debug >= 3:
-                                msg = f"{prefix}_rpc_call( {method}, {params} )"
-                                log_func(msg)
-                            # Level 4: Also log the full JSON response
-                            if debug >= 4:
-                                log_func(f"Full JSON response: {json_response}")
-                        return result
-                    else:
-                        # This case is for when 'result' is null or missing, but 'error' is also null/missing.
-                        # This is an ambiguous response. Log it and return None to signal failure.
-                        log_func = logger.warning if logger else print
-                        log_func(
-                            f"{prefix}_rpc_call( {method}, {params} ) - 'result' field is None or missing. Full response: {json_response}")
+                        # Wait for the shutdown event or timeout
+                        await asyncio.wait_for(shutdown_event.wait(), timeout=err_count + 1)
+                        # If wait() completes, it means the event was set.
+                        if logger:
+                            logger.debug(f"Shutdown signaled during RPC backoff for {method}. Aborting.")
                         return None
-            except (ClientError, Exception) as e:
-                await handle_error(e, err_count, method, params, prefix, logger, response_text=response_text)
+                    except asyncio.TimeoutError:
+                        # This is the normal case, sleep finished.
+                        pass
+                else:
+                    await asyncio.sleep(err_count + 1)
         return None
 
     if session:
@@ -97,3 +154,17 @@ async def rpc_call(method, params=None, url="http://127.0.0.1", rpc_user=None, r
     else:
         async with aiohttp.ClientSession() as new_session:
             return await _rpc_call_internal(new_session)
+
+
+def is_port_open(ip: str, port: int, timeout: float = 2.0) -> bool:
+    """Check if TCP port is open synchronously."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.settimeout(timeout)
+        try:
+            s.connect((ip, port))
+            return True
+        except (ConnectionRefusedError, socket.timeout, OSError):
+            return False
+        except Exception as e:
+            # We don't log here to keep it simple. Callers should handle logging.
+            return False

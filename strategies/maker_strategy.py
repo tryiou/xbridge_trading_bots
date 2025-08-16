@@ -1,5 +1,5 @@
 from abc import abstractmethod
-from typing import Dict, Any, List, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 from .base_strategy import BaseStrategy
 
@@ -12,20 +12,6 @@ class MakerStrategy(BaseStrategy):
     Abstract base class for "maker" strategies that create and manage
     orders on the DEX order book (e.g., PingPong, BasicSeller).
     """
-
-    def get_dex_history_file_path(self, pair_name: str) -> str:
-        """
-        Returns the file path for storing DEX order history for a given pair.
-        This can be overridden by subclasses if a different naming scheme is needed.
-        """
-        unique_id = pair_name.replace("/", "_")
-        return f"{self.config_manager.ROOT_DIR}/data/{self.config_manager.strategy}_{unique_id}_last_order.yaml"
-
-    def get_dex_token_address_file_path(self, token_symbol: str) -> str:
-        """
-        Returns the file path for storing the DEX token address for a given token.
-        """
-        return f"{self.config_manager.ROOT_DIR}/data/{self.config_manager.strategy}_{token_symbol}_addr.yaml"
 
     @abstractmethod
     def build_sell_order_details(self, dex_pair_instance: 'DexPair', manual_dex_price=None) -> tuple:
@@ -98,6 +84,34 @@ class MakerStrategy(BaseStrategy):
         stale orders before starting fresh.
         """
         return [
-            self.config_manager.xbridge_manager.cancelallorders(),
-            self.config_manager.xbridge_manager.dxflushcancelledorders()
+            self.config_manager.xbridge_manager.cancelallorders,
+            self.config_manager.xbridge_manager.dxflushcancelledorders
         ]
+
+    async def cancel_own_orders(self):
+        """Cancel only orders belonging to this strategy"""
+        if not hasattr(self, 'controller') or not self.controller:
+            return
+
+        self.config_manager.general_log.info(f"Canceling {self.__class__.__name__} orders...")
+        count = 0
+        for pair_name, pair in self.controller.pairs_dict.items():
+            if not pair.dex_enabled:
+                continue
+
+            dex = pair.dex
+            if not dex.order or 'id' not in dex.order:
+                continue
+
+            order_id = dex.order['id']
+            try:
+                self.config_manager.general_log.info(f"Canceling order {order_id} for {pair_name}")
+                await pair.dex.cancel_myorder_async()
+                count += 1
+                # await self.config_manager.xbridge_manager.cancelorder(order_id)
+            except Exception as e:
+                self.config_manager.general_log.error(f"Error canceling order {order_id}: {e}")
+            finally:
+                pass
+                # self.config_manager.general_log.info(f"Cancelled order {order_id} for {pair_name}")
+        return count

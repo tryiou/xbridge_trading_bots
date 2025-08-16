@@ -1,6 +1,7 @@
 import argparse
 import logging
 
+from definitions.cli_runner import run_cli
 from definitions.config_manager import ConfigManager
 from definitions.starter import run_async_main
 
@@ -50,4 +51,4 @@ def start():
 
 
 if __name__ == '__main__':
-    start()
+    run_cli(start)

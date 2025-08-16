@@ -1,54 +1,151 @@
 import asyncio
 import configparser
+import logging
 import os
+import threading
+import time
 import uuid
+import weakref
 
 from definitions.detect_rpc import detect_rpc
-from definitions.rpc import rpc_call
+from definitions.errors import RPCConfigError
+from definitions.logger import setup_logging
+from definitions.rpc import rpc_call, is_port_open, AsyncThreadingSemaphore
 
 
 class XBridgeManager:
+    _loops = weakref.WeakSet()
+    # Class-level attributes for global state, ensuring they are shared across all instances.
+    _active_rpc_counter = 0
+    _rpc_counter_lock = threading.Lock()
+    _rpc_semaphore = None
+    # Class-level UTXO cache and lock for thread-safe access
+    _utxo_cache = {}
+    _utxo_cache_lock = threading.Lock()
+    UTXO_CACHE_DURATION = 3.0  # Cache expiration time in seconds
+    # Class-level cache for RPC config to avoid re-detecting on each instantiation
+    _rpc_config = None
+    _rpc_config_lock = threading.Lock()
+    # Class-level cache for xbridge.conf parsing and fee estimates
+    _xbridge_conf_cache = None
+    _xbridge_fees_cache = {}
+    _xbridge_conf_lock = threading.Lock()
+
+    @property
+    def active_rpc_counter(self):
+        """Provides read-only access to the shared RPC counter."""
+        return XBridgeManager._active_rpc_counter
+
     def __init__(self, config_manager):
         self.config_manager = config_manager
-        self.logger = config_manager.general_log
-        self.blocknet_user_rpc, self.blocknet_port_rpc, self.blocknet_password_rpc, self.blocknet_datadir_path = detect_rpc()
+        strategy = self.config_manager.strategy if hasattr(config_manager, 'strategy') else 'no_strat'
+        self.logger = setup_logging(name=f"{strategy}.xbridge_manager", level=logging.DEBUG, console=True)
+        try:
+            # Singleton pattern for RPC detection
+            if XBridgeManager._rpc_config is None:
+                with XBridgeManager._rpc_config_lock:
+                    # Double-check locking to ensure thread safety
+                    if XBridgeManager._rpc_config is None:
+                        self.logger.info("Detecting RPC configuration.")
+                        XBridgeManager._rpc_config = detect_rpc()
+
+            self.blocknet_user_rpc, self.blocknet_port_rpc, self.blocknet_password_rpc, self.blocknet_datadir_path = XBridgeManager._rpc_config
+        except RPCConfigError as e:
+            self.logger.critical(f"Failed to initialize RPC: {str(e)}")
+            raise
         self.xbridge_conf = None
         self.xbridge_fees_estimate = {}
 
-        # Optional: Test RPC connection during initialization
-        if not self.test_rpc():
-            self.logger.error(f'Blocknet core rpc server not responding or credentials incorrect.')
-            # Depending on desired behavior, you might want to raise an exception or exit here.
-            # For now, just log the error.
+        # Initialize shared semaphore only once
+        if XBridgeManager._rpc_semaphore is None:
+            max_tasks = 5
+            try:
+                max_tasks = self.config_manager.config_xbridge.max_concurrent_tasks
+            except AttributeError:
+                self.logger.info(f"Falling back to default max_concurrent_tasks ({max_tasks})")
+            XBridgeManager._rpc_semaphore = AsyncThreadingSemaphore(max_tasks)
+
+        # Check if RPC port is open (synchronous check)
+        if not is_port_open("127.0.0.1", self.blocknet_port_rpc):
+            self.logger.error(
+                f'Blocknet RPC port {self.blocknet_port_rpc} is not open. Will not be able to connect to Blocknet Core.')
+        else:
+            self.logger.info(f'Blocknet RPC port {self.blocknet_port_rpc} is open.')
 
         if getattr(self.config_manager, 'strategy', None) == "arbitrage":
-            # Load and parse the xbridge.conf file
-            self.parse_xbridge_conf()
-            # Calculate fee estimates
-            self.calculate_xbridge_fees()
+            with XBridgeManager._xbridge_conf_lock:
+                if XBridgeManager._xbridge_conf_cache is None:
+                    self.logger.info("Parsing xbridge.conf and calculating fees for the first time.")
+                    # Load and parse the xbridge.conf file
+                    self.parse_xbridge_conf()
+                    # Calculate fee estimates
+                    self.calculate_xbridge_fees()
+                    # Cache the results
+                    XBridgeManager._xbridge_conf_cache = self.xbridge_conf
+                    XBridgeManager._xbridge_fees_cache = self.xbridge_fees_estimate
+                else:
+                    self.logger.info("Using cached xbridge.conf and fee estimates.")
+                    self.xbridge_conf = XBridgeManager._xbridge_conf_cache
+                    self.xbridge_fees_estimate = XBridgeManager._xbridge_fees_cache
 
-    async def rpc_wrapper(self, method, params=None):
-        if params is None:
-            params = []
-        result = await rpc_call(method=method,
-                                params=params,
-                                rpc_user=self.blocknet_user_rpc,
-                                rpc_port=self.blocknet_port_rpc,
-                                rpc_password=self.blocknet_password_rpc,
-                                debug=self.config_manager.config_xbridge.debug_level,
-                                logger=self.logger)  # Pass the instance logger
-        return result
+        # Only run test if port is actually open and we're not in main thread
+        if (threading.current_thread() is not threading.main_thread() and is_port_open("127.0.0.1",
+                                                                                       self.blocknet_port_rpc)):
+            asyncio.run(self.async_test_rpc())
 
-    def test_rpc(self):
-        # This method is called from constructor, so it cannot be async.
-        # We will use asyncio.run to run the async rpc_wrapper.
-        # This is acceptable for a one-off test at startup.
-        result = asyncio.run(self.rpc_wrapper("getwalletinfo"))
-        if result:
-            self.logger.info(f'XBridge RPC connection successful: getwalletinfo returned {result}')
-            return True
-        else:
-            self.logger.error(f'XBridge RPC connection failed: getwalletinfo returned {result}')
+    async def rpc_wrapper(self, method, params=None, shutdown_event=None):
+        """Execute RPC call with context tracking and optional shutdown event"""
+        # If no shutdown_event is passed, get it from the controller if available
+        if shutdown_event is None and self.config_manager and self.config_manager.controller:
+            shutdown_event = self.config_manager.controller.shutdown_event
+
+        # Early bailout if shutdown is signaled, with exceptions for cleanup RPCs
+        if shutdown_event and shutdown_event.is_set():
+            if method not in ["dxCancelOrder", "dxGetMyOrders", "dxflushcancelledorders"]:
+                self.logger.debug(f"RPC call to {method} cancelled due to shutdown signal.")
+                return None
+
+        async with XBridgeManager._rpc_semaphore:
+            with XBridgeManager._rpc_counter_lock:
+                XBridgeManager._active_rpc_counter += 1
+
+            try:
+                # Default parameters
+                if params is None:
+                    params = []
+
+                try:
+                    return await rpc_call(
+                        method=method,
+                        params=params,
+                        rpc_user=self.blocknet_user_rpc,
+                        rpc_password=self.blocknet_password_rpc,
+                        rpc_port=self.blocknet_port_rpc,
+                        debug=self.config_manager.config_xbridge.debug_level,
+                        logger=self.logger,
+                        session=None,  # Create new session per call
+                        shutdown_event=shutdown_event
+                    )
+                except Exception as e:
+                    from definitions.errors import convert_exception
+                    raise convert_exception(e) from e
+            finally:
+                with XBridgeManager._rpc_counter_lock:
+                    XBridgeManager._active_rpc_counter -= 1
+
+    async def async_test_rpc(self):
+        """Perform RPC connection test asynchronously with cancellation handling"""
+        try:
+            result = await self.rpc_wrapper("getwalletinfo")
+            if result:
+                self.logger.info(f'XBridge RPC connection successful: getwalletinfo returned {result}')
+                return True
+            return False
+        except asyncio.CancelledError:
+            self.logger.warning("RPC test cancelled during shutdown")
+            return False
+        except Exception as e:
+            self.logger.error(f'XBridge RPC connection failed: {e}')
             return False
 
     def parse_xbridge_conf(self):
@@ -153,9 +250,24 @@ class XBridgeManager:
 
     async def cancelallorders(self):
         myorders = await self.rpc_wrapper("dxGetMyOrders")
-        for z in myorders:
-            if z['status'] == "open" or z['status'] == "new":
-                await self.cancelorder(z['id'])
+        result = []
+        failed = []
+        if not myorders:
+            self.logger.info(f"No orders to cancel or failed to retrieve orders.")
+            return result
+        for order in myorders:
+            if order['status'] not in ("open", "new"):
+                continue
+            try:
+                await self.cancelorder(order['id'])
+                result.append(order['id'])
+                await asyncio.sleep(0.1)  # Brief pause between cancellations
+            except Exception as e:
+                failed.append(order['id'])
+                self.logger.error(f"Failed cancel order {order['id']}: {e}")
+        if failed:
+            self.logger.critical(f"Partially canceled: {len(result)} ok, {len(failed)} failed: {failed}")
+        return result
 
     async def dxloadxbridgeconf(self):
         await self.rpc_wrapper("dxloadxbridgeconf")
@@ -167,7 +279,23 @@ class XBridgeManager:
         return await self.rpc_wrapper("dxgettokenbalances")
 
     async def gettokenutxo(self, token, used=False):
-        return await self.rpc_wrapper("dxgetutxos", [token, used])
+        cache_key = f"{token}_{used}"
+        current_time = time.time()
+
+        # Check cache under class lock (thread-safe)
+        with XBridgeManager._utxo_cache_lock:
+            cached_data = XBridgeManager._utxo_cache.get(cache_key)
+            if cached_data and (current_time - cached_data[0]) < XBridgeManager.UTXO_CACHE_DURATION:
+                self.logger.debug(f"Returning class-level cached UTXO data for {token} (used={used})")
+                return cached_data[1]
+
+        # If not cached or expired, make the RPC call
+        result = await self.rpc_wrapper("dxgetutxos", [token, used])
+
+        with XBridgeManager._utxo_cache_lock:
+            XBridgeManager._utxo_cache[cache_key] = (time.time(), result)
+            # self.logger.debug(f"Cached new class-level UTXO data for {token} (used={used})")
+        return result
 
     async def getlocaltokens(self):
         return await self.rpc_wrapper("dxgetlocaltokens")

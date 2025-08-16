@@ -1,15 +1,20 @@
-import asyncio
 import os
-import time
-from typing import Any, Dict, List, TYPE_CHECKING
+import sys
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
+# Add parent directory to path for module imports
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
+from definitions.config_manager import ConfigManager
 
 if TYPE_CHECKING:
     from strategies.pingpong_strategy import PingPongStrategy
 
 from contextlib import contextmanager
 
-from definitions.starter import TradingProcessor, MainController
 
 class PingPongStrategyTester:
     """
@@ -20,7 +25,6 @@ class PingPongStrategyTester:
     def __init__(self, strategy_instance: 'PingPongStrategy'):
         self.strategy = strategy_instance
         self.config_manager = strategy_instance.config_manager
-        self.test_results: List[Dict[str, Any]] = []
         if not self.config_manager.pairs:
             raise RuntimeError("Cannot run tests: No pairs were initialized. "
                                "Check config/config_pingpong.yaml for enabled pairs.")
@@ -28,9 +32,18 @@ class PingPongStrategyTester:
         self.pair_name = next(iter(self.config_manager.pairs))
         self.pair = self.config_manager.pairs[self.pair_name]
 
+    def reset(self):
+        """Resets the state of the pair for test isolation."""
+        self.pair.dex.order_history = None
+        self.pair.dex.current_order = None
+        self.pair.dex.disabled = False
+        self.pair.dex.variation = None
+        self.pair.dex.order = None
+
     @contextmanager
     def _patch_dependencies(self):
         """A context manager to patch all external dependencies for tests."""
+        self.reset()
         with patch.object(self.config_manager.xbridge_manager, 'makeorder',
                           new_callable=AsyncMock) as mock_make_order, \
                 patch.object(self.config_manager.xbridge_manager, 'cancelorder',
@@ -43,7 +56,6 @@ class PingPongStrategyTester:
                 patch('asyncio.sleep', return_value=None), \
                 patch.object(self.pair.t1.dex, 'free_balance', 1000.0), \
                 patch.object(self.pair.t2.dex, 'free_balance', 1000.0):
-
             # Default mock behaviors
             mock_make_order.return_value = {'id': 'mock_order_id_123', 'status': 'created'}
             mock_get_status.return_value = {'id': 'mock_order_id_123', 'status': 'open'}
@@ -68,52 +80,12 @@ class PingPongStrategyTester:
         self.pair.t1.cex.cex_price = self.pair.t1.cex.usd_price / 100000.0
         self.pair.t2.cex.cex_price = self.pair.t2.cex.usd_price / 100000.0
 
-    async def run_all_tests(self):
-        """Runs the full suite of PingPong strategy tests."""
-        self.config_manager.general_log.info("--- Starting PingPong Strategy Test Suite ---")
-        await self._test_initial_sell_order_creation()
-        await self._test_buy_order_creation_after_sell()
-        await self._test_sell_order_creation_after_buy()
-        await self._test_price_variation_cancel_and_recreate_sell()
-        await self._test_price_variation_no_cancel_buy()
-        await self._test_order_completion_flow()
-        await self._test_buy_price_logic_on_market_moves()
-        await self._test_order_expiration_recreates_order()
-        await self._test_insufficient_balance()
-        await self._test_concurrency_throttling()
-        self.config_manager.general_log.info("\n--- PingPong Strategy Test Suite Finished ---")
-        self._print_summary()
-
-    def _print_summary(self):
-        """Prints a formatted summary of the test suite results."""
-        summary_lines = [
-            "\n" + "=" * 60,
-            "--- Test Suite Summary ---".center(60),
-            "=" * 60
-        ]
-        passed_count = 0
-        failed_count = 0
-
-        for result in self.test_results:
-            status = "PASSED" if result['passed'] else "FAILED"
-            summary_lines.append(f"  - [{status}] {result['name']}")
-            if result['passed']:
-                passed_count += 1
-            else:
-                failed_count += 1
-
-        summary_lines.append("-" * 60)
-        summary_lines.append(f"Total Tests: {len(self.test_results)} | Passed: {passed_count} | Failed: {failed_count}")
-        summary_lines.append("=" * 60)
-        self.config_manager.general_log.info("\n".join(summary_lines))
-
     async def _test_initial_sell_order_creation(self):
         """
         Tests that a SELL order is created when no order history exists.
         """
         test_name = "Initial SELL Order Creation"
         self.config_manager.general_log.info(f"\n--- [TEST CASE] Running: {test_name} ---")
-        passed = False
 
         with self._patch_dependencies() as mocks:
             # Arrange: No order history
@@ -129,13 +101,9 @@ class PingPongStrategyTester:
             mocks['make_order'].assert_called_once()
             call_args = mocks['make_order'].call_args[0]
             # For a SELL on t1/t2, the maker is t1
-            if call_args[0] == self.pair.t1.symbol:
-                self.config_manager.general_log.info("[TEST PASSED] Correctly created a SELL order.")
-                passed = True
-            else:
-                self.config_manager.general_log.error(
-                    f"[TEST FAILED] Incorrect order side. Expected SELL (maker={self.pair.t1.symbol}), got maker={call_args[0]}")
-        self.test_results.append({'name': test_name, 'passed': passed})
+            assert call_args[0] == self.pair.t1.symbol, \
+                f"Incorrect order side. Expected SELL (maker={self.pair.t1.symbol}), got maker={call_args[0]}"
+            self.config_manager.general_log.info("[TEST PASSED] Correctly created a SELL order.")
 
     async def _test_buy_order_creation_after_sell(self):
         """
@@ -143,7 +111,6 @@ class PingPongStrategyTester:
         """
         test_name = "BUY Order Creation After SELL"
         self.config_manager.general_log.info(f"\n--- [TEST CASE] Running: {test_name} ---")
-        passed = False
 
         with self._patch_dependencies() as mocks:
             # Arrange: History of a finished SELL order
@@ -159,13 +126,9 @@ class PingPongStrategyTester:
             mocks['make_order'].assert_called_once()
             call_args = mocks['make_order'].call_args[0]
             # For a BUY on t1/t2, the maker is t2
-            if call_args[0] == self.pair.t2.symbol:
-                self.config_manager.general_log.info("[TEST PASSED] Correctly created a BUY order.")
-                passed = True
-            else:
-                self.config_manager.general_log.error(
-                    f"[TEST FAILED] Incorrect order side. Expected BUY (maker={self.pair.t2.symbol}), got maker={call_args[0]}")
-        self.test_results.append({'name': test_name, 'passed': passed})
+            assert call_args[0] == self.pair.t2.symbol, \
+                f"Incorrect order side. Expected BUY (maker={self.pair.t2.symbol}), got maker={call_args[0]}"
+            self.config_manager.general_log.info("[TEST PASSED] Correctly created a BUY order.")
 
     async def _test_sell_order_creation_after_buy(self):
         """
@@ -173,7 +136,6 @@ class PingPongStrategyTester:
         """
         test_name = "SELL Order Creation After BUY"
         self.config_manager.general_log.info(f"\n--- [TEST CASE] Running: {test_name} ---")
-        passed = False
 
         with self._patch_dependencies() as mocks:
             # Arrange: History of a finished BUY order
@@ -188,13 +150,9 @@ class PingPongStrategyTester:
             # Assert
             mocks['make_order'].assert_called_once()
             call_args = mocks['make_order'].call_args[0]
-            if call_args[0] == self.pair.t1.symbol:
-                self.config_manager.general_log.info("[TEST PASSED] Correctly created a SELL order.")
-                passed = True
-            else:
-                self.config_manager.general_log.error(
-                    f"[TEST FAILED] Incorrect order side. Expected SELL (maker={self.pair.t1.symbol}), got maker={call_args[0]}")
-        self.test_results.append({'name': test_name, 'passed': passed})
+            assert call_args[0] == self.pair.t1.symbol, \
+                f"Incorrect order side. Expected SELL (maker={self.pair.t1.symbol}), got maker={call_args[0]}"
+            self.config_manager.general_log.info("[TEST PASSED] Correctly created a SELL order.")
 
     async def _test_price_variation_cancel_and_recreate_sell(self):
         """
@@ -202,7 +160,6 @@ class PingPongStrategyTester:
         """
         test_name = "Price Variation Cancel & Recreate (SELL)"
         self.config_manager.general_log.info(f"\n--- [TEST CASE] Running: {test_name} ---")
-        passed = False
 
         with self._patch_dependencies() as mocks:
             # Arrange: No history, so we are in a SELL state.
@@ -220,14 +177,10 @@ class PingPongStrategyTester:
             # Assert
             mocks['cancel_order'].assert_called_once_with('mock_order_id_123')
             # make_order should be called again to create the new order
-            if mocks['make_order'].call_count == 1:
-                self.config_manager.general_log.info(
-                    "[TEST PASSED] Correctly cancelled and recreated SELL order on price variation.")
-                passed = True
-            else:
-                self.config_manager.general_log.error(
-                    f"[TEST FAILED] make_order was called {mocks['make_order'].call_count} times, expected 1 for recreate.")
-        self.test_results.append({'name': test_name, 'passed': passed})
+            assert mocks['make_order'].call_count == 1, \
+                f"make_order was called {mocks['make_order'].call_count} times, expected 1 for recreate."
+            self.config_manager.general_log.info(
+                "[TEST PASSED] Correctly cancelled and recreated SELL order on price variation.")
 
     async def _test_price_variation_no_cancel_buy(self):
         """
@@ -235,7 +188,6 @@ class PingPongStrategyTester:
         """
         test_name = "Price Variation Within Tolerance (BUY)"
         self.config_manager.general_log.info(f"\n--- [TEST CASE] Running: {test_name} ---")
-        passed = False
 
         with self._patch_dependencies() as mocks:
             # Arrange: History of a finished SELL order, so we are in a BUY state.
@@ -255,8 +207,6 @@ class PingPongStrategyTester:
             mocks['cancel_order'].assert_not_called()
             self.config_manager.general_log.info(
                 "[TEST PASSED] Correctly kept BUY order open as price variation was within tolerance.")
-            passed = True
-        self.test_results.append({'name': test_name, 'passed': passed})
 
     async def _test_order_completion_flow(self):
         """
@@ -264,7 +214,6 @@ class PingPongStrategyTester:
         """
         test_name = "Order Completion Flow (SELL -> BUY)"
         self.config_manager.general_log.info(f"\n--- [TEST CASE] Running: {test_name} ---")
-        passed = False
 
         with self._patch_dependencies() as mocks:
             # Arrange: An open SELL order exists
@@ -284,13 +233,10 @@ class PingPongStrategyTester:
             mocks['make_order'].assert_called_once()
             call_args = mocks['make_order'].call_args[0]
             # The new order should be a BUY order
-            if call_args[0] == self.pair.t2.symbol:
-                self.config_manager.general_log.info("[TEST PASSED] Correctly wrote history and created next (BUY) order.")
-                passed = True
-            else:
-                self.config_manager.general_log.error(
-                    f"[TEST FAILED] Incorrect next order side. Expected BUY (maker={self.pair.t2.symbol}), got maker={call_args[0]}")
-        self.test_results.append({'name': test_name, 'passed': passed})
+            assert call_args[0] == self.pair.t2.symbol, \
+                f"Incorrect next order side. Expected BUY (maker={self.pair.t2.symbol}), got maker={call_args[0]}"
+            self.config_manager.general_log.info(
+                "[TEST PASSED] Correctly wrote history and created next (BUY) order.")
 
     async def _test_order_expiration_recreates_order(self):
         """
@@ -299,7 +245,6 @@ class PingPongStrategyTester:
         """
         test_name = "Order Expiration Recreates Order"
         self.config_manager.general_log.info(f"\n--- [TEST CASE] Running: {test_name} ---")
-        passed = False
 
         with self._patch_dependencies() as mocks:
             # Arrange: An open SELL order exists (no history).
@@ -320,13 +265,9 @@ class PingPongStrategyTester:
             # 2. The bot should have tried to create a new order, and it should be another SELL.
             mocks['make_order'].assert_called_once()
             call_args = mocks['make_order'].call_args[0]
-            if call_args[0] == self.pair.t1.symbol:
-                self.config_manager.general_log.info("[TEST PASSED] Correctly recreated a SELL order after expiration.")
-                passed = True
-            else:
-                self.config_manager.general_log.error(
-                    f"[TEST FAILED] Incorrect order side after expiration. Expected SELL (maker={self.pair.t1.symbol}), got maker={call_args[0]}")
-        self.test_results.append({'name': test_name, 'passed': passed})
+            assert call_args[0] == self.pair.t1.symbol, \
+                f"Incorrect order side after expiration. Expected SELL (maker={self.pair.t1.symbol}), got maker={call_args[0]}"
+            self.config_manager.general_log.info("[TEST PASSED] Correctly recreated a SELL order after expiration.")
 
     async def _test_buy_price_logic_on_market_moves(self):
         """
@@ -354,13 +295,10 @@ class PingPongStrategyTester:
 
             # Assert: The bot should use the new, lower price as its base
             favorable_base_price = self.pair.dex.current_order['org_pprice']
-            passed_favorable = favorable_base_price == favorable_live_price
-            if passed_favorable:
-                self.config_manager.general_log.info(
-                    f"    [SUB-TEST PASSED] Bot correctly used the lower live price ({favorable_live_price}) as the new base.")
-            else:
-                self.config_manager.general_log.error(
-                    f"    [SUB-TEST FAILED] Expected base price {favorable_live_price}, but got {favorable_base_price}.")
+            assert favorable_base_price == favorable_live_price, \
+                f"Expected base price {favorable_live_price}, but got {favorable_base_price}."
+            self.config_manager.general_log.info(
+                f"    [SUB-TEST PASSED] Bot correctly used the lower live price ({favorable_live_price}) as the new base.")
 
             # --- Sub-test 2: Unfavorable move (price rises) ---
             self.config_manager.general_log.info("\n  - Testing unfavorable market move (price rises)...")
@@ -371,17 +309,10 @@ class PingPongStrategyTester:
 
             # Assert: The bot should lock its price to the last sell price, ignoring the higher live price
             unfavorable_base_price = self.pair.dex.current_order['org_pprice']
-            passed_unfavorable = unfavorable_base_price == last_sell_price
-            if passed_unfavorable:
-                self.config_manager.general_log.info(
-                    f"    [SUB-TEST PASSED] Bot correctly locked the base price to the last sell price ({last_sell_price}).")
-            else:
-                self.config_manager.general_log.error(
-                    f"    [SUB-TEST FAILED] Expected locked base price {last_sell_price}, but got {unfavorable_base_price}.")
-
-        # Final result for the whole test case
-        final_passed = passed_favorable and passed_unfavorable
-        self.test_results.append({'name': test_name, 'passed': final_passed})
+            assert unfavorable_base_price == last_sell_price, \
+                f"Expected locked base price {last_sell_price}, but got {unfavorable_base_price}."
+            self.config_manager.general_log.info(
+                f"    [SUB-TEST PASSED] Bot correctly locked the base price to the last sell price ({last_sell_price}).")
 
     async def _test_insufficient_balance(self):
         """
@@ -389,7 +320,6 @@ class PingPongStrategyTester:
         """
         test_name = "Insufficient Balance for SELL Order"
         self.config_manager.general_log.info(f"\n--- [TEST CASE] Running: {test_name} ---")
-        passed = False
 
         with self._patch_dependencies() as mocks:
             # Arrange: No order history, attempting to create a SELL order.
@@ -409,80 +339,226 @@ class PingPongStrategyTester:
             mocks['make_order'].assert_not_called()
             self.config_manager.general_log.info(
                 "[TEST PASSED] Correctly prevented order creation due to insufficient balance.")
-            passed = True
 
             # Cleanup
             self.pair.t1.dex.free_balance = original_balance
-        self.test_results.append({'name': test_name, 'passed': passed})
 
-    async def _test_concurrency_throttling(self):
+    async def _test_error_swap_status_disables_pair(self):
         """
-        Tests that the semaphore correctly limits concurrent task execution.
+        Tests that a pair is disabled when an 'error swap' status is encountered.
         """
-        test_name = "Concurrency Throttling with Semaphore"
+        test_name = "Error Swap Status Disables Pair"
         self.config_manager.general_log.info(f"\n--- [TEST CASE] Running: {test_name} ---")
-        passed = False
 
-        # Mock a controller and processor with a semaphore limit of 1
-        mock_loop = asyncio.get_event_loop()
-        mock_controller = MainController(self.config_manager, mock_loop)
-        self.config_manager.controller = mock_controller
+        with self._patch_dependencies() as mocks:
+            # Arrange: An open SELL order exists
+            self.pair.dex.order = {'id': 'mock_order_id_123', 'status': 'open'}
+            assert self.pair.dex.disabled is False, "Pair should not be disabled initially."
 
-        # Temporarily override the config for the test to set a low concurrency limit
-        original_concurrency = getattr(self.config_manager.config_xbridge, 'max_concurrent_tasks', 5)
-        self.config_manager.config_xbridge.max_concurrent_tasks = 1
+            # Act: The order status check now returns a status that maps to STATUS_ERROR_SWAP
+            mocks['get_status'].return_value = {'id': 'mock_order_id_123', 'status': 'offline'}
+            await self.pair.dex.status_check()
 
-        # We need to re-initialize the processor to pick up the new semaphore limit
-        processor = TradingProcessor(mock_controller)
+            # Assert
+            assert self.pair.dex.disabled is True, "Pair was not disabled after 'error swap' status."
+            self.config_manager.general_log.info(
+                "[TEST PASSED] Correctly disabled pair after encountering 'error swap' status.")
 
-        # Arrange
-        # Use events to control the flow of tasks instead of relying on time.sleep
-        task1_started_running = asyncio.Event()
-        task1_can_finish = asyncio.Event()
-        execution_log = []
+    async def _test_cancel_own_orders(self):
+        """
+        Tests that cancel_own_orders only cancels orders for the specific strategy instance.
+        """
+        test_name = "Cancel Own Orders"
+        self.config_manager.general_log.info(f"\n--- [TEST CASE] Running: {test_name} ---")
 
-        async def controlled_task_1(pair_mock):
-            # This task will acquire the semaphore and then pause
-            execution_log.append('task1_started')
-            task1_started_running.set()  # Signal that we are inside the task and holding the semaphore
-            await task1_can_finish.wait()  # Block until the test lets us continue
-            execution_log.append('task1_finished')
+        with self._patch_dependencies() as mocks:
+            # Arrange
+            # Mock a controller and attach it to the strategy
+            mock_controller = MagicMock()
+            mock_controller.pairs_dict = self.config_manager.pairs
+            self.strategy.controller = mock_controller
 
-        async def controlled_task_2(pair_mock):
-            # This task will start and finish quickly
-            execution_log.append('task2_started')
-            execution_log.append('task2_finished')
+            # Give the pair an active order to be cancelled
+            self.pair.dex.order = {'id': 'order_to_cancel_123'}
 
-        task_map = {'pair1': controlled_task_1, 'pair2': controlled_task_2}
+            # Act
+            await self.strategy.cancel_own_orders()
 
-        async def task_runner(pair):
-            await task_map[pair.name](pair)
+            # Assert
+            mocks['cancel_order'].assert_called_once_with('order_to_cancel_123')
+            self.config_manager.general_log.info("[TEST PASSED] Correctly cancelled its own order.")
 
-        mock_pair1 = MagicMock(disabled=False)
-        mock_pair1.name = 'pair1'
-        mock_pair2 = MagicMock(disabled=False)
-        mock_pair2.name = 'pair2'
-        processor.pairs_dict = {'pair1': mock_pair1, 'pair2': mock_pair2}
+            # Arrange for no orders
+            mocks['cancel_order'].reset_mock()
+            self.pair.dex.order = None
 
-        # Act
-        processing_task = asyncio.create_task(processor.process_pairs(task_runner))
-        await asyncio.wait_for(task1_started_running.wait(), timeout=1)
+            # Act
+            await self.strategy.cancel_own_orders()
 
-        # Assert
-        if 'task2_started' not in execution_log:
-            self.config_manager.general_log.info("[SUB-TEST PASSED] Task 2 correctly blocked by semaphore.")
-            passed = True
-        else:
-            self.config_manager.general_log.error("[SUB-TEST FAILED] Task 2 started while Task 1 held the semaphore.")
-            passed = False
+            # Assert
+            mocks['cancel_order'].assert_not_called()
+            self.config_manager.general_log.info("[TEST PASSED] Did not attempt to cancel when no order exists.")
 
-        # Let the first task finish and wait for the whole process to complete
-        task1_can_finish.set()
-        await processing_task
+    async def _test_build_sell_order_details_calculation(self):
+        """
+        Tests the specific calculation logic within build_sell_order_details,
+        including edge cases like missing prices.
+        """
+        test_name = "Sell Order Details Calculation"
+        self.config_manager.general_log.info(f"\n--- [TEST CASE] Running: {test_name} ---")
 
-        if passed:
-            self.config_manager.general_log.info(f"[TEST PASSED] Semaphore correctly throttled concurrent tasks.")
+        with self._patch_dependencies():
+            # Arrange: Set known prices and USD amount
+            self.pair.cfg['usd_amount'] = 50.0  # $50
+            self.config_manager.tokens['BTC'].cex.usd_price = 100000.0  # $100k
+            # This makes T1 worth $100
+            self.pair.t1.cex.cex_price = 0.001  # T1/BTC price
 
-        # Cleanup
-        self.config_manager.config_xbridge.max_concurrent_tasks = original_concurrency
-        self.test_results.append({'name': test_name, 'passed': passed})
+            # Act
+            amount, offset = self.strategy.build_sell_order_details(self.pair.dex)
+
+            # Assert
+            # Expected amount = (50 / 100000) / 0.001 = 0.5 T1
+            assert amount == pytest.approx(0.5)
+            self.config_manager.general_log.info(
+                "[SUB-TEST PASSED] Correctly calculated sell amount with valid prices.")
+
+            # --- Test edge case: missing BTC price ---
+            self.config_manager.tokens['BTC'].cex.usd_price = 0  # Missing/zero price
+            with patch.object(self.config_manager.general_log, 'warning') as mock_log_warning:
+                amount_zero, _ = self.strategy.build_sell_order_details(self.pair.dex)
+                assert amount_zero == 0
+                mock_log_warning.assert_called_once()
+                self.config_manager.general_log.info(
+                    "[SUB-TEST PASSED] Correctly returned 0 amount with missing BTC price.")
+
+    async def _test_buy_order_price_lock(self):
+        """
+        Tests the price lock mechanism for BUY orders, ensuring is_locked is True
+        when the live price exceeds the last sell price.
+        """
+        test_name = "BUY Order Price Lock Mechanism"
+        self.config_manager.general_log.info(f"\n--- [TEST CASE] Running: {test_name} ---")
+
+        with self._patch_dependencies():
+            # Arrange: History of a SELL at 0.3
+            last_sell_price = 0.3
+            self.pair.dex.order_history = {'side': 'SELL', 'dex_price': last_sell_price}
+            original_price = 0.29  # The price of the current BUY order
+
+            # Act 1: Live price is HIGHER than last sell price
+            live_price_high = 0.31
+            variation_high, is_locked_high = self.strategy.calculate_variation_based_on_side(
+                self.pair.dex, 'BUY', live_price_high, original_price
+            )
+
+            # Assert 1: is_locked should be True, indicating a lock
+            assert is_locked_high is True
+            self.config_manager.general_log.info(
+                "[SUB-TEST PASSED] Correctly signaled to lock BUY order on price rise.")
+
+            # Act 2: Live price is LOWER than last sell price
+            live_price_low = 0.28
+            variation_low, is_locked_low = self.strategy.calculate_variation_based_on_side(
+                self.pair.dex, 'BUY', live_price_low, original_price
+            )
+
+            # Assert 2: is_locked should be False
+            assert is_locked_low is False
+            self.config_manager.general_log.info(
+                "[SUB-TEST PASSED] Correctly did not signal lock when price is below last sell.")
+
+
+@pytest.fixture(scope="module")
+def mock_strategy():
+    """Fixture to create a mock strategy instance for testing."""
+    config_manager = ConfigManager(strategy="pingpong")
+    config_manager.initialize()
+    return config_manager.strategy_instance
+
+
+@pytest.fixture(scope="module")
+def pingpong_tester(mock_strategy):
+    """Fixture to create a PingPongStrategyTester instance."""
+    return PingPongStrategyTester(mock_strategy)
+
+
+@pytest.mark.asyncio
+async def test_initial_sell_order_creation(pingpong_tester):
+    await pingpong_tester._test_initial_sell_order_creation()
+
+
+@pytest.mark.asyncio
+async def test_buy_order_creation_after_sell(pingpong_tester):
+    await pingpong_tester._test_buy_order_creation_after_sell()
+
+
+@pytest.mark.asyncio
+async def test_sell_order_creation_after_buy(pingpong_tester):
+    await pingpong_tester._test_sell_order_creation_after_buy()
+
+
+@pytest.mark.asyncio
+async def test_price_variation_cancel_and_recreate_sell(pingpong_tester):
+    await pingpong_tester._test_price_variation_cancel_and_recreate_sell()
+
+
+@pytest.mark.asyncio
+async def test_price_variation_no_cancel_buy(pingpong_tester):
+    await pingpong_tester._test_price_variation_no_cancel_buy()
+
+
+@pytest.mark.asyncio
+async def test_order_completion_flow(pingpong_tester):
+    await pingpong_tester._test_order_completion_flow()
+
+
+@pytest.mark.asyncio
+async def test_buy_price_logic_on_market_moves(pingpong_tester):
+    await pingpong_tester._test_buy_price_logic_on_market_moves()
+
+
+@pytest.mark.asyncio
+async def test_order_expiration_recreates_order(pingpong_tester):
+    await pingpong_tester._test_order_expiration_recreates_order()
+
+
+@pytest.mark.asyncio
+async def test_insufficient_balance(pingpong_tester):
+    await pingpong_tester._test_insufficient_balance()
+
+
+@pytest.mark.asyncio
+async def test_error_swap_status_disables_pair(pingpong_tester):
+    await pingpong_tester._test_error_swap_status_disables_pair()
+
+
+@pytest.mark.asyncio
+async def test_cancel_own_orders(pingpong_tester):
+    await pingpong_tester._test_cancel_own_orders()
+
+
+@pytest.mark.asyncio
+async def test_build_sell_order_details_calculation(pingpong_tester):
+    await pingpong_tester._test_build_sell_order_details_calculation()
+
+
+@pytest.mark.asyncio
+async def test_buy_order_price_lock(pingpong_tester):
+    await pingpong_tester._test_buy_order_price_lock()
+
+
+def test_get_price_variation_tolerance(pingpong_tester):
+    """Tests that get_price_variation_tolerance returns the correct value from config."""
+    tester = pingpong_tester
+    # Set a value in the mock config
+    tester.pair.cfg['price_variation_tolerance'] = 0.05
+    tolerance = tester.strategy.get_price_variation_tolerance(tester.pair.dex)
+    assert tolerance == 0.05
+
+
+def test_strategy_static_values(pingpong_tester):
+    """Tests methods that should return static values."""
+    tester = pingpong_tester
+    assert tester.strategy.should_update_cex_prices() is True
+    assert tester.strategy.get_operation_interval() == 15
