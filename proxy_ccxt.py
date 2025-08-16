@@ -16,13 +16,21 @@ if os.name == 'nt':
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 # Setup logging
-logger = setup_logging(name="service.proxy_ccxt", level=logging.INFO, console=True)
+# Get logger instance. Configuration is handled by the main application
+# or in the `if __name__ == "__main__"` block when run as a standalone script.
+logger = logging.getLogger("service.proxy_ccxt")
 
 
 # --- Retry Decorator ---
-def async_retry(max_retries=5, delay=1, backoff=2):
+def async_retry(max_retries=5, delay=1, backoff=2, exceptions_to_retry=(Exception,)):
     """
     A decorator for retrying an async function with exponential backoff.
+
+    Args:
+        max_retries (int): Maximum number of retries.
+        delay (int): Initial delay between retries in seconds.
+        backoff (int): Multiplier for the delay after each retry.
+        exceptions_to_retry (tuple): A tuple of exception classes to catch and retry.
     """
 
     def decorator(f):
@@ -32,12 +40,12 @@ def async_retry(max_retries=5, delay=1, backoff=2):
             for i in range(max_retries):
                 try:
                     return await f(*args, **kwargs)
-                except Exception as e:
-                    # Log as warning for expected retry scenarios
+                except exceptions_to_retry as e:
                     logger.warning(
-                        f"Attempt {i + 1}/{max_retries} for {f.__name__} failed: {str(e)}"
+                        f"Attempt {i + 1}/{max_retries} for {f.__name__} failed: {str(e)}. Retrying in {_delay}s."
                     )
                     if i == max_retries - 1:
+                        logger.error(f"All retries failed for {f.__name__}")
                         raise
                     await asyncio.sleep(_delay)
                     _delay *= backoff
@@ -85,7 +93,7 @@ class PriceFetcher:
 
         await self._load_markets_with_retry()
 
-    @async_retry()
+    @async_retry(exceptions_to_retry=(ccxt.NetworkError,))
     async def _load_markets_with_retry(self):
         logger.info(f"Loading markets for exchange: {self.ccxt_i.id}")
         await self.ccxt_i.load_markets()
@@ -102,7 +110,7 @@ class PriceFetcher:
             symbols = self.symbols_list
         return any(s not in self.tickers for s in symbols)
 
-    @async_retry(max_retries=3, delay=2)
+    @async_retry(max_retries=3, delay=2, exceptions_to_retry=(ccxt.NetworkError,))
     async def refresh_ccxt_tickers(self):
         """Refreshes tickers from CCXT for all registered symbols."""
         if not self.symbols_list:
@@ -144,7 +152,7 @@ class PriceFetcher:
             logger.error(f"Error refreshing tickers: {e}")
             raise
 
-    @async_retry(max_retries=3, delay=2)
+    @async_retry(max_retries=3, delay=2, exceptions_to_retry=(aiohttp.ClientError,))
     async def update_custom_ticker_block(self):
         """Updates the BLOCK ticker from CryptoCompare."""
         logger.info("Fetching BLOCK ticker from external API...")
@@ -179,7 +187,7 @@ class PriceFetcher:
         request_invalid_symbols = []
         request_valid_symbols = []
 
-        # Validate symbols and collect invalid ones
+        # 1. Validate symbols and identify new ones to track.
         for s in symbols:
             if s not in self.ccxt_i.markets:
                 logger.warning(f"Ignoring invalid symbol: {s}")
@@ -192,9 +200,11 @@ class PriceFetcher:
         if new_symbols:
             self.symbols_list.extend(new_symbols)
 
+        # 2. If any requested symbols are missing from cache, trigger a refresh.
         if self._needs_refresh(request_valid_symbols):
+            # 3. Use a lock to prevent concurrent refreshes (dogpiling).
             async with self._refresh_lock:
-                # Double-check inside the lock
+                # 4. Re-check need for refresh inside the lock (double-checked locking).
                 if self._needs_refresh(request_valid_symbols):
                     logger.info("Triggering on-demand refresh for CCXT tickers.")
                     await self.refresh_ccxt_tickers()
@@ -203,17 +213,17 @@ class PriceFetcher:
             self.ccxt_cache_hit += 1
             logger.info("Returning cached CCXT tickers.")
 
-        # Create the result dictionary
+        # 5. Construct the final response.
         result = {}
-        # Add the valid symbols
+        # Add the valid symbols from the cache.
         for s in request_valid_symbols:
             if s in self.tickers:
                 result[s] = self.tickers[s]
             else:
-                # Shouldn't happen, but if it does
-                result[s] = {'error': 'Ticker data not found'}
+                # This case might occur if refresh failed for a specific symbol.
+                result[s] = {'error': 'Ticker data not found after refresh'}
 
-        # Add invalid symbols with error messages
+        # Add invalid symbols with error messages.
         for s in request_invalid_symbols:
             result[s] = {'error': 'Invalid symbol'}
 
@@ -290,8 +300,7 @@ class WebServer:
             })
         except ccxt.BadRequest as e:
             logger.warning(f"Invalid request parameters: {e}")
-            error_msg = f"Symbol type conflict: {e}".split(':')[-1].strip()
-            return self._error_response(400, error_msg, data.get("id") if data else None, 400)
+            return self._error_response(400, str(e), data.get("id") if data else None, 400)
         except ccxt.BaseError as e:
             logger.error(f"CCXT error: {e}")
             return self._error_response(502, f"Exchange error: {e}", data.get("id") if data else None, 502)
@@ -300,18 +309,17 @@ class WebServer:
             return self._error_response(500, str(e), data.get("id") if data else None, 500)
 
     async def _run_periodically(self):
-        """Periodically refreshes all tickers."""
-        while True:
-            try:
-                await self.fetcher.refresh_all_tickers()
+        """Periodically refreshes all tickers, handling errors gracefully."""
+        try:
+            while True:
+                try:
+                    await self.fetcher.refresh_all_tickers()
+                except Exception as e:
+                    logger.error(f"Error during ticker refresh: {e}", exc_info=True)
+
                 await asyncio.sleep(self.refresh_interval)
-            except asyncio.CancelledError:
-                logger.info("Periodic refresh task cancelled.")
-                break
-            except Exception as e:
-                logger.error(f"Error in periodic refresh: {e}", exc_info=True)
-                # Wait before retrying to avoid spamming logs on persistent errors
-                await asyncio.sleep(self.refresh_interval)
+        except asyncio.CancelledError:
+            logger.info("Periodic refresh task cancelled.")
 
     async def start(self):
         """Starts the web server and the periodic refresh task."""
@@ -346,9 +354,19 @@ class AsyncPriceService:
         self.fetcher = None
         self.server = None
         self.stop_event = asyncio.Event()
+        self._loop = None
+
+    def stop(self):
+        """Thread-safe method to stop the service."""
+        if self._loop and self._loop.is_running() and not self._loop.is_closed():
+            logger.info("Requesting proxy service shutdown.")
+            self._loop.call_soon_threadsafe(self.stop_event.set)
+        else:
+            logger.warning("Could not stop proxy service: event loop not available.")
 
     async def initialize(self):
         """Initialize all components."""
+        self._loop = asyncio.get_running_loop()
         self.session = aiohttp.ClientSession()
         self.fetcher = PriceFetcher(self.config, self.session)
         await self.fetcher.initialize()
@@ -366,11 +384,12 @@ class AsyncPriceService:
             for sig in (signal.SIGINT, signal.SIGTERM):
                 loop.add_signal_handler(sig, _signal_handler)
 
-    async def run(self):
+    async def run(self, setup_signals: bool = False):
         """Run the service."""
         try:
             await self.initialize()
-            self._setup_signal_handlers()
+            if setup_signals:
+                self._setup_signal_handlers()
             await self.server.start()
             await self.stop_event.wait()
         except Exception as e:
@@ -392,10 +411,12 @@ class AsyncPriceService:
 # --- Main execution ---
 async def main():
     service = AsyncPriceService()
-    await service.run()
+    await service.run(setup_signals=True)
 
 
 if __name__ == "__main__":
+    # When run as a script, explicitly set up logging.
+    setup_logging(name="service.proxy_ccxt", level=logging.INFO, console=True)
     try:
         asyncio.run(main())
     except KeyboardInterrupt:

@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import os
 import sys
 from unittest.mock import patch, AsyncMock, MagicMock
@@ -168,26 +169,11 @@ async def test_webserver_request_handling():
 
 
 @pytest.mark.asyncio
-async def test_async_retry_decorator():
-    """Test async retry decorator functionality."""
+async def test_async_retry_decorator(caplog):
+    """Test async retry decorator functionality and error logging."""
+    caplog.set_level(logging.ERROR)
 
-    class Service:
-        def __init__(self):
-            self.call_count = 0
-
-        @async_retry(max_retries=3, delay=0.01)
-        async def unreliable_method(self):
-            self.call_count += 1
-            if self.call_count < 3:
-                raise ValueError("Temporary failure")
-            return "success"
-
-    service = Service()
-    result = await service.unreliable_method()
-    assert result == "success"
-    assert service.call_count == 3
-
-    # Test failure beyond retry limit
+    # Test error log on final failure
     class FailingService:
         def __init__(self):
             self.call_count = 0
@@ -198,23 +184,43 @@ async def test_async_retry_decorator():
             raise ValueError("Temporary failure")
 
     failing_service = FailingService()
-    with pytest.raises(ValueError) as excinfo:
+    with pytest.raises(ValueError):
         await failing_service.unreliable_method()
-    assert str(excinfo.value) == "Temporary failure"
+
     assert failing_service.call_count == 3
+    assert "All retries failed for unreliable_method" in caplog.text
+
+    # Test successful call doesn't log critical
+    caplog.clear()
+
+    class SuccessfulService:
+        def __init__(self):
+            self.call_count = 0
+
+        @async_retry(max_retries=3, delay=0.01)
+        async def reliable_method(self):
+            self.call_count += 1
+            if self.call_count < 2:
+                raise ValueError("Temporary failure")
+            return "success"
+
+    successful_service = SuccessfulService()
+    result = await successful_service.reliable_method()
+    assert result == "success"
+    assert "All retries failed for reliable_method" not in caplog.text
 
 
 @pytest.mark.asyncio
 async def test_periodic_refreshing():
-    """Test periodic refresh task."""
+    """Test periodic refresh task under normal conditions."""
     fetcher = MagicMock(spec=PriceFetcher)
     fetcher.refresh_all_tickers = AsyncMock()
 
     server = WebServer(fetcher, "localhost", 2233)
-    server.refresh_interval = 0.1  # Faster refresh for testing
+    server.refresh_interval = 0.01  # Faster refresh for testing
 
     task = asyncio.create_task(server._run_periodically())
-    await asyncio.sleep(0.25)  # Let it run 2-3 cycles
+    await asyncio.sleep(0.02)  # Let it run 2-3 cycles
 
     task.cancel()
     try:
@@ -222,6 +228,37 @@ async def test_periodic_refreshing():
     except asyncio.CancelledError:
         pass  # Exception is expected but caught by production code
 
+    assert fetcher.refresh_all_tickers.await_count >= 2
+
+
+@pytest.mark.asyncio
+async def test_periodic_refreshing_resilience(caplog):
+    """Test that errors in the refresh loop are logged but do not break the loop."""
+    caplog.set_level(logging.ERROR)
+    fetcher = MagicMock(spec=PriceFetcher)
+    # Fail on the first call, succeed on subsequent calls
+    fetcher.refresh_all_tickers = AsyncMock(
+        side_effect=[Exception("Ticker fetch error"), None, None]
+    )
+
+    server = WebServer(fetcher, "localhost", 2233)
+    server.refresh_interval = 0.01
+
+    task = asyncio.create_task(server._run_periodically())
+    # Let it run for a few cycles to ensure it retries
+    await asyncio.sleep(0.05)
+
+    # Cancel the task to stop it
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass  # Expected on cancellation
+
+    # Check that error was logged
+    assert "Error during ticker refresh" in caplog.text
+    assert "Ticker fetch error" in caplog.text
+    # Check that it attempted to refresh multiple times despite the error
     assert fetcher.refresh_all_tickers.await_count >= 2
 
 

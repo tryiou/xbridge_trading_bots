@@ -323,7 +323,7 @@ def test_ccxt_manager_proxy_error():
         manager = CCXTManager(mock_config)
 
         with patch("definitions.ccxt_manager.is_port_open", return_value=False), \
-                patch("subprocess.Popen", side_effect=Exception("Proxy failed")):
+                patch("definitions.ccxt_manager.AsyncPriceService", side_effect=Exception("Proxy failed")):
             # Patch the actual error_handler used by CCXTManager
             with patch.object(manager.error_handler, "handle") as mock_handle:
                 manager._start_proxy()

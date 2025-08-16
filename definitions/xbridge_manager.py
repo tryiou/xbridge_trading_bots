@@ -23,6 +23,13 @@ class XBridgeManager:
     _utxo_cache = {}
     _utxo_cache_lock = threading.Lock()
     UTXO_CACHE_DURATION = 3.0  # Cache expiration time in seconds
+    # Class-level cache for RPC config to avoid re-detecting on each instantiation
+    _rpc_config = None
+    _rpc_config_lock = threading.Lock()
+    # Class-level cache for xbridge.conf parsing and fee estimates
+    _xbridge_conf_cache = None
+    _xbridge_fees_cache = {}
+    _xbridge_conf_lock = threading.Lock()
 
     @property
     def active_rpc_counter(self):
@@ -34,7 +41,15 @@ class XBridgeManager:
         strategy = self.config_manager.strategy if hasattr(config_manager, 'strategy') else 'no_strat'
         self.logger = setup_logging(name=f"{strategy}.xbridge_manager", level=logging.DEBUG, console=True)
         try:
-            self.blocknet_user_rpc, self.blocknet_port_rpc, self.blocknet_password_rpc, self.blocknet_datadir_path = detect_rpc()
+            # Singleton pattern for RPC detection
+            if XBridgeManager._rpc_config is None:
+                with XBridgeManager._rpc_config_lock:
+                    # Double-check locking to ensure thread safety
+                    if XBridgeManager._rpc_config is None:
+                        self.logger.info("Detecting RPC configuration.")
+                        XBridgeManager._rpc_config = detect_rpc()
+
+            self.blocknet_user_rpc, self.blocknet_port_rpc, self.blocknet_password_rpc, self.blocknet_datadir_path = XBridgeManager._rpc_config
         except RPCConfigError as e:
             self.logger.critical(f"Failed to initialize RPC: {str(e)}")
             raise
@@ -58,10 +73,20 @@ class XBridgeManager:
             self.logger.info(f'Blocknet RPC port {self.blocknet_port_rpc} is open.')
 
         if getattr(self.config_manager, 'strategy', None) == "arbitrage":
-            # Load and parse the xbridge.conf file
-            self.parse_xbridge_conf()
-            # Calculate fee estimates
-            self.calculate_xbridge_fees()
+            with XBridgeManager._xbridge_conf_lock:
+                if XBridgeManager._xbridge_conf_cache is None:
+                    self.logger.info("Parsing xbridge.conf and calculating fees for the first time.")
+                    # Load and parse the xbridge.conf file
+                    self.parse_xbridge_conf()
+                    # Calculate fee estimates
+                    self.calculate_xbridge_fees()
+                    # Cache the results
+                    XBridgeManager._xbridge_conf_cache = self.xbridge_conf
+                    XBridgeManager._xbridge_fees_cache = self.xbridge_fees_estimate
+                else:
+                    self.logger.info("Using cached xbridge.conf and fee estimates.")
+                    self.xbridge_conf = XBridgeManager._xbridge_conf_cache
+                    self.xbridge_fees_estimate = XBridgeManager._xbridge_fees_cache
 
         # Only run test if port is actually open and we're not in main thread
         if (threading.current_thread() is not threading.main_thread() and is_port_open("127.0.0.1",

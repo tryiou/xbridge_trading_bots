@@ -137,17 +137,24 @@ class DexPair:
         except Exception as e:
             self.pair.config_manager.general_log.error(f"error write_pair_last_order_history: {type(e)}, {e}")
 
-    def create_virtual_sell_order(self):
-        self.current_order = self._build_sell_order()
+    def _log_virtual_order(self, side: str, maker_symbol: str, taker_symbol: str):
         self.pair.config_manager.general_log.info(
-            f"Virtual sell order created for {self.pair.name} | "
+            f"Virtual {side} order created for {self.pair.name} | "
             f"Symbol: {self.symbol} | "
-            f"Maker: {self.t1.symbol} | "
-            f"Taker: {self.t2.symbol} | "
+            f"Maker: {maker_symbol} | "
+            f"Taker: {taker_symbol} | "
             f"Maker size: {self.current_order['maker_size']:.6f} | "
             f"Taker size: {self.current_order['taker_size']:.6f} | "
             f"Price: {self.current_order['dex_price']:.8f}"
         )
+
+    def create_virtual_sell_order(self):
+        self.current_order = self._build_sell_order()
+        self._log_virtual_order("sell", self.t1.symbol, self.t2.symbol)
+
+    def create_virtual_buy_order(self):
+        self.current_order = self._build_buy_order()
+        self._log_virtual_order("buy", self.t2.symbol, self.t1.symbol)
 
     @staticmethod
     def truncate(value: float, digits: int = 8) -> float:
@@ -192,18 +199,6 @@ class DexPair:
             side='SELL', maker_token=self.t1, taker_token=self.t2,
             maker_size=maker_size, taker_size=taker_size,
             original_price=original_price, final_price=final_price
-        )
-
-    def create_virtual_buy_order(self):
-        self.current_order = self._build_buy_order()
-        self.pair.config_manager.general_log.info(
-            f"Virtual buy order created for {self.pair.name} | "
-            f"Symbol: {self.symbol} | "
-            f"Maker: {self.t2.symbol} | "
-            f"Taker: {self.t1.symbol} | "
-            f"Maker size: {self.current_order['maker_size']:.6f} | "
-            f"Taker size: {self.current_order['taker_size']:.6f} | "
-            f"Price: {self.current_order['dex_price']:.8f}"
         )
 
     def _build_buy_order(self):
@@ -272,12 +267,12 @@ class DexPair:
         if not self.disabled:
             self.pair.config_manager.strategy_instance.init_virtual_order_logic(self, self.order_history)
             if display:
-                self._log_virtual_order()
+                self._log_virtual_order_price()
 
     def _is_pair_disabled(self, disabled_coins):  # Moved here from _initialize_order
         return disabled_coins and (self.t1.symbol in disabled_coins or self.t2.symbol in disabled_coins)
 
-    def _log_virtual_order(self):
+    def _log_virtual_order_price(self):
         self.pair.config_manager.general_log.info(
             f"live pair prices : {DexPair.truncate(self.pair.cex.price)} {self.symbol} | "
             f"{self.t1.symbol}/USD: {DexPair.truncate(self.t1.cex.usd_price, 3)} | "

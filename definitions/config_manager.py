@@ -84,7 +84,6 @@ class ConfigManager:
             self.xbridge_manager = XBridgeManager(self)
 
             self.ccxt_manager = CCXTManager(self)
-            self.logger.info(f"ccxt_instance: {str(self.ccxt_manager)}")
             # Share the underlying CCXT connection object from the master to avoid
             # re-initializing it (e.g., re-loading markets).
             if master_manager.ccxt_manager:
@@ -121,42 +120,41 @@ class ConfigManager:
         return None
 
     def create_configs_from_templates(self):
-        # Check and create config files if they don't exist
         # Common config files
-        config_files = {
-            "config_ccxt.yaml": os.path.join(self.ROOT_DIR, "config", "config_ccxt.yaml"),
-            "config_coins.yaml": os.path.join(self.ROOT_DIR, "config", "config_coins.yaml"),
-            "api_keys.local.json": os.path.join(self.ROOT_DIR, "config", "api_keys.local.json"),
-            "config_pingpong.yaml": os.path.join(self.ROOT_DIR, "config", "config_pingpong.yaml"),
-            "config_basic_seller.yaml": os.path.join(self.ROOT_DIR, "config", "config_basic_seller.yaml"),
-            "config_xbridge.yaml": os.path.join(self.ROOT_DIR, "config", "config_xbridge.yaml"),
-            "config_arbitrage.yaml": os.path.join(self.ROOT_DIR, "config", "config_arbitrage.yaml"),
-            "config_thorchain.yaml": os.path.join(self.ROOT_DIR, "config", "config_thorchain.yaml")
-        }
+        config_files = [
+            "config_ccxt.yaml",
+            "config_coins.yaml",
+            "api_keys.local.json",
+            "config_pingpong.yaml",
+            "config_basic_seller.yaml",
+            "config_xbridge.yaml",
+            "config_arbitrage.yaml",
+            "config_thorchain.yaml"
+        ]
 
-        for target_name, target_path in config_files.items():
+        for config_file in config_files:
+            target_path = os.path.join(self.ROOT_DIR, "config", config_file)
+            template_path = os.path.join(self.ROOT_DIR, "config", "templates", config_file + ".template")
             # Check if target file exists
             if not os.path.exists(target_path):
                 # Check if template file exists
-                template_path = os.path.join(self.ROOT_DIR, "config", "templates",
-                                             os.path.basename(target_path) + ".template")
                 if os.path.exists(template_path):
                     try:
                         shutil.copy(template_path, target_path)
-                        self.logger.info(f"Created config file: {target_name} from template")
+                        self.logger.info(f"Created config file: {config_file} from template")
                     except Exception as e:
                         self.error_handler.handle(
-                            OperationalError(f"Failed to create config file {target_name}: {str(e)}"),
+                            OperationalError(f"Failed to create config file {config_file}: {str(e)}"),
                             context={"file": target_path, "template": template_path}
                         )
                 else:
                     self.error_handler.handle(
-                        ConfigurationError(f"Template file {template_path} not found in config directory"),
+                        ConfigurationError(f"Template file {config_file}.template not found in config directory"),
                         context={"file": template_path}
                     )
             else:
                 # Target file exists
-                self.logger.info(f"{target_name}: Already exists")
+                self.logger.info(f"{config_file}: Already exists")
 
     def _load_and_update_config(self, config_name: str):
         """
