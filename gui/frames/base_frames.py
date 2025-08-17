@@ -7,8 +7,6 @@ from tkinter import ttk
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from definitions.config_manager import ConfigManager
-from definitions.error_handler import OperationalError
-from definitions.errors import ConfigurationError
 from gui.components.data_panels import OrdersPanel
 from gui.utils.async_updater import AsyncUpdater
 
@@ -60,7 +58,7 @@ class BaseStrategyFrame(ttk.Frame):
             # Use centralized error handling if available
             if self.config_manager:
                 self.config_manager.error_handler.handle(
-                    ConfigurationError(error_msg),
+                    e,
                     context={"strategy": self.strategy_name}
                 )
 
@@ -85,7 +83,7 @@ class BaseStrategyFrame(ttk.Frame):
         # Use centralized error handling if available
         if self.config_manager:
             self.config_manager.error_handler.handle(
-                OperationalError(error_msg),
+                error,
                 context={"strategy": self.strategy_name}
             )
 
@@ -113,9 +111,8 @@ class BaseStrategyFrame(ttk.Frame):
             # Use centralized error handling if available
             if self.config_manager:
                 self.config_manager.error_handler.handle(
-                    OperationalError(error_msg),
-                    context={"strategy": self.strategy_name},
-                    exc_info=True
+                    e,
+                    context={"strategy": self.strategy_name}
                 )
             else:
                 logger.error(error_msg, exc_info=True)
@@ -186,13 +183,13 @@ class BaseStrategyFrame(ttk.Frame):
             log.debug("GUI: cancel_all worker thread started.")
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
+
             try:
                 log.debug("GUI: cancel_all - calling cancelallorders()")
-                loop.run_until_complete(self.config_manager.xbridge_manager.cancelallorders())
+                loop.run_until_complete(self.config_manager.xbridge_manager.cancelallorders(use_shutdown_event=False))
                 log.debug("GUI: cancel_all - cancelallorders() returned")
                 # Schedule GUI update on main thread
                 self.main_app.root.after(0, lambda: self.main_app.status_var.set("Cancelled all open orders."))
-                log.info("cancel_all: All orders cancelled successfully.")
             except asyncio.CancelledError:
                 log.debug("cancel_all worker cancelled")
             except Exception as e:
@@ -201,12 +198,10 @@ class BaseStrategyFrame(ttk.Frame):
                 self.main_app.root.after(0, lambda: self.main_app.status_var.set(error_msg))
                 # Use centralized error handling
                 self.config_manager.error_handler.handle(
-                    OperationalError(error_msg),
-                    context={"stage": "cancel_all"},
-                    exc_info=True
+                    e,
+                    context={"stage": "cancel_all"}
                 )
             finally:
-                log.debug("GUI: cancel_all worker thread finished.")
                 # Restart the orders updater to refresh the orders panel
                 if self.orders_updater:
                     self.orders_updater.start()

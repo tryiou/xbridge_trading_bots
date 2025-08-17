@@ -6,7 +6,7 @@ import time
 
 import ccxt
 
-from definitions.error_handler import ErrorHandler, TransientError, OperationalError
+from definitions.error_handler import ErrorHandler
 from definitions.errors import RPCConfigError, CriticalError
 from definitions.rpc import rpc_call, is_port_open
 from proxy_ccxt import AsyncPriceService
@@ -114,9 +114,10 @@ class CCXTManager:
                             api_secret = data['api_secret']
             except Exception as e:
                 self.error_handler.handle(
-                    OperationalError(f"API keys load failed: {str(e)}",
-                                     {"exchange": exchange, "file": "api_keys.local.json"}),
-                    context={"method": "init_ccxt_instance"}
+                    e,
+                    context={"method": "init_ccxt_instance",
+                             "exchange": exchange,
+                             "file": "api_keys.local.json"}
                 )
                 return None
 
@@ -144,9 +145,8 @@ class CCXTManager:
                     instance.load_markets()  # Directly call the blocking method
                 except Exception as e:
                     self.error_handler.handle(
-                        TransientError(f"Exchange initialization failed: {str(e)}",
-                                       {"exchange": exchange}),
-                        context={"method": "init_ccxt_instance"}
+                        e,
+                        context={"method": "init_ccxt_instance", "exchange": exchange}
                     )
                     # Continue retrying unless it's a critical error
                     if isinstance(e, CriticalError):
@@ -181,9 +181,9 @@ class CCXTManager:
             except Exception as error:
                 err_count += 1
                 context_with_err_count = {**context, "err_count": err_count}
-                if not self.error_handler.handle(
-                        TransientError(str(error), {"type": type(error).__name__}),
-                        context=context_with_err_count
+                # The handler will convert the exception type appropriately.
+                if not await self.error_handler.handle_async(
+                        error, context=context_with_err_count
                 ):
                     return None
 
@@ -258,9 +258,8 @@ class CCXTManager:
                     "proxy_used": proxy,
                     "err_count": err_count
                 }
-                if not self.error_handler.handle(
-                        TransientError(str(error), {"type": type(error).__name__}),
-                        context=context
+                if not await self.error_handler.handle_async(
+                        error, context=context
                 ):
                     return None
 
@@ -336,7 +335,7 @@ class CCXTManager:
                 CCXTManager._proxy_service_instance = None
                 CCXTManager._proxy_service_thread = None
                 self.error_handler.handle(
-                    CriticalError(f"Proxy startup failed: {str(e)}"),
+                    e,
                     context={"stage": "proxy_startup"}
                 )
 

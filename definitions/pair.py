@@ -4,7 +4,7 @@ import time
 
 import yaml
 
-from definitions.errors import convert_exception
+from definitions.errors import OperationalError
 from definitions.token import Token
 
 
@@ -117,6 +117,9 @@ class DexPair:
     def read_last_order_history(self):
         if not self.pair.dex_enabled:
             return
+        # Skip if strategy_instance not set (common in tests)
+        if not self.pair.config_manager.strategy_instance:
+            return
         file_path = self._get_history_file_path()
         try:
             with open(file_path, 'r') as fp:
@@ -124,7 +127,10 @@ class DexPair:
         except FileNotFoundError:
             self.pair.config_manager.general_log.info(f"File not found: {file_path}")
         except Exception as e:
-            self.pair.config_manager.general_log.error(f"read_pair_last_order_history: {type(e)}, {e}")
+            self.pair.config_manager.error_handler.handle(
+                e,
+                context={"pair": self.pair.name, "stage": "read_last_order_history", "file_path": file_path}
+            )
             self.order_history = None
 
     def write_last_order_history(self):
@@ -135,7 +141,10 @@ class DexPair:
             with open(file_path, 'w') as fp:
                 yaml.safe_dump(self.order_history, fp)
         except Exception as e:
-            self.pair.config_manager.general_log.error(f"error write_pair_last_order_history: {type(e)}, {e}")
+            self.pair.config_manager.error_handler.handle(
+                e,
+                context={"pair": self.pair.name, "stage": "write_last_order_history", "file_path": file_path}
+            )
 
     def _log_virtual_order(self, side: str, maker_symbol: str, taker_symbol: str):
         self.pair.config_manager.general_log.info(
@@ -149,10 +158,16 @@ class DexPair:
         )
 
     def create_virtual_sell_order(self):
+        if not self.pair.dex_enabled:
+            self.current_order = None
+            return
         self.current_order = self._build_sell_order()
         self._log_virtual_order("sell", self.t1.symbol, self.t2.symbol)
 
     def create_virtual_buy_order(self):
+        if not self.pair.dex_enabled:
+            self.current_order = None
+            return
         self.current_order = self._build_buy_order()
         self._log_virtual_order("buy", self.t2.symbol, self.t1.symbol)
 
@@ -169,6 +184,12 @@ class DexPair:
     def _construct_order_dict(self, side, maker_token, taker_token, maker_size, taker_size, original_price,
                               final_price):
         """A helper to construct the common order dictionary structure."""
+        # Determine order type
+        order_type = 'exact'
+        if side == 'SELL' and self.partial_percent is not None:
+            if isinstance(self.partial_percent, (int, float)):
+                if 0 < self.partial_percent < 1:
+                    order_type = 'partial'
         order = {
             'symbol': self.symbol,
             'side': side,
@@ -176,7 +197,7 @@ class DexPair:
             'maker_address': maker_token.dex.address,
             'taker': taker_token.symbol,
             'taker_address': taker_token.dex.address,
-            'type': 'partial' if self.partial_percent and side == 'SELL' else 'exact',
+            'type': order_type,
             'maker_size': DexPair.truncate(maker_size),
             'taker_size': DexPair.truncate(taker_size),
             'dex_price': DexPair.truncate(final_price),  # The effective price of the order
@@ -328,28 +349,45 @@ class DexPair:
             # If there's no error, we're done. If there was an error, _handle_order_error
             # has already logged it and set the state appropriately.
         except Exception as e:
-            # This will catch network errors, timeouts, etc., from rpc_call
-            context = {"pair": self.pair.symbol, "stage": "order_creation"}
-            err = convert_exception(e)
-            await self.pair.config_manager.error_handler.handle_async(err, context)
-            # After an exception, we should also disable the pair to prevent retries
-            self.disabled = True
+            self.pair.config_manager.general_log.error(
+                f"Unhandled exception creating order: {str(e)}",
+                exc_info=True
+            )
+            context = {"pair": self.pair.symbol, "stage": "order_creation", "error": str(e)}
+            # We trust the error handler to classify and act on the error
+            retry_or_continue = await self.pair.config_manager.error_handler.handle_async(e, context)
+            # Only disable the pair when error is critical or retries exhausted
+            if not retry_or_continue:
+                self.disabled = True
 
     async def _generate_order(self, dry_mode):
-        maker = self.current_order['maker']
-        maker_size = f"{self.current_order['maker_size']:.6f}"
-        maker_address = self.current_order['maker_address']
-        taker = self.current_order['taker']
-        taker_size = f"{self.current_order['taker_size']:.6f}"
-        taker_address = self.current_order['taker_address']
+        try:
+            maker = self.current_order['maker']
+            maker_size = f"{self.current_order['maker_size']:.6f}"
+            maker_address = self.current_order['maker_address']
+            taker = self.current_order['taker']
+            taker_size = f"{self.current_order['taker_size']:.6f}"
+            taker_address = self.current_order['taker_address']
 
-        if self.partial_percent:
-            minimum_size = f"{self.current_order['minimum_size']:.6f}"
-            return await self.pair.config_manager.xbridge_manager.makepartialorder(maker, maker_size, maker_address,
-                                                                                   taker, taker_size, taker_address,
-                                                                                   minimum_size)
-        return await self.pair.config_manager.xbridge_manager.makeorder(maker, maker_size, maker_address, taker,
-                                                                        taker_size, taker_address)
+            if self.partial_percent:
+                minimum_size = f"{self.current_order['minimum_size']:.6f}"
+                return await self.pair.config_manager.xbridge_manager.makepartialorder(
+                    maker, maker_size, maker_address, taker, taker_size, taker_address, minimum_size
+                )
+            return await self.pair.config_manager.xbridge_manager.makeorder(
+                maker, maker_size, maker_address, taker, taker_size, taker_address
+            )
+        except Exception as e:
+            # Convert to operational error with context
+            raise OperationalError(
+                f"Failed to generate order: {str(e)}",
+                context={
+                    "maker": maker,
+                    "maker_size": maker_size,
+                    "taker": taker,
+                    "taker_size": taker_size
+                }
+            ) from e
 
     async def _handle_order_error(self):
         # Store the original error object before it's potentially modified
@@ -359,7 +397,10 @@ class DexPair:
             self.disabled = True  # This line was already here, keep it.
 
         # This call sets self.order to None in some strategies
-        self.pair.config_manager.strategy_instance.handle_order_status_error(self)
+        # Only call strategy handler if it's available
+        strategy_handler = getattr(self.pair.config_manager.strategy_instance, 'handle_order_status_error', None)
+        if strategy_handler:
+            await strategy_handler(self)
 
         # Log the original error object for better debugging
         self.pair.config_manager.general_log.error(
@@ -375,21 +416,27 @@ class DexPair:
         self.pair.config_manager.general_log.info(f"dex_create_order, Dry mode enabled. {msg}")
 
     async def check_order_status(self) -> int:
-        counter = 0
-        max_count = 3
+        try:
+            local_dex_order = await self.pair.config_manager.xbridge_manager.getorderstatus(self.order['id'])
+            # The rpc_wrapper will return None if it fails after all retries
+            if local_dex_order and 'status' in local_dex_order:
+                self.order = local_dex_order
+                return self._map_order_status()
 
-        while counter < max_count:
-            try:
-                local_dex_order = await self.pair.config_manager.xbridge_manager.getorderstatus(self.order['id'])
-                if 'status' in local_dex_order:
-                    self.order = local_dex_order
-                    return self._map_order_status()
-            except Exception as e:
-                self.pair.config_manager.general_log.error(
-                    f"Error in dex_check_order_status: {type(e).__name__}, {e}\n{self.order}")
-            counter += 1
-            await asyncio.sleep(counter)
+            # This case handles if getorderstatus returns None or a malformed response.
+            # The error would have been logged by the rpc_wrapper's handler.
+            self.pair.config_manager.general_log.warning(
+                f"Could not get valid status for order {self.order.get('id')}. Response: {local_dex_order}"
+            )
 
+        except Exception as e:
+            # This catches exceptions if getorderstatus itself fails after retries (e.g., RpcTimeoutError)
+            await self.pair.config_manager.error_handler.handle_async(
+                e,
+                context={"pair": self.pair.name, "stage": "check_order_status", "order": self.order}
+            )
+
+        # If we reach here, the status check failed.
         self._handle_order_status_error()
         return self.STATUS_CANCELLED_WITHOUT_CALL
 
@@ -497,11 +544,14 @@ class DexPair:
 
     async def at_order_finished(self, disabled_coins):
         """Handle order completion workflow."""
+        # Log the order success
         side = self._determine_order_side()
         self._log_finished_order_details(side)
 
+        # Write final trade history for recovery/display
         self.order_history = self.current_order
         self.write_last_order_history()
+        # Update critical addresses
         await self._update_taker_address()
         await self.pair.config_manager.strategy_instance.handle_finished_order(self, disabled_coins)
 
@@ -534,10 +584,21 @@ class DexPair:
         if not self.order or 'taker' not in self.order:
             return
 
-        if self.order['taker'] == self.t1.symbol:
-            await self.t1.dex.request_addr()
-        elif self.order['taker'] == self.t2.symbol:
-            await self.t2.dex.request_addr()
+        # Use safe attribute access to avoid threading issues
+        taker_symbol = self.order.get('taker')
+        # Avoid asynchronous operations during teardown
+        if self._is_shutting_down():
+            return
+
+        try:
+            if taker_symbol == self.t1.symbol:
+                await self.t1.dex.request_addr()
+            elif taker_symbol == self.t2.symbol:
+                await self.t2.dex.request_addr()
+        except RuntimeError as e:
+            # Silently skip during application shutdown
+            if "cannot schedule new futures after shutdown" not in str(e):
+                raise
 
     def _is_shutting_down(self) -> bool:
         """Check if shutdown has been requested"""
@@ -586,6 +647,18 @@ class CexPair:
     async def update_orderbook(self, limit=25, ignore_timer=False):
         update_cex_orderbook_timer_delay = 2
         if ignore_timer or not self.cex_orderbook_timer or time.time() - self.cex_orderbook_timer > update_cex_orderbook_timer_delay:
-            self.cex_orderbook = await self.pair.config_manager.ccxt_manager.ccxt_call_fetch_order_book(
-                self.pair.config_manager.my_ccxt, self.symbol, self.symbol)
-            self.cex_orderbook_timer = time.time()
+            try:
+                self.cex_orderbook = await self.pair.config_manager.ccxt_manager.ccxt_call_fetch_order_book(
+                    self.pair.config_manager.my_ccxt, self.symbol, self.symbol)
+                self.cex_orderbook_timer = time.time()
+            except Exception as e:
+                # Error handler ensures graceful recovery
+                await self.pair.config_manager.error_handler.handle_async(
+                    e,
+                    context={
+                        "pair": self.symbol,
+                        "stage": "update_orderbook"
+                    }
+                )
+                # Leave orderbook unchanged but reset timer for retry
+                self.cex_orderbook_timer = None

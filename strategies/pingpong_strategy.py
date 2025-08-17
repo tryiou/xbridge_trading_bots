@@ -133,7 +133,7 @@ class PingPongStrategy(MakerStrategy):
                 f"Fatal error during init_order: Unexpected order history state\n{order_history}")
             raise SystemExit(1)  # Raise an exception to allow for graceful shutdown
 
-    def handle_order_status_error(self, dex_pair_instance):
+    async def handle_order_status_error(self, dex_pair_instance):
         dex_pair_instance.order = None  # Reset order to try creating a new one
 
     async def reinit_virtual_order_after_price_variation(self, dex_pair_instance, disabled_coins: list):

@@ -63,7 +63,7 @@ class MakerStrategy(BaseStrategy):
         pass
 
     @abstractmethod
-    def handle_order_status_error(self, dex_pair_instance: 'DexPair'):
+    async def handle_order_status_error(self, dex_pair_instance: 'DexPair'):
         pass
 
     @abstractmethod

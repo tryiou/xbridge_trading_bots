@@ -10,7 +10,6 @@ from typing import Any, Dict, List
 from ttkbootstrap import Style
 
 from definitions.config_manager import ConfigManager
-from definitions.error_handler import OperationalError
 from gui.components.data_panels import BalancesPanel
 from gui.components.logging_components import LogFrame
 from gui.frames.strategy_frames import ArbitrageFrame, BasicSellerFrame, PingPongFrame
@@ -65,7 +64,7 @@ class MainApplication:
             # Use error handler if available
             if hasattr(self, 'master_config_manager') and self.master_config_manager:
                 self.master_config_manager.error_handler.handle(
-                    OperationalError(error_msg),
+                    e,
                     context={"stage": "application_init"}
                 )
             # Show error in UI if root exists
@@ -245,7 +244,7 @@ class MainApplication:
             logger.error(f"Error in balance updater thread: {e}", exc_info=True)
             if self.master_config_manager:
                 self.master_config_manager.error_handler.handle(
-                    OperationalError(f"Balance updater error: {str(e)}"),
+                    e,
                     context={"stage": "balance_updater"}
                 )
         finally:
@@ -259,7 +258,7 @@ class MainApplication:
         logger.critical(error_msg, exc_info=True)
         if self.master_config_manager:
             self.master_config_manager.error_handler.handle(
-                OperationalError(error_msg),
+                exception,
                 context={"stage": "balance_updater_thread"}
             )
 
@@ -290,7 +289,7 @@ class MainApplication:
             # Use centralized error handling
             if self.master_config_manager:
                 self.master_config_manager.error_handler.handle(
-                    OperationalError(f"Balance update processing error: {str(e)}"),
+                    e,
                     context={"stage": "process_balance_updates"}
                 )
         finally:

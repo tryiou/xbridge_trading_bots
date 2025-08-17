@@ -202,10 +202,10 @@ class TestCCXTManager:
         future2.set_result("Success")
         mock_loop.return_value.run_in_executor.side_effect = [future1, future2]
         # Setup error handler to allow one retry
-        self.manager.error_handler.handle = MagicMock(return_value=True)
+        self.manager.error_handler.handle_async = AsyncMock(return_value=True)
 
         result = await self.manager._ccxt_blocking_call_with_retry(
             lambda: None, {}, "param"
         )
         assert result == "Success"
-        self.manager.error_handler.handle.assert_called_once()
+        self.manager.error_handler.handle_async.assert_awaited_once()

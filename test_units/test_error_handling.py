@@ -4,7 +4,7 @@ import statistics
 import sys
 import time
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, patch, AsyncMock
 
 import aiohttp
 import pytest
@@ -135,6 +135,9 @@ class MockConfigManager:
         self.current_module = "trade_executor"
         self._is_testing = True  # Instance-level flag for test mode
         self.gui_app = None  # Reference to GUI application
+        # Add controller mock for shutdown logic
+        self.controller = MagicMock()
+        self.controller.shutdown_event = MagicMock(spec=asyncio.Event)
 
     def notify_user(self, level, message, details):
         """Simulate GUI notification by updating status bar"""
@@ -209,16 +212,13 @@ def test_operational_error_notification(error_handler):
 
 def test_critical_error_shutdown(error_handler):
     """Test critical error triggers shutdown"""
-    with patch.object(error_handler.config_manager, "_shutdown_mock") as mock_shutdown:
-        error_handler.config_manager._shutdown_mock.reset_mock()
-        error = CriticalError("Critical failure")
-        context = {"component": "core"}
-        result = error_handler.handle(error, context)
+    error = CriticalError("Critical failure")
+    context = {"component": "core"}
+    result = error_handler.handle(error, context)
 
-        assert result is False
-        error_handler.config_manager._shutdown_mock.assert_called_once_with(
-            reason="CriticalError: Critical failure | Context: {}"
-        )
+    assert result is False
+    # Verify the shutdown event on the controller was set
+    error_handler.config_manager.controller.shutdown_event.set.assert_called_once()
 
 
 def test_rpc_error_propagates_to_shutdown():
@@ -260,11 +260,12 @@ def test_rpc_error_propagates_to_shutdown():
 # Error classification tests
 @pytest.mark.parametrize("error,expected_type", [
     (ConfigurationError("Invalid config"), OperationalError),
-    (RPCConfigError("Invalid RPC path"), OperationalError),  # New test case
+    (RPCConfigError("Invalid RPC path"), OperationalError),
     (ExchangeError("API timeout"), TransientError),
     (StrategyError("Logic failure"), OperationalError),
     (GUIRenderingError("Display issue"), OperationalError),
-    (ValueError("Generic error"), CriticalError)  # Unclassified becomes Critical
+    # ValueError is handled as RPCConfigError, an OperationalError
+    (ValueError("Generic error"), OperationalError)
 ])
 def test_error_classification(error, expected_type, error_handler):
     """Test proper error classification"""
@@ -339,9 +340,9 @@ def test_ccxt_manager_proxy_error():
 
 def test_rpc_transient_error_recovery():
     """Test RPC transient error recovery"""
-    from definitions.rpc import rpc_call
+    from definitions.rpc import rpc_call, RpcTimeoutError
     mock_handler = MagicMock()
-    mock_handler.handle.return_value = True  # Allow retry
+    mock_handler.handle_async = AsyncMock(return_value=True)  # Allow retry
 
     async def test_call():
         return await rpc_call("test_method", [],
@@ -349,10 +350,10 @@ def test_rpc_transient_error_recovery():
                               max_err_count=3)  # Explicitly set retries
 
     with patch("aiohttp.ClientSession.post", side_effect=Exception("Timeout")) as mock_post:
-        result = asyncio.run(test_call())
-        assert result is None
+        with pytest.raises(RpcTimeoutError):
+            asyncio.run(test_call())
         assert mock_post.call_count == 3
-        assert mock_handler.handle.call_count == 3
+        assert mock_handler.handle_async.await_count == 3
 
 
 # GUI error tests
@@ -430,6 +431,10 @@ def test_error_scenarios(error_cls, context, action, error_handler):
     with patch.object(error_handler.config_manager, "_notify_user_mock") as mock_notify, \
             patch.object(error_handler.config_manager, "_shutdown_mock") as mock_shutdown, \
             patch("definitions.error_handler.time.sleep") as mock_sleep:
+
+        # Reset the mock for the shutdown event before each test scenario
+        error_handler.config_manager.controller.shutdown_event.set.reset_mock()
+
         if patch_transient:
             with patch_transient as mock_transient:
                 # Handle error
@@ -455,24 +460,38 @@ def test_error_scenarios(error_cls, context, action, error_handler):
             assert result is True
         else:  # Critical errors
             if action == "shutdown":
-                mock_shutdown.assert_called()
+                error_handler.config_manager.controller.shutdown_event.set.assert_called()
             assert result is False
 
 
 # Additional edge case tests (50 scenarios)
-@pytest.mark.parametrize("error", [
-    KeyError("missing"),
-    TypeError("invalid type"),
-    RuntimeError("runtime failure"),
-    ConnectionResetError("connection reset"),
-    asyncio.TimeoutError("timeout"),
-    aiohttp.ClientError("client error")
+@pytest.mark.parametrize("error,expected_handler_name", [
+    (KeyError("missing"), "_handle_operational"),
+    (TypeError("invalid type"), "_handle_operational"),
+    (RuntimeError("runtime failure"), "_handle_operational"),
+    (ConnectionResetError("connection reset"), "_handle_transient"),
+    (asyncio.TimeoutError("timeout"), "_handle_transient"),
+    (aiohttp.ClientError("client error"), "_handle_transient"),
 ])
-def test_non_standard_errors(error, error_handler):
-    """Test handling of non-standard error types (50 tests)"""
-    with patch.object(ErrorHandler, "_handle_critical") as mock_critical:
+def test_non_standard_errors(error, expected_handler_name, error_handler):
+    """Test handling of non-standard error types."""
+    with patch.object(ErrorHandler, "_handle_critical") as mock_critical, \
+            patch.object(ErrorHandler, "_handle_transient") as mock_transient, \
+            patch.object(ErrorHandler, "_handle_operational") as mock_operational:
+
         error_handler.handle(error, {"source": "test"})
-        mock_critical.assert_called_once()
+
+        handler_map = {
+            "_handle_critical": mock_critical,
+            "_handle_transient": mock_transient,
+            "_handle_operational": mock_operational,
+        }
+
+        for name, mock_handler in handler_map.items():
+            if name == expected_handler_name:
+                mock_handler.assert_called_once()
+            else:
+                mock_handler.assert_not_called()
 
 
 # Performance Benchmarks

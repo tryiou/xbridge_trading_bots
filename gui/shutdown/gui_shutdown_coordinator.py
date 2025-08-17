@@ -3,8 +3,6 @@ import logging
 import threading
 from typing import TYPE_CHECKING
 
-from definitions.errors import CriticalError, OperationalError
-
 if TYPE_CHECKING:
     from gui.main_app import MainApplication
 
@@ -50,7 +48,8 @@ class GUIShutdownCoordinator:
             error_msg = f"Error disabling GUI interaction: {e}"
             logger.error(error_msg, exc_info=True)
             self.master_config_manager.error_handler.handle(
-                OperationalError(error_msg, context={"stage": "shutdown_init"}),
+                e,
+                context={"stage": "shutdown_init"}
             )
 
         # Start shutdown in a separate thread to keep GUI responsive
@@ -87,7 +86,8 @@ class GUIShutdownCoordinator:
             error_msg = f"Critical error during GUI shutdown: {e}"
             logger.critical(error_msg, exc_info=True)
             self.master_config_manager.error_handler.handle(
-                CriticalError(error_msg, context={"stage": "shutdown"}),
+                e,
+                context={"stage": "shutdown"}
             )
         finally:
             # Brief pause to allow in-flight operations to settle/terminate
@@ -110,10 +110,8 @@ class GUIShutdownCoordinator:
             error_msg = f"Error during GUI finalization: {e}"
             logger.critical(error_msg, exc_info=True)
             self.master_config_manager.error_handler.handle(
-                OperationalError(error_msg),
-                context={"stage": "shutdown_finalize"},
-                severity="CRITICAL",
-                exc_info=True
+                e,
+                context={"stage": "shutdown_finalize"}
             )
             # Attempt to exit the application
             import sys

@@ -28,6 +28,8 @@ def mock_strategy():
     mock_config_manager.pairs = {}
     mock_config_manager.general_log = MagicMock()
     mock_config_manager.xbridge_manager = MagicMock()
+    # Ensure handle_async is an awaitable mock
+    mock_config_manager.error_handler.handle_async = AsyncMock()
 
     # Create mock tokens with dex addresses
     ltc_token = MagicMock()
