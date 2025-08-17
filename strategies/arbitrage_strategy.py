@@ -295,8 +295,8 @@ class ArbitrageStrategy(BaseStrategy):
             )
         except Exception as e:
             direction_desc = "Sell->Buy" if is_bid else "Buy->Sell"
-            self.config_manager.error_handler.handle(
-                OperationalError(f"Thorchain quote fetch failed: {str(e)}"),
+            await self.config_manager.error_handler.handle_async(
+                e,
                 context={
                     "pair": pair_instance.symbol,
                     "direction": direction_desc,
@@ -524,13 +524,12 @@ class ArbitrageStrategy(BaseStrategy):
             await self._reevaluate_and_execute_thorchain(state, state.state_data)
 
         except Exception as e:
-            self.config_manager.error_handler.handle(
-                OperationalError(f"Arbitrage execution failed: {str(e)}"),
+            await self.config_manager.error_handler.handle_async(
+                e,
                 context={
                     "last_known_xb_id": state.state_data.get('xbridge_trade_id', 'N/A'),
                     "log_prefix": log_prefix
-                },
-                exc_info=True
+                }
             )
             state.archive("execution-error")
 

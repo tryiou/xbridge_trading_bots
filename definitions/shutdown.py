@@ -3,8 +3,6 @@ import logging
 import time
 from typing import TYPE_CHECKING
 
-from definitions.errors import convert_exception
-
 if TYPE_CHECKING:
     from definitions.config_manager import ConfigManager
 
@@ -57,9 +55,7 @@ class ShutdownCoordinator:
                     raise
                 except Exception as e:
                     context = {"phase": "shutdown", "operation": "order_cancellation"}
-                    converted = convert_exception(e)
-                    converted.context.update(context)
-                    await config_manager.error_handler.handle_async(converted)
+                    await config_manager.error_handler.handle_async(e, context=context)
             else:
                 logger.warning("No strategy instance available for order cancellation")
 
@@ -68,9 +64,7 @@ class ShutdownCoordinator:
             raise
         except Exception as e:
             if config_manager:
-                converted = convert_exception(e)
-                converted.context.update({"phase": "shutdown"})
-                await config_manager.error_handler.handle_async(converted)
+                await config_manager.error_handler.handle_async(e, context={"phase": "shutdown"})
             else:
                 # If config_manager is None, we have no error handler, so just log
                 logging.getLogger("unified_shutdown").critical(f"Unhandled exception during shutdown: {e}",

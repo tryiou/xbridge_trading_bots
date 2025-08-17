@@ -4,9 +4,9 @@ import threading
 
 import aiohttp
 import async_timeout
-from aiohttp import BasicAuth, ClientError
+from aiohttp import BasicAuth
 
-from definitions.error_handler import TransientError, OperationalError
+from definitions.error_handler import OperationalError
 
 
 class AsyncThreadingSemaphore:
@@ -116,23 +116,12 @@ async def rpc_call(method, params=None, url="http://127.0.0.1", rpc_user=None, r
                     "err_count": err_count,
                     "response_text": response_text
                 }
-
-                if isinstance(e, (ClientError, asyncio.TimeoutError, OperationalError)):
-                    if error_handler:
-                        error_class = TransientError if isinstance(e, asyncio.TimeoutError) else OperationalError
-                        if not error_handler.handle(error_class(str(e)), context=context):
-                            return None
-                    elif logger:
-                        logger.warning(f"{prefix}_rpc_call error: {type(e).__name__} - {e}")
-                else:  # Unexpected exception
-                    if error_handler:
-                        if not error_handler.handle(
-                                OperationalError(f"Unexpected error: {str(e)}"),
-                                context=context
-                        ):
-                            return None
-                    elif logger:
-                        logger.error(f"{prefix}_rpc_call unexpected error: {type(e).__name__} - {e}", exc_info=True)
+                if error_handler:
+                    if not await error_handler.handle_async(e, context=context):
+                        return None  # Abort if handler says so (e.g., max retries)
+                elif logger:
+                    # Fallback logging if no handler is provided
+                    logger.warning(f"{prefix}_rpc_call encountered an error: {e}", exc_info=True)
 
                 if shutdown_event:
                     try:
@@ -147,7 +136,7 @@ async def rpc_call(method, params=None, url="http://127.0.0.1", rpc_user=None, r
                         pass
                 else:
                     await asyncio.sleep(err_count + 1)
-        return None
+        raise RpcTimeoutError(f"{prefix}_rpc_call failed after {max_err_count} attempts for method '{method}'")
 
     if session:
         return await _rpc_call_internal(session)

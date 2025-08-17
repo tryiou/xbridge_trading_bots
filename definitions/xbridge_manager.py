@@ -93,14 +93,17 @@ class XBridgeManager:
                                                                                        self.blocknet_port_rpc)):
             asyncio.run(self.async_test_rpc())
 
-    async def rpc_wrapper(self, method, params=None, shutdown_event=None):
+    async def rpc_wrapper(self, method, params=None, shutdown_event=None, use_shutdown_event=True):
         """Execute RPC call with context tracking and optional shutdown event"""
-        # If no shutdown_event is passed, get it from the controller if available
-        if shutdown_event is None and self.config_manager and self.config_manager.controller:
-            shutdown_event = self.config_manager.controller.shutdown_event
+        final_shutdown_event = shutdown_event
+        if use_shutdown_event and shutdown_event is None:
+            if self.config_manager and self.config_manager.controller:
+                final_shutdown_event = self.config_manager.controller.shutdown_event
+        elif not use_shutdown_event:
+            final_shutdown_event = None
 
         # Early bailout if shutdown is signaled, with exceptions for cleanup RPCs
-        if shutdown_event and shutdown_event.is_set():
+        if final_shutdown_event and final_shutdown_event.is_set():
             if method not in ["dxCancelOrder", "dxGetMyOrders", "dxflushcancelledorders"]:
                 self.logger.debug(f"RPC call to {method} cancelled due to shutdown signal.")
                 return None
@@ -124,7 +127,8 @@ class XBridgeManager:
                         debug=self.config_manager.config_xbridge.debug_level,
                         logger=self.logger,
                         session=None,  # Create new session per call
-                        shutdown_event=shutdown_event
+                        shutdown_event=final_shutdown_event,
+                        error_handler=self.config_manager.error_handler
                     )
                 except Exception as e:
                     from definitions.errors import convert_exception
@@ -245,29 +249,42 @@ class XBridgeManager:
         myorders = await self.rpc_wrapper("dxGetMyOrders")
         return [zz for zz in myorders if (zz['maker'] == maker) and (zz['taker'] == taker)]
 
-    async def cancelorder(self, order_id):
-        return await self.rpc_wrapper("dxCancelOrder", [order_id])
+    async def cancelorder(self, order_id, use_shutdown_event=True):
+        return await self.rpc_wrapper("dxCancelOrder", [order_id], use_shutdown_event=use_shutdown_event)
 
-    async def cancelallorders(self):
-        myorders = await self.rpc_wrapper("dxGetMyOrders")
-        result = []
+    async def cancelallorders(self, use_shutdown_event=True):
+        myorders = await self.rpc_wrapper("dxGetMyOrders", use_shutdown_event=use_shutdown_event)
+        successful = []
         failed = []
+
         if not myorders:
-            self.logger.info(f"No orders to cancel or failed to retrieve orders.")
-            return result
+            self.logger.info("No orders to cancel or failed to retrieve orders.")
+            return successful
+
+        tasks = []
+        orders_to_cancel = []
         for order in myorders:
-            if order['status'] not in ("open", "new"):
-                continue
-            try:
-                await self.cancelorder(order['id'])
-                result.append(order['id'])
-                await asyncio.sleep(0.1)  # Brief pause between cancellations
-            except Exception as e:
-                failed.append(order['id'])
-                self.logger.error(f"Failed cancel order {order['id']}: {e}")
+            if order['status'] in ("open", "new"):
+                orders_to_cancel.append(order['id'])
+                tasks.append(self.cancelorder(order['id'], use_shutdown_event=use_shutdown_event))
+
+        if not tasks:
+            self.logger.info("No open orders found to cancel.")
+            return successful
+
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        for order_id, res in zip(orders_to_cancel, results):
+            if isinstance(res, Exception):
+                failed.append(order_id)
+                self.logger.error(f"Failed to cancel order {order_id}: {res}")
+            else:
+                successful.append(order_id)
+
         if failed:
-            self.logger.critical(f"Partially canceled: {len(result)} ok, {len(failed)} failed: {failed}")
-        return result
+            self.logger.critical(f"Partially canceled: {len(successful)} ok, {len(failed)} failed: {failed}")
+
+        return successful
 
     async def dxloadxbridgeconf(self):
         await self.rpc_wrapper("dxloadxbridgeconf")

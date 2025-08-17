@@ -139,7 +139,10 @@ class BaseConfigWindow:
         except Exception as e:
             self.update_status(f"Failed to initiate save: {e}", 'lightcoral')
             if self.parent.config_manager:
-                self.parent.config_manager.general_log.error(f"Failed to initiate config save: {e}", exc_info=True)
+                self.parent.config_manager.error_handler.handle(
+                    e,
+                    context={"stage": "initiate_config_save"}
+                )
 
     def _async_save_worker(self, new_config: Dict[str, Any]):
         """Worker function for asynchronous configuration saving."""
@@ -158,14 +161,14 @@ class BaseConfigWindow:
             self.parent.main_app.root.after(0, lambda: self.parent.reload_configuration(loadxbridgeconf=True))
 
         except Exception as e:
-            import traceback
             error_msg = f"Failed to save configuration: {e}"
-            tb_str = traceback.format_exc()
-            full_message = f"{error_msg}\nDetails:\n{tb_str}"
-
-            self.parent.main_app.root.after(0, lambda: self.update_status(full_message, 'lightcoral'))
+            # Schedule GUI update on the main thread
+            self.parent.main_app.root.after(0, lambda: self.update_status(error_msg, 'lightcoral'))
             if self.parent.config_manager:
-                self.parent.config_manager.general_log.error(full_message, exc_info=True)
+                self.parent.config_manager.error_handler.handle(
+                    e,
+                    context={"stage": "async_save_worker"}
+                )
 
     def _get_config_data_to_save(self) -> Dict[str, Any] | None:
         """Placeholder for subclass to return the config dictionary to be saved."""

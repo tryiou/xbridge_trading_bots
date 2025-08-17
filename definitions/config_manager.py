@@ -7,7 +7,7 @@ from typing import Dict, Any
 from ruamel.yaml import YAML
 
 from definitions.ccxt_manager import CCXTManager
-from definitions.error_handler import ErrorHandler, OperationalError
+from definitions.error_handler import ErrorHandler
 from definitions.errors import ConfigurationError
 from definitions.logger import setup_logger, setup_logging
 from definitions.xbridge_manager import XBridgeManager
@@ -144,8 +144,9 @@ class ConfigManager:
                         self.logger.info(f"Created config file: {config_file} from template")
                     except Exception as e:
                         self.error_handler.handle(
-                            OperationalError(f"Failed to create config file {config_file}: {str(e)}"),
-                            context={"file": target_path, "template": template_path}
+                            e,
+                            context={"file": target_path, "template": template_path,
+                                     "operation": f"create_config_{config_file}"}
                         )
                 else:
                     self.error_handler.handle(
@@ -181,8 +182,8 @@ class ConfigManager:
                 user_config = yaml.load(f) or {}
         except Exception as e:
             self.error_handler.handle(
-                OperationalError(f"Error loading config file {config_path}: {str(e)}"),
-                context={"config_path": config_path}
+                e,
+                context={"config_path": config_path, "operation": "load_config"}
             )
             return YamlToObject({})
 
@@ -191,8 +192,8 @@ class ConfigManager:
                 template_config = yaml.load(f) or {}
         except Exception as e:
             self.error_handler.handle(
-                OperationalError(f"Error loading template file {template_path}: {str(e)}"),
-                context={"template_path": template_path}
+                e,
+                context={"template_path": template_path, "operation": "load_template"}
             )
             return YamlToObject(user_config)
 
@@ -218,8 +219,8 @@ class ConfigManager:
                 self.logger.info(f"Updated {os.path.basename(config_path)} with missing keys from template.")
             except Exception as e:
                 self.error_handler.handle(
-                    OperationalError(f"Failed to save updated config file {config_path}: {e}"),
-                    context={"config_path": config_path}
+                    e,
+                    context={"config_path": config_path, "operation": "save_updated_config"}
                 )
 
         return YamlToObject(user_config)
@@ -250,7 +251,7 @@ class ConfigManager:
             )
         except Exception as e:
             self.error_handler.handle(
-                OperationalError(f"CCXT initialization failed: {str(e)}"),
+                e,
                 context={
                     "exchange": self.config_ccxt.ccxt_exchange,
                     "hostname": self.config_ccxt.ccxt_hostname
@@ -297,8 +298,8 @@ class ConfigManager:
             # self._init_xbridge() # This method is now effectively a no-op if dxloadxbridgeconf is removed
         except Exception as e:
             self.error_handler.handle(
-                OperationalError(f"Initialization failed: {str(e)}"),
-                context={"strategy": self.strategy}
+                e,
+                context={"strategy": self.strategy, "stage": "strategy_initialize"}
             )
             raise
 

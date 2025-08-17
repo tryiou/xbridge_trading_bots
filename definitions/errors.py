@@ -1,6 +1,7 @@
 """
 Standardized error classes for the trading application
 """
+import asyncio
 
 
 class AppError(Exception):
@@ -75,6 +76,16 @@ class InsufficientFundsError(OperationalError):
     pass
 
 
+class NetworkTimeoutError(TransientError):
+    """Network timeouts and connection issues"""
+    pass
+
+
+class ProtocolError(OperationalError):
+    """Errors in RPC/API protocol handling"""
+    pass
+
+
 def _wrap_exception(e: Exception, app_error_cls: type) -> 'AppError':
     """Wraps an exception in an AppError subclass, preserving the cause."""
     exc = app_error_cls(str(e))
@@ -106,20 +117,7 @@ def convert_exception(e: Exception) -> 'AppError':
         pass  # Gracefully fallback if aiohttp unavailable
 
     # Handle Python Built-ins
-    if isinstance(e, (ConnectionError, TimeoutError)):
+    if isinstance(e, (ConnectionError, TimeoutError, asyncio.TimeoutError)):
         return _wrap_exception(e, NetworkTimeoutError)
-    if isinstance(e, ValueError):
-        return _wrap_exception(e, RPCConfigError)
-
     # Default to OperationalError
     return _wrap_exception(e, OperationalError)
-
-
-class NetworkTimeoutError(TransientError):
-    """Network timeouts and connection issues"""
-    pass
-
-
-class ProtocolError(OperationalError):
-    """Errors in RPC/API protocol handling"""
-    pass

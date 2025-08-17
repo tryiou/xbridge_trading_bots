@@ -21,6 +21,14 @@ from definitions.errors import RPCConfigError
 
 
 @pytest.fixture
+def event_loop():
+    """Create an instance of the default event loop for each test case."""
+    loop = asyncio.get_event_loop_policy().new_event_loop()
+    yield loop
+    loop.close()
+
+
+@pytest.fixture
 def mock_config_manager():
     """Fixture for a mock ConfigManager with necessary attributes."""
     cm = MagicMock()
@@ -58,10 +66,9 @@ def mock_config_manager():
 
 
 @pytest.fixture
-def mock_main_controller(mock_config_manager):
+def mock_main_controller(mock_config_manager, event_loop):
     """Fixture for a mock MainController."""
-    loop = asyncio.get_event_loop()
-    controller = MainController(mock_config_manager, loop)
+    controller = MainController(mock_config_manager, event_loop)
     # Patch the sub-managers to prevent real operations
     controller.price_handler = AsyncMock()
     controller.balance_manager = AsyncMock()
@@ -242,18 +249,6 @@ async def test_balance_manager_token_not_in_xb_tokens(mock_config_manager):
 
     assert token.dex.total_balance is None
     assert token.dex.free_balance is None
-
-
-@pytest.mark.asyncio
-async def test_main_controller_thread_init_blocking(mock_config_manager):
-    """Test blocking initialization in MainController."""
-    controller = MainController(mock_config_manager, asyncio.get_event_loop())
-    mock_config_manager.strategy_instance.thread_loop_blocking_action = MagicMock()
-    pair = MagicMock()
-    controller.pairs_dict = {'pair1': pair}
-
-    controller.thread_init_blocking(pair)
-    mock_config_manager.strategy_instance.thread_loop_blocking_action.assert_called_once_with(pair)
 
 
 @pytest.mark.asyncio

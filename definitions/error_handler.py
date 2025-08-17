@@ -4,8 +4,12 @@ Centralized error handling with context propagation and recovery policies
 import asyncio
 import logging
 import time
+from typing import Optional, Dict, TYPE_CHECKING
 
-from definitions.errors import CriticalError, OperationalError, TransientError
+from definitions.errors import CriticalError, OperationalError, TransientError, convert_exception
+
+if TYPE_CHECKING:
+    from definitions.errors import AppError
 
 
 class ErrorHandler:
@@ -72,38 +76,43 @@ class ErrorHandler:
 
         return full_context
 
-    def _classify_error(self, error):
-        """Classifies errors into handling categories using inheritance"""
-        # First check base classes since all errors inherit from AppError
+    def _classify_error(self, error: 'AppError') -> str:
+        """Classifies AppError instances into handling categories."""
         if isinstance(error, CriticalError):
             return 'critical'
-        elif isinstance(error, TransientError):
+        if isinstance(error, TransientError):
             return 'transient'
-        elif isinstance(error, OperationalError):
+        if isinstance(error, OperationalError):
             return 'operational'
-        return 'critical'  # Default for unhandled error types
+        # This part of the code should not be reachable if convert_exception works correctly,
+        # as it wraps unknown exceptions. But as a safeguard:
+        return 'critical'
 
-    def handle(self, error, context=None):
-        """Main sync error handler uses generic flow"""
-        full_context = self._get_full_context(error, context)
-        classification = self._classify_error(error)
+    def handle(self, error: Exception, context: Optional[Dict] = None) -> bool:
+        """Main sync error handler. Converts non-AppErrors and delegates."""
+        app_error = convert_exception(error)
+        full_context = self._get_full_context(app_error, context)
+        classification = self._classify_error(app_error)
+
         handler_map = {
             'transient': self._handle_transient,
             'operational': self._handle_operational,
             'critical': self._handle_critical
         }
-        return handler_map[classification](error, full_context)
+        return handler_map[classification](app_error, full_context)
 
-    async def handle_async(self, error, context=None):
-        """Main async error handler uses same logic as sync flow"""
-        full_context = self._get_full_context(error, context)
-        classification = self._classify_error(error)
+    async def handle_async(self, error: Exception, context: Optional[Dict] = None) -> bool:
+        """Main async error handler. Converts non-AppErrors and delegates."""
+        app_error = convert_exception(error)
+        full_context = self._get_full_context(app_error, context)
+        classification = self._classify_error(app_error)
+
         handler_map = {
             'transient': self._handle_transient_async,
             'operational': self._handle_operational_async,
             'critical': self._handle_critical_async
         }
-        return await handler_map[classification](error, full_context)
+        return await handler_map[classification](app_error, full_context)
 
     def _handle_transient(self, error, context):
         """Handle transient errors with retry logic"""
@@ -112,20 +121,22 @@ class ErrorHandler:
             time.sleep(0.1)
             return True
 
-        attempt = context.get('err_count', 0)
+        attempt = context.get('err_count', 1)
         if attempt >= self.max_retries:
             self.logger.error(
-                f"Transient error max retries exceeded: {error} | Context: {context}"
+                f"Transient error max retries exceeded after {attempt} attempts: {error} | Context: {context}"
             )
             return False
 
         # Implement actual retry logic with exponential backoff
         self.logger.warning(
-            f"Transient error (attempt {attempt + 1}/{self.max_retries}): {error} | Context: {context}"
+            f"Transient error (attempt {attempt}/{self.max_retries}): {error} | Context: {context}"
         )
-        delay = self.retry_delays[attempt] if attempt < len(self.retry_delays) else self.retry_delays[-1]
+        delay_index = attempt - 1
+        delay = self.retry_delays[delay_index] if delay_index < len(self.retry_delays) else self.retry_delays[-1]
+        self.logger.info(f"Retrying in {delay} seconds...")
         time.sleep(delay)
-        return True  # Signal to retry operation after delay
+        return True  # Signal to retry operation
 
     def _handle_operational_logic(self, error, context):
         """Shared logic for handling operational errors."""
@@ -162,25 +173,9 @@ class ErrorHandler:
         notification_details = self._handle_critical_logic(error, context)
         self._notify_user_sync(**notification_details)
         # Initiate shutdown sequence
-        if self.config_manager:
-            try:
-                # Try to use async_shutdown if available
-                if hasattr(self.config_manager, 'async_shutdown'):
-                    # Schedule shutdown on the running loop if it exists, otherwise run in a new one.
-                    try:
-                        loop = asyncio.get_running_loop()
-                        if loop.is_running():
-                            loop.create_task(self.config_manager.async_shutdown(reason=str(error)))
-                        else:
-                            # This case is unlikely but handles a stopped loop
-                            asyncio.run(self.config_manager.async_shutdown(reason=str(error)))
-                    except RuntimeError:  # No running loop
-                        asyncio.run(self.config_manager.async_shutdown(reason=str(error)))
-                # Fallback to sync version
-                elif hasattr(self.config_manager, 'shutdown'):
-                    self.config_manager.shutdown(reason=str(error))
-            except Exception as e:
-                self.logger.error(f"Shutdown failed: {e}")
+        if self.config_manager and self.config_manager.controller:
+            self.logger.info(f"Signaling shutdown due to critical error: {error}")
+            self.config_manager.controller.shutdown_event.set()
         return False  # Abort operation
 
     async def _handle_transient_async(self, error, context):
@@ -190,20 +185,22 @@ class ErrorHandler:
             await asyncio.sleep(0.1)
             return True
 
-        attempt = context.get('err_count', 0)
+        attempt = context.get('err_count', 1)
         if attempt >= self.max_retries:
             self.logger.error(
-                f"Transient error max retries exceeded: {error} | Context: {context}"
+                f"Transient error max retries exceeded after {attempt} attempts: {error} | Context: {context}"
             )
             return False
 
         # Implement actual retry logic with exponential backoff
         self.logger.warning(
-            f"Transient error (attempt {attempt + 1}/{self.max_retries}): {error} | Context: {context}"
+            f"Transient error (attempt {attempt}/{self.max_retries}): {error} | Context: {context}"
         )
-        delay = self.retry_delays[attempt] if attempt < len(self.retry_delays) else self.retry_delays[-1]
+        delay_index = attempt - 1
+        delay = self.retry_delays[delay_index] if delay_index < len(self.retry_delays) else self.retry_delays[-1]
+        self.logger.info(f"Retrying in {delay} seconds...")
         await asyncio.sleep(delay)
-        return True  # Signal to retry operation after delay
+        return True  # Signal to retry operation
 
     async def _handle_operational_async(self, error, context):
         """Async version of handling operational errors with logging and continuation"""
@@ -221,13 +218,7 @@ class ErrorHandler:
             except Exception as e:
                 self.logger.warning(f"Async notification failed: {e}")
         # Initiate shutdown sequence
-        if self.config_manager:
-            try:
-                # Trigger async shutdown if available
-                if hasattr(self.config_manager, 'async_shutdown'):
-                    await self.config_manager.async_shutdown(reason=str(error))
-                elif hasattr(self.config_manager, 'shutdown'):
-                    self.config_manager.shutdown(reason=str(error))
-            except Exception as e:
-                self.logger.error(f"Async shutdown failed: {e}")
+        if self.config_manager and self.config_manager.controller:
+            self.logger.info(f"Signaling shutdown due to critical error: {error}")
+            self.config_manager.controller.shutdown_event.set()
         return False  # Abort operation

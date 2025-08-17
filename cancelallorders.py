@@ -32,5 +32,8 @@ if __name__ == '__main__':
     general_log.info("Initializing to cancel all orders...")
     xbridge_manager = XBridgeManager(MinimalConfig(general_log))
     general_log.info("Sending cancel all orders command...")
-    asyncio.run(xbridge_manager.cancelallorders())
-    general_log.info("All open orders have been cancelled.")
+    successful = asyncio.run(xbridge_manager.cancelallorders())
+    if successful:
+        general_log.info(f"Successfully cancelled {len(successful)} order(s).")
+    else:
+        general_log.info("No open orders were cancelled.")

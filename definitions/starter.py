@@ -7,7 +7,7 @@ import aiohttp
 import ccxt
 
 from definitions.ccxt_manager import CCXTManager
-from definitions.errors import OperationalError, RPCConfigError, CriticalError
+from definitions.errors import RPCConfigError
 from definitions.pair import Pair
 from definitions.shutdown import ShutdownCoordinator
 from definitions.token import Token
@@ -98,11 +98,15 @@ class BalanceManager:
             try:
                 xb_tokens: List[str] = await self.config_manager.xbridge_manager.getlocaltokens()
             except Exception as e:
-                err = OperationalError(f"Error getting local tokens: {e}")
-                self.config_manager.error_handler.handle(
-                    err,
-                    context={"stage": "update_balances"},
-                    exc_info=True
+                await self.config_manager.error_handler.handle_async(
+                    e,
+                    context={"stage": "get_local_tokens"}
+                )
+                return
+
+            if xb_tokens is None:
+                self.config_manager.general_log.warning(
+                    "Could not retrieve local tokens from xbridge, skipping balance update."
                 )
                 return
 
@@ -114,11 +118,9 @@ class BalanceManager:
                 try:
                     await asyncio.gather(*futures)
                 except Exception as e:
-                    err = OperationalError(f"Error in balance updates: {e}")
-                    self.config_manager.error_handler.handle(
-                        err,
-                        context={"stage": "update_balances"},
-                        exc_info=True
+                    await self.config_manager.error_handler.handle_async(
+                        e,
+                        context={"stage": "gather_balance_updates"}
                     )
 
             self.timer_main_dx_update_bals = time.time()
@@ -152,11 +154,9 @@ class BalanceManager:
                 token_data.dex.total_balance = bal
                 token_data.dex.free_balance = bal_free
             except Exception as e:
-                err = OperationalError(f"Error updating {token_data.symbol} balance: {e}")
-                self.config_manager.error_handler.handle(
-                    err,
-                    context={"token": token_data.symbol},
-                    exc_info=True
+                await self.config_manager.error_handler.handle_async(
+                    e,
+                    context={"token": token_data.symbol, "stage": "update_balance"}
                 )
 
     def _calculate_balances(self, utxos: List[Dict[str, Any]]) -> Tuple[float, float]:
@@ -219,9 +219,8 @@ class PriceHandler:
                 await self._fetch_and_update_prices()
                 self.ccxt_price_timer = now
             except Exception as e:
-                err = OperationalError(f"Error updating CEX prices: {e}")
-                self.config_manager.error_handler.handle(
-                    err,
+                await self.config_manager.error_handler.handle_async(
+                    e,
                     context={"stage": "price_update"}
                 )
 
@@ -240,10 +239,9 @@ class PriceHandler:
             )
             await self._update_token_prices(tickers)
         except Exception as e:
-            err = OperationalError(f"Error fetching CEX tickers: {e}")
-            self.config_manager.error_handler.handle(
-                err,
-                context={"stage": "price_update"}
+            await self.config_manager.error_handler.handle_async(
+                e,
+                context={"stage": "fetch_cex_tickers"}
             )
 
     def _construct_key(self, token: str) -> str:
@@ -277,11 +275,9 @@ class PriceHandler:
                 try:
                     self._update_token_price(tickers, symbol, lastprice_string, token_data)
                 except Exception as e:
-                    exc = OperationalError(f"Error updating {token_symbol} price: {e}")
-                    self.config_manager.error_handler.handle(
-                        exc,
-                        context={"token": token_symbol, "symbol": symbol},
-                        exc_info=True
+                    await self.config_manager.error_handler.handle_async(
+                        e,
+                        context={"token": token_symbol, "symbol": symbol}
                     )
 
         # Process custom coins
@@ -293,11 +289,9 @@ class PriceHandler:
                 try:
                     await self.tokens_dict[token].cex.update_price()
                 except Exception as e:
-                    exc = OperationalError(f"Error updating custom {token} price: {e}")
-                    self.config_manager.error_handler.handle(
-                        exc,
-                        context={"token": token},
-                        exc_info=True
+                    await self.config_manager.error_handler.handle_async(
+                        e,
+                        context={"token": token, "type": "custom"}
                     )
 
     def _get_last_price_string(self) -> str:
@@ -404,9 +398,8 @@ class MainController:
 
             await self.processor.process_pairs(strategy.thread_init_async_action)
         except Exception as e:
-            error = CriticalError(f"Initialization loop error: {e}", context={"component": "main_init_loop"})
             if self.config_manager:
-                self.config_manager.error_handler.handle(error)
+                await self.config_manager.error_handler.handle_async(e, context={"component": "main_init_loop"})
             raise
 
     async def main_loop(self) -> None:
@@ -429,11 +422,9 @@ class MainController:
             await self.processor.process_pairs(strategy.safe_thread_loop)
             self._report_time(start_time)
         except Exception as e:
-            err_msg: str = f"Main loop error: {e}"
             context: Dict = {"component": "main_loop"}
-            error = CriticalError(err_msg, context=context)
             if self.config_manager:
-                await self.config_manager.error_handler.handle_async(error)
+                await self.config_manager.error_handler.handle_async(e, context=context)
 
     def _report_time(self, start_time: float) -> None:
         """
@@ -445,23 +436,6 @@ class MainController:
         end_time: float = time.perf_counter()
         duration: float = end_time - start_time
         self.config_manager.general_log.info(f'Operation took {duration:0.2f} second(s) to complete.')
-
-    def thread_init_blocking(self, pair: Pair) -> None:
-        """
-        Execute blocking initialization task for a trading pair.
-        
-        Args:
-            pair: Pair instance to initialize
-        """
-        try:
-            self.config_manager.strategy_instance.thread_loop_blocking_action(pair)
-        except Exception as e:
-            err = OperationalError(f"Thread blocking action error: {e}")
-            self.config_manager.error_handler.handle(
-                err,
-                context={"pair": pair.symbol},
-                exc_info=True
-            )
 
     async def close_http_session(self) -> None:
         """Close the HTTP session if controller owns it."""
