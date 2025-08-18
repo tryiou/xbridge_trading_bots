@@ -305,19 +305,20 @@ class MainApplication:
     def _get_initial_balances_data(self) -> List[Dict[str, Any]]:
         """Returns the initial state of aggregate coins with 0.00 value for each field, sorted by token symbol."""
         initial_balances = []
-        # Collect all unique tokens from all strategy frames to get the full list of aggregate coins
-        all_tokens = {}
-        for frame in self.strategy_frames.values():
-            if getattr(frame, 'config_manager', None) and hasattr(frame.config_manager, 'tokens'):
-                for token_symbol, token_obj in frame.config_manager.tokens.items():
-                    all_tokens[token_symbol] = token_obj
+        with self.master_config_manager.resource_lock:
+            # Collect all unique tokens from all strategy frames to get the full list of aggregate coins
+            all_tokens = {}
+            for frame in self.strategy_frames.values():
+                if getattr(frame, 'config_manager', None) and hasattr(frame.config_manager, 'tokens'):
+                    for token_symbol, token_obj in frame.config_manager.tokens.items():
+                        all_tokens[token_symbol] = token_obj
 
-        for token_symbol in all_tokens.keys():
-            initial_balances.append({
-                "symbol": token_symbol,
-                "usd_price": 0.00,
-                "total": 0.00,
-                "free": 0.00
-            })
+            for token_symbol in all_tokens.keys():
+                initial_balances.append({
+                    "symbol": token_symbol,
+                    "usd_price": 0.00,
+                    "total": 0.00,
+                    "free": 0.00
+                })
         # Sort by symbol
         return sorted(initial_balances, key=lambda x: x['symbol'])
