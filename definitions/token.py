@@ -240,9 +240,10 @@ class CexToken:
                         OperationalError(f"Invalid custom price value for {self.token.symbol}: {custom_price}"),
                         context={"token": self.token.symbol, "stage": "update_price", "custom_price": custom_price}
                     )
-        
+
         if result is None:
-            if hasattr(self.token.config_manager.my_ccxt, 'symbols') and cex_symbol in self.token.config_manager.my_ccxt.symbols:
+            if hasattr(self.token.config_manager.my_ccxt,
+                       'symbols') and cex_symbol in self.token.config_manager.my_ccxt.symbols:
                 result = await fetch_ticker_async(cex_symbol)
             else:
                 self.usd_price = None

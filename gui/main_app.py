@@ -5,7 +5,7 @@ import threading
 import time
 import tkinter as tk
 from tkinter import ttk
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from ttkbootstrap import Style
 
@@ -17,6 +17,8 @@ from gui.shutdown.gui_shutdown_coordinator import GUIShutdownCoordinator
 from gui.utils.logging_setup import setup_console_logging, setup_gui_logging
 
 logger = logging.getLogger(__name__)
+
+BALANCE_UPDATE_INTERVAL = 5.0  # seconds for balance refresh
 
 
 class MainApplication:
@@ -33,6 +35,10 @@ class MainApplication:
             # Create master config manager
             self.master_config_manager = ConfigManager(strategy="gui")
             self.running_strategies = set()
+            
+            # Initialize thread resources
+            self.balance_update_queue = queue.Queue()
+            self.balance_stop_event = threading.Event()
 
             # Create main application structure
             self._create_main_structure()
@@ -73,10 +79,21 @@ class MainApplication:
             else:
                 print(error_msg)
 
+    def _handle_balance_error(self, error: Exception, context: str) -> None:
+        """Helper method to handle errors during balance updates."""
+        error_msg = f"Balance updater error: {str(error)}"
+        logger.error(error_msg, exc_info=True)
+        if self.master_config_manager:
+            self.master_config_manager.error_handler.handle(
+                error,
+                context={"stage": f"balance_{context}"}
+            )
+
     def get_aggregated_balances_data(self) -> List[Dict[str, Any]]:
         """
         Aggregates token balances from all running strategy frames.
         This method is public to allow for direct testing.
+        Returns list sorted by token symbol.
         """
         balances = {}
         with self.master_config_manager.resource_lock:
@@ -102,9 +119,10 @@ class MainApplication:
                                 existing_balance["free"] = max(existing_balance["free"], balance_free)
                                 existing_balance["usd_price"] = usd_price if usd_price > 0 else existing_balance[
                                     "usd_price"]
-        return list(balances.values())
+        # Return sorted by symbol
+        return sorted(balances.values(), key=lambda x: x['symbol'])
 
-    def _init_root_window(self, root):
+    def _init_root_window(self, root) -> None:
         """Initialize root window properties and signals."""
         title = "XBridge Trading Bots"
         if root is None:
@@ -140,7 +158,7 @@ class MainApplication:
         self.root.configure(background=self.style.lookup("TFrame", "background"))
         self.status_var = tk.StringVar(value="Idle")
 
-    def _create_main_structure(self):
+    def _create_main_structure(self) -> None:
         """Create main panels and layout structure."""
         main_panel = ttk.Frame(self.root)
         main_panel.pack(fill='both', expand=True, padx=10, pady=10)
@@ -155,7 +173,7 @@ class MainApplication:
         self.balances_panel = BalancesPanel(balances_frame)
         self.balances_panel.pack(fill='both', expand=True)
 
-    def _init_strategy_frames(self):
+    def _init_strategy_frames(self) -> None:
         """Initialize and add all strategy frames to the notebook."""
         self.strategy_frames = {
             'PingPong': PingPongFrame(self.notebook, self, self.master_config_manager),
@@ -166,7 +184,7 @@ class MainApplication:
             logger.debug(f"Initializing {text} strategy frame")
             self.notebook.add(frame, text=text)
 
-    def _setup_logging(self):
+    def _setup_logging(self) -> None:
         """Finalize logging setup after UI components are ready."""
         # Create and add the log frame as the last tab
         logger.debug("Initializing log frame")
@@ -174,13 +192,8 @@ class MainApplication:
         self.notebook.add(self.log_frame, text='Logs')
         setup_gui_logging(self.log_frame)
 
-    def _init_balance_updater(self):
+    def _init_balance_updater(self) -> None:
         """Initialize and start the balance updater thread."""
-        # Initialize queue and event
-        self.balance_update_queue = queue.Queue()
-        self.balance_update_interval = 5.0  # seconds
-        self.balance_stop_event = threading.Event()
-
         # Create and start balance updater thread
         self.balance_updater_thread = threading.Thread(
             target=self._run_balance_updater,
@@ -192,7 +205,7 @@ class MainApplication:
         # Schedule balance updates processing
         self.root.after(100, self._process_balance_updates)
 
-    def start_watchdog(self):
+    def start_watchdog(self) -> None:
         """Periodic check to maintain GUI responsiveness"""
 
         def watchdog():
@@ -206,7 +219,7 @@ class MainApplication:
         self.root.after(5000, watchdog)
 
     def create_status_bar(self) -> None:
-        """Creates the status bar at the bottom of the main window."""
+        """Create status bar with live status updates at bottom of window."""
         status_frame = ttk.Frame(self.root)
         status_frame.pack(side="bottom", fill="x", padx=5, pady=5)
         status_label = ttk.Label(status_frame, textvariable=self.status_var, anchor='w')
@@ -219,48 +232,27 @@ class MainApplication:
         shutdown_coordinator = GUIShutdownCoordinator(main_app=self)
         shutdown_coordinator.initiate_shutdown()
 
-    def _run_balance_updater(self):
+    def _run_balance_updater(self) -> None:
         """Runs in a separate thread to collect balance data with event-based stopping."""
         try:
             while not self.balance_stop_event.is_set():
-                self._perform_balance_update()
-        except Exception as e:
-            self._handle_balance_thread_error(e)
+                try:
+                    # Collect balance data
+                    data = self.get_aggregated_balances_data()
+
+                    if not self.running_strategies:
+                        data = self._get_initial_balances_data()
+
+                    self.balance_update_queue.put(data)
+                except (OSError, RuntimeError) as e:
+                    self._handle_balance_error(e, "update_fetch")
+                
+                # After processing, wait for interval or until stop signal
+                if self.balance_stop_event.wait(BALANCE_UPDATE_INTERVAL):
+                    break  # Exit loop if stop event set during wait
         finally:
+            # Cleanup always happens when thread exits
             self._cleanup_balance_queue()
-
-    def _perform_balance_update(self):
-        """Collect balance data and push to queue with error handling."""
-        try:
-            # Collect balance data
-            data = self.get_aggregated_balances_data()
-
-            if not self.running_strategies:
-                # logger.debug("No strategies running, displaying initial balances.")
-                data = self._get_initial_balances_data()
-
-            self.balance_update_queue.put(data)
-        except Exception as e:
-            logger.error(f"Error in balance updater thread: {e}", exc_info=True)
-            if self.master_config_manager:
-                self.master_config_manager.error_handler.handle(
-                    e,
-                    context={"stage": "balance_updater"}
-                )
-        finally:
-            # Wait for interval or stop signal
-            if self.balance_stop_event.wait(self.balance_update_interval):
-                raise SystemExit("Shutting down updater")  # Breaks outer loop
-
-    def _handle_balance_thread_error(self, exception: Exception) -> None:
-        """Log critical errors in balance updater thread."""
-        error_msg = f"Critical error in balance updater thread: {str(exception)}"
-        logger.critical(error_msg, exc_info=True)
-        if self.master_config_manager:
-            self.master_config_manager.error_handler.handle(
-                exception,
-                context={"stage": "balance_updater_thread"}
-            )
 
     def _cleanup_balance_queue(self) -> None:
         """Clear balance queue on thread exit."""
@@ -271,7 +263,7 @@ class MainApplication:
                 break
         logger.info("Balance updater thread terminated")
 
-    def _process_balance_updates(self):
+    def _process_balance_updates(self) -> None:
         """Processes queued balance updates in the main Tkinter thread with error handling."""
         if not self.root.winfo_exists():
             return
@@ -296,12 +288,12 @@ class MainApplication:
             if self.root.winfo_exists():  # Only reschedule if still running
                 self.root.after(250, self._process_balance_updates)  # Schedule next check
 
-    def notify_strategy_started(self, strategy_name: str):
+    def notify_strategy_started(self, strategy_name: str) -> None:
         """Notifies MainApplication that a strategy has started."""
         self.running_strategies.add(strategy_name)
         logger.info(f"Strategy '{strategy_name}' started. Active strategies: {len(self.running_strategies)}")
 
-    def notify_strategy_stopped(self, strategy_name: str):
+    def notify_strategy_stopped(self, strategy_name: str) -> None:
         """Notifies MainApplication that a strategy has stopped."""
         if strategy_name in self.running_strategies:
             self.running_strategies.remove(strategy_name)
@@ -310,8 +302,8 @@ class MainApplication:
             if not self.running_strategies:
                 self.balances_panel.update_data(self._get_initial_balances_data())
 
-    def _get_initial_balances_data(self) -> list:
-        """Returns the initial state of aggregate coins with 0.00 value for each field."""
+    def _get_initial_balances_data(self) -> List[Dict[str, Any]]:
+        """Returns the initial state of aggregate coins with 0.00 value for each field, sorted by token symbol."""
         initial_balances = []
         # Collect all unique tokens from all strategy frames to get the full list of aggregate coins
         all_tokens = {}
@@ -327,4 +319,5 @@ class MainApplication:
                 "total": 0.00,
                 "free": 0.00
             })
-        return initial_balances
+        # Sort by symbol
+        return sorted(initial_balances, key=lambda x: x['symbol'])
