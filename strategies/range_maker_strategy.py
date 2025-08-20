@@ -119,7 +119,7 @@ class RangeMakerStrategy(BaseStrategy):
             )
         return pairs
 
-    async def thread_loop_async_action(self, pair_instance, current_price=None):
+    async def process_pair_async(self, pair_instance, current_price=None):
         """Main auction management loop - processes orders and handles rebalancing"""
         pair_key = pair_instance.symbol
         position = self.active_positions.get(pair_key)

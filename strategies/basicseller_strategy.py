@@ -92,69 +92,69 @@ class BasicSellerStrategy(MakerStrategy):
             )
         return pairs
 
-    def build_sell_order_details(self, dex_pair_instance, manual_dex_price=None) -> tuple:
+    def build_sell_order_details(self, dex_pair, manual_dex_price=None) -> tuple:
         # BasicSeller specific logic for amount and offset for sell side
-        amount = dex_pair_instance.pair.amount_token_to_sell
-        offset = dex_pair_instance.pair.sell_price_offset
+        amount = dex_pair.pair.amount_token_to_sell
+        offset = dex_pair.pair.sell_price_offset
         return amount, offset
 
-    def calculate_sell_price(self, dex_pair_instance, manual_dex_price=None) -> float:
+    def calculate_sell_price(self, dex_pair, manual_dex_price=None) -> float:
         # BasicSeller sells at min_sell_price_usd if current price is lower
         if manual_dex_price:
             return manual_dex_price
-        if dex_pair_instance.pair.min_sell_price_usd and dex_pair_instance.t1.cex.usd_price < dex_pair_instance.pair.min_sell_price_usd:
-            return dex_pair_instance.pair.min_sell_price_usd / dex_pair_instance.t2.cex.usd_price
-        return dex_pair_instance.pair.cex.price
+        if dex_pair.pair.min_sell_price_usd and dex_pair.t1.cex.usd_price < dex_pair.pair.min_sell_price_usd:
+            return dex_pair.pair.min_sell_price_usd / dex_pair.t2.cex.usd_price
+        return dex_pair.pair.cex.price
 
-    def build_buy_order_details(self, dex_pair_instance, manual_dex_price=None) -> tuple:
+    def build_buy_order_details(self, dex_pair, manual_dex_price=None) -> tuple:
         # BasicSeller does not build buy orders
         self.config_manager.general_log.error(
             f"Bot strategy is basic_seller, no rule for this strat on build_buy_order_details")
         return 0, 0
 
-    def determine_buy_price(self, dex_pair_instance, manual_dex_price=None) -> float:
+    def determine_buy_price(self, dex_pair, manual_dex_price=None) -> float:
         # BasicSeller does not determine buy prices
         self.config_manager.general_log.error(
             f"Bot strategy is basic_seller, no rule for this strat on determine_buy_price")
         return 0
 
-    def get_price_variation_tolerance(self, dex_pair_instance) -> float:
-        return dex_pair_instance.PRICE_VARIATION_TOLERANCE_DEFAULT
+    def get_price_variation_tolerance(self, dex_pair) -> float:
+        return dex_pair.PRICE_VARIATION_TOLERANCE_DEFAULT
 
-    def calculate_variation_based_on_side(self, dex_pair_instance, current_order_side: str, cex_price: float,
+    def calculate_variation_based_on_side(self, dex_pair, current_order_side: str, cex_price: float,
                                           original_price: float) -> float:
         # BasicSeller specific default variation logic
-        if dex_pair_instance.pair.min_sell_price_usd and dex_pair_instance.t1.cex.usd_price < dex_pair_instance.pair.min_sell_price_usd:
-            return (dex_pair_instance.pair.min_sell_price_usd / dex_pair_instance.t2.cex.usd_price) / original_price
+        if dex_pair.pair.min_sell_price_usd and dex_pair.t1.cex.usd_price < dex_pair.pair.min_sell_price_usd:
+            return (dex_pair.pair.min_sell_price_usd / dex_pair.t2.cex.usd_price) / original_price
         return float(cex_price / original_price)
 
-    def init_virtual_order_logic(self, dex_pair_instance, order_history: dict):
+    def init_virtual_order_logic(self, dex_pair, order_history: dict):
         # BasicSeller always creates a sell order
-        dex_pair_instance.create_virtual_sell_order()
+        dex_pair.create_virtual_sell_order()
 
-    async def handle_order_status_error(self, dex_pair_instance):
-        dex_pair_instance.order = None  # Reset order to try creating a new one
+    async def handle_order_status_error(self, dex_pair):
+        dex_pair.order = None  # Reset order to try creating a new one
 
-    async def reinit_virtual_order_after_price_variation(self, dex_pair_instance, disabled_coins: list):
-        dex_pair_instance.create_virtual_sell_order()
-        if dex_pair_instance.order is None:
-            await dex_pair_instance.create_order(dry_mode=False)
+    async def reinit_virtual_order_after_price_variation(self, dex_pair, disabled_coins: list):
+        dex_pair.create_virtual_sell_order()
+        if dex_pair.order is None:
+            await dex_pair.create_order(dry_mode=False)
 
-    async def handle_finished_order(self, dex_pair_instance, disabled_coins: list):
+    async def handle_finished_order(self, dex_pair, disabled_coins: list):
         self.config_manager.general_log.info(
-            f"Sell order for '{dex_pair_instance.pair.name}' completed successfully. Disabling instance.")
-        dex_pair_instance.disabled = True  # Mark this seller instance as complete.
+            f"Sell order for '{dex_pair.pair.name}' completed successfully. Disabling instance.")
+        dex_pair.disabled = True  # Mark this seller instance as complete.
 
-    async def handle_error_swap_status(self, dex_pair_instance):
+    async def handle_error_swap_status(self, dex_pair):
         self.config_manager.general_log.error(
-            f"Order Error:\n{dex_pair_instance.current_order}\n{dex_pair_instance.order}")
-        dex_pair_instance.disabled = True  # Disable pair on error
+            f"Order Error:\n{dex_pair.current_order}\n{dex_pair.order}")
+        dex_pair.disabled = True  # Disable pair on error
 
     async def thread_init_async_action(self, pair_instance):
         pair_instance.dex.init_virtual_order(self.controller.disabled_coins)
         await pair_instance.dex.create_order()
 
-    async def thread_loop_async_action(self, pair_instance):
+    async def process_pair_async(self, pair_instance):
         await pair_instance.dex.status_check(self.controller.disabled_coins)
 
     def should_update_cex_prices(self) -> bool:

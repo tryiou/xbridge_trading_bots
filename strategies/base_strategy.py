@@ -104,7 +104,7 @@ class BaseStrategy(ABC):
         pass
 
     @abstractmethod  # Renamed for clarity
-    async def thread_loop_async_action(self, pair_instance):
+    async def process_pair_async(self, pair_instance):
         """
         Strategy-specific asynchronous action for the main loop processing.
         Should implement error handling using self.error_handler.
@@ -113,7 +113,7 @@ class BaseStrategy(ABC):
 
     async def safe_thread_loop(self, pair_instance):
         try:
-            await self.thread_loop_async_action(pair_instance)
+            await self.process_pair_async(pair_instance)
         except Exception as e:
             context = {"pair": pair_instance.symbol, "component": "strategy_loop"}
             await self.config_manager.error_handler.handle_async(e, context=context)

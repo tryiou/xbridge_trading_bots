@@ -44,50 +44,50 @@ class PingPongStrategy(MakerStrategy):
             )
         return pairs
 
-    def build_sell_order_details(self, dex_pair_instance) -> tuple:
+    def build_sell_order_details(self, dex_pair) -> tuple:
         # PingPong specific logic for amount and offset for sell side
-        usd_amount = dex_pair_instance.pair.cfg['usd_amount']
+        usd_amount = dex_pair.pair.cfg['usd_amount']
         btc_usd_price = self.config_manager.tokens['BTC'].cex.usd_price
-        t1_cex_price = dex_pair_instance.t1.cex.cex_price
+        t1_cex_price = dex_pair.t1.cex.cex_price
 
         # Add robustness to prevent division by zero or TypeError if prices are not available
         if not all([btc_usd_price, t1_cex_price, btc_usd_price > 0, t1_cex_price > 0]):
             self.config_manager.general_log.warning(
-                f"Cannot calculate sell amount for {dex_pair_instance.pair.name} due to missing or zero CEX price. "
-                f"BTC/USD: {btc_usd_price}, {dex_pair_instance.t1.symbol}/BTC: {t1_cex_price}"
+                f"Cannot calculate sell amount for {dex_pair.pair.name} due to missing or zero CEX price. "
+                f"BTC/USD: {btc_usd_price}, {dex_pair.t1.symbol}/BTC: {t1_cex_price}"
             )
             amount = 0
         else:
             amount = (usd_amount / btc_usd_price) / t1_cex_price
 
-        offset = dex_pair_instance.pair.cfg.get('sell_price_offset', 0.05)
+        offset = dex_pair.pair.cfg.get('sell_price_offset', 0.05)
         return amount, offset
 
-    def calculate_sell_price(self, dex_pair_instance) -> float:
+    def calculate_sell_price(self, dex_pair) -> float:
         # Sell price is always based on the current live CEX price.
         # The offset is applied in _build_sell_order in pair.py
-        return dex_pair_instance.pair.cex.price
+        return dex_pair.pair.cex.price
 
-    def build_buy_order_details(self, dex_pair_instance) -> tuple:
+    def build_buy_order_details(self, dex_pair) -> tuple:
         # PingPong specific logic for amount and spread for buy side
-        amount = float(dex_pair_instance.order_history['maker_size'])
-        spread = dex_pair_instance.pair.cfg.get('spread')
+        amount = float(dex_pair.order_history['maker_size'])
+        spread = dex_pair.pair.cfg.get('spread')
         return amount, spread
 
-    def determine_buy_price(self, dex_pair_instance) -> float:
+    def determine_buy_price(self, dex_pair) -> float:
         """
         Determines the base price for a BUY order.
         The logic is to take the minimum of the current live price and the
         price of the last completed SELL order. This ensures the bot never
         buys back higher than it sold, and takes advantage of price drops.
         """
-        live_cex_price = dex_pair_instance.pair.cex.price
-        last_sell_price = dex_pair_instance.order_history.get('dex_price')
+        live_cex_price = dex_pair.pair.cex.price
+        last_sell_price = dex_pair.order_history.get('dex_price')
 
         if not last_sell_price:
             # This should not happen in a BUY state, but as a fallback, use live price.
             self.config_manager.general_log.warning(
-                f"Could not find 'dex_price' in order history for {dex_pair_instance.pair.name}. "
+                f"Could not find 'dex_price' in order history for {dex_pair.pair.name}. "
                 f"Defaulting BUY price to live CEX price."
             )
             return live_cex_price
@@ -95,15 +95,15 @@ class PingPongStrategy(MakerStrategy):
         # The core logic: never buy higher than the last sell.
         base_price = min(live_cex_price, float(last_sell_price))
         self.config_manager.general_log.debug(
-            f"Determined BUY base price for {dex_pair_instance.pair.name}: "
+            f"Determined BUY base price for {dex_pair.pair.name}: "
             f"min(live: {live_cex_price:.8f}, last_sell: {float(last_sell_price):.8f}) -> {base_price:.8f}"
         )
         return base_price
 
-    def get_price_variation_tolerance(self, dex_pair_instance) -> float:
-        return dex_pair_instance.pair.cfg.get('price_variation_tolerance')
+    def get_price_variation_tolerance(self, dex_pair) -> float:
+        return dex_pair.pair.cfg.get('price_variation_tolerance')
 
-    def calculate_variation_based_on_side(self, dex_pair_instance, current_order_side: str, cex_price: float,
+    def calculate_variation_based_on_side(self, dex_pair, current_order_side: str, cex_price: float,
                                           original_price: float) -> tuple[float, bool]:
         """
         Calculates price variation and determines if the order should be price-locked.
@@ -113,49 +113,49 @@ class PingPongStrategy(MakerStrategy):
         variation = float(cex_price / original_price)
 
         if current_order_side == 'BUY':
-            last_sell_price = dex_pair_instance.order_history.get('dex_price')
+            last_sell_price = dex_pair.order_history.get('dex_price')
             if last_sell_price and cex_price > float(last_sell_price):
                 self.config_manager.general_log.debug(
-                    f"BUY order for {dex_pair_instance.pair.name} is price locked. "
+                    f"BUY order for {dex_pair.pair.name} is price locked. "
                     f"Live price ({cex_price:.8f}) is above last sell price ({float(last_sell_price):.8f})."
                 )
                 return variation, True  # Signal a lock
 
         return variation, False
 
-    def init_virtual_order_logic(self, dex_pair_instance, order_history: dict):
+    def init_virtual_order_logic(self, dex_pair, order_history: dict):
         if not order_history or ('side' in order_history and order_history['side'] == 'BUY'):
-            dex_pair_instance.create_virtual_sell_order()
+            dex_pair.create_virtual_sell_order()
         elif 'side' in order_history and order_history['side'] == 'SELL':
-            dex_pair_instance.create_virtual_buy_order()
+            dex_pair.create_virtual_buy_order()
         else:
             self.config_manager.general_log.critical(
                 f"Fatal error during init_order: Unexpected order history state\n{order_history}")
             raise SystemExit(1)  # Raise an exception to allow for graceful shutdown
 
-    async def handle_order_status_error(self, dex_pair_instance):
-        dex_pair_instance.order = None  # Reset order to try creating a new one
+    async def handle_order_status_error(self, dex_pair):
+        dex_pair.order = None  # Reset order to try creating a new one
 
-    async def reinit_virtual_order_after_price_variation(self, dex_pair_instance, disabled_coins: list):
-        dex_pair_instance.init_virtual_order(disabled_coins)
-        if not dex_pair_instance.order:
-            await dex_pair_instance.create_order()
+    async def reinit_virtual_order_after_price_variation(self, dex_pair, disabled_coins: list):
+        dex_pair.init_virtual_order(disabled_coins)
+        if not dex_pair.order:
+            await dex_pair.create_order()
 
-    async def handle_finished_order(self, dex_pair_instance, disabled_coins: list):
-        dex_pair_instance.init_virtual_order(disabled_coins)
-        await dex_pair_instance.create_order()
+    async def handle_finished_order(self, dex_pair, disabled_coins: list):
+        dex_pair.init_virtual_order(disabled_coins)
+        await dex_pair.create_order()
 
-    async def handle_error_swap_status(self, dex_pair_instance):
+    async def handle_error_swap_status(self, dex_pair):
         self.config_manager.general_log.error(
-            f"Order Error:\n{dex_pair_instance.current_order}\n{dex_pair_instance.order}")
-        self.config_manager.general_log.warning(f"Disabling pair {dex_pair_instance.symbol} due to order error.")
-        dex_pair_instance.disabled = True  # Disable the pair instead of stopping the whole bot.
+            f"Order Error:\n{dex_pair.current_order}\n{dex_pair.order}")
+        self.config_manager.general_log.warning(f"Disabling pair {dex_pair.symbol} due to order error.")
+        dex_pair.disabled = True  # Disable the pair instead of stopping the whole bot.
 
     async def thread_init_async_action(self, pair_instance):
         pair_instance.dex.init_virtual_order(self.controller.disabled_coins)
         await pair_instance.dex.create_order()
 
-    async def thread_loop_async_action(self, pair_instance):
+    async def process_pair_async(self, pair_instance):
         await pair_instance.dex.status_check(self.controller.disabled_coins)
 
     def should_update_cex_prices(self) -> bool:

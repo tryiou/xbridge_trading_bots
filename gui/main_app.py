@@ -5,7 +5,7 @@ import threading
 import time
 import tkinter as tk
 from tkinter import ttk
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from ttkbootstrap import Style
 
@@ -35,7 +35,7 @@ class MainApplication:
             # Create master config manager
             self.master_config_manager = ConfigManager(strategy="gui")
             self.running_strategies = set()
-            
+
             # Initialize thread resources
             self.balance_update_queue = queue.Queue()
             self.balance_stop_event = threading.Event()
@@ -246,7 +246,7 @@ class MainApplication:
                     self.balance_update_queue.put(data)
                 except (OSError, RuntimeError) as e:
                     self._handle_balance_error(e, "update_fetch")
-                
+
                 # After processing, wait for interval or until stop signal
                 if self.balance_stop_event.wait(BALANCE_UPDATE_INTERVAL):
                     break  # Exit loop if stop event set during wait

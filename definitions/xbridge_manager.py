@@ -128,7 +128,7 @@ class XBridgeManager:
                         logger=self.logger,
                         session=None,  # Create new session per call
                         shutdown_event=final_shutdown_event,
-                        error_handler=self.config_manager.error_handler
+                        error_handler=getattr(self.config_manager, 'error_handler', None)
                     )
                 except Exception as e:
                     from definitions.errors import convert_exception

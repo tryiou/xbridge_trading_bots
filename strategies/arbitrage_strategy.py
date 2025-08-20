@@ -17,6 +17,8 @@ if TYPE_CHECKING:
     from definitions.pair import Pair
     from definitions.starter import MainController
 
+THORCHAIN_DECIMALS = 8
+
 
 class ArbitrageStrategy(BaseStrategy):
 
@@ -139,7 +141,7 @@ class ArbitrageStrategy(BaseStrategy):
     def should_update_cex_prices(self) -> bool:
         return False
 
-    async def thread_loop_async_action(self, pair_instance: 'Pair'):
+    async def process_pair_async(self, pair_instance: 'Pair'):
         """The core arbitrage logic. This is now an async method."""
         # --- PAUSE CHECK ---
         if os.path.exists(self.pause_file_path):
@@ -318,8 +320,8 @@ class ArbitrageStrategy(BaseStrategy):
             return None
 
         # --- Calculation ---
-        gross_receive_amount = float(thorchain_quote['expected_amount_out']) / (10 ** 8)
-        outbound_fee = float(thorchain_quote.get('fees', {}).get('outbound', '0')) / (10 ** 8)
+        gross_receive_amount = float(thorchain_quote['expected_amount_out']) / (10 ** THORCHAIN_DECIMALS)
+        outbound_fee = float(thorchain_quote.get('fees', {}).get('outbound', '0')) / (10 ** THORCHAIN_DECIMALS)
 
         profit_data = self._calculate_profitability_and_fees(
             cost_amount=order_data['cost_amount'],
@@ -745,8 +747,8 @@ class ArbitrageStrategy(BaseStrategy):
             if not (new_quote and new_quote.get('expected_amount_out')):
                 raise ValueError("Invalid new quote received during resumption.")
 
-            gross_received = float(new_quote['expected_amount_out']) / (10 ** 8)
-            outbound_fee = float(new_quote.get('fees', {}).get('outbound', '0')) / (10 ** 8)
+            gross_received = float(new_quote['expected_amount_out']) / (10 ** THORCHAIN_DECIMALS)
+            outbound_fee = float(new_quote.get('fees', {}).get('outbound', '0')) / (10 ** THORCHAIN_DECIMALS)
             net_received = gross_received - outbound_fee
             cost_amount = exec_data['xbridge_from_amount']
             xbridge_fee = exec_data.get('xbridge_fee', 0)

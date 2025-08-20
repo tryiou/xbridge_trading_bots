@@ -389,7 +389,7 @@ class RangeMakerBacktester:
         pair_name = next(iter(self.strategy.active_positions.keys()))
         pair_instance = self.strategy.pairs[pair_name]
 
-        filled_orders = await self.strategy.thread_loop_async_action(pair_instance, current_price=current_price)
+        filled_orders = await self.strategy.process_pair_async(pair_instance, current_price=current_price)
 
         if filled_orders:
             self.logger.debug(f"Simulated {len(filled_orders)} fills at {timestamp} with price {current_price:.6f}.")
