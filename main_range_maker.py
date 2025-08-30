@@ -94,6 +94,9 @@ def _setup_argument_parser() -> argparse.ArgumentParser:
                         help='Run in backtesting mode (ignores live exchanges, requires initial_balances)')
     parser.add_argument("--animate-graph", action='store_true',
                         help='Generate animated order book visualization when backtesting (requires matplotlib/ffmpeg)')
+    parser.add_argument("--log-level", type=str, default="INFO",
+                        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+                        help="Set the logging level")
     return parser
 
 
@@ -108,13 +111,11 @@ def _log_parsed_arguments(logger: logging.Logger, args: argparse.Namespace) -> N
     param_report = "Starting Range Maker with parameters:\n"
     param_report += f"  Pairs: {len(args.pairs)} configuration(s)\n"
     for i, pair_cfg in enumerate(args.pairs, 1):
-        midpoint = pair_cfg.get('initial_middle_price', (pair_cfg['min_price'] + pair_cfg['max_price']) / 2)
         param_report += (
             f"    Pair #{i}: {pair_cfg['pair']} | "
             f"Price range: [{pair_cfg['min_price']:.2f} - {pair_cfg['max_price']:.2f}] | "
             f"Grid density: {pair_cfg['grid_density']} orders | "
-            f"Min size: {pair_cfg.get('percent_min_size', 0.0001) * 100:.6f}% | "
-            f"Initial midpoint: {midpoint:.2f}\n"
+            f"Min size: {pair_cfg.get('percent_min_size', 0.0001) * 100:.6f}%\n"
         )
     param_report += f"  Backtest mode: {args.backtest}\n"
     param_report += f"  Animated graph: {args.animate_graph}"
@@ -179,7 +180,7 @@ def _handle_backtest_animation(
         script_dir = Path(__file__).parent
         save_path = script_dir / animation_filename
 
-        backtester.plot_animated_order_book(save_path=str(save_path))
+        backtester.save_animation(str(save_path))
 
         if save_path.exists():
             logger.info(f"Confirmed: Animation file created at {save_path}")
@@ -200,10 +201,21 @@ def start() -> None:
     Parses CLI arguments, initializes the RangeMaker strategy, and runs it
     either in live trading or backtesting mode.
     """
-    logger = setup_logging(name="main_range_maker", level=logging.DEBUG, console=True)
-
     parser = _setup_argument_parser()
     args = parser.parse_args()
+    
+    log_level = getattr(logging, args.log_level.upper())
+    logger = setup_logging(name="main_range_maker", level=log_level, console=True)
+    
+    # Set the root logger level to ensure all loggers respect this level
+    logging.getLogger().setLevel(log_level)
+    
+    # Set the level for specific loggers that might be used
+    logging.getLogger("range_maker").setLevel(log_level)
+    logging.getLogger("range_maker_backtester").setLevel(log_level)
+    logging.getLogger("definitions").setLevel(log_level)
+    logging.getLogger("strategies").setLevel(log_level)
+    logging.getLogger("backtesting").setLevel(log_level)
 
     _log_parsed_arguments(logger, args)
 
@@ -222,22 +234,7 @@ def start() -> None:
 
     # Prepare pair configurations for strategy initialization
     processed_pair_configs = []
-    for pair_cfg in args.pairs:
-        current_pair_cfg = pair_cfg.copy()
-        if args.backtest:
-            # For backtesting, initial_middle_price will be determined from historical data.
-            # Remove it from the config passed to the strategy, so the backtester can override it later.
-            if 'initial_middle_price' in current_pair_cfg:
-                logger.info(
-                    f"Backtesting mode: 'initial_middle_price' ({current_pair_cfg['initial_middle_price']:.6f}) "
-                    f"for pair {current_pair_cfg['pair']} will be ignored and set automatically from historical data."
-                )
-                del current_pair_cfg['initial_middle_price']
-        processed_pair_configs.append(current_pair_cfg)
-
-    # Manually initialize strategy specifics for each pair with the processed configurations
-    for pair_cfg in processed_pair_configs:
-        config_manager.strategy_instance.initialize_strategy_specifics(**pair_cfg)
+    processed_pair_configs = args.pairs.copy()
 
     if args.backtest:
         from backtesting.backtest_range_maker_strategy import RangeMakerBacktester
@@ -251,14 +248,34 @@ def start() -> None:
             logger.error("Initial balances are required for backtesting. Please provide them in the --pairs argument.")
             return
 
-        backtester = RangeMakerBacktester(config_manager.strategy_instance)
+        from backtesting.backtest_range_maker_strategy import BacktestConfig, BacktestMode
+        
+        # Create backtest configuration
+        backtest_config = BacktestConfig(
+            period="6mo",
+            timeframe="1d",
+            mode=BacktestMode.OHLC,
+            animate=args.animate_graph,
+            log_level=logging.INFO
+        )
+        
+        backtester = RangeMakerBacktester(config_manager.strategy_instance, backtest_config)
         backtester.logger.info(f"Initial balances: {initial_balances}")
-        asyncio.run(
-            backtester.execute_fullbacktest(initial_balances=initial_balances, animate_graph=args.animate_graph))
+        metrics = asyncio.run(
+            backtester.run_backtest(primary_pair_cfg, initial_balances))
 
-        _handle_backtest_animation(logger, args, backtester, primary_pair_cfg)
+        if args.animate_graph:
+            _handle_backtest_animation(logger, args, backtester, primary_pair_cfg)
 
     else:
+        # Initialize strategy specifics for each pair in live mode
+        for pair_cfg in processed_pair_configs:
+            # Ensure 'pair' is included in kwargs
+            init_kwargs = pair_cfg.copy()
+            if 'pair' not in init_kwargs:
+                init_kwargs['pair'] = pair_cfg.get('token_pair', pair_cfg.get('symbol'))
+            config_manager.strategy_instance.initialize_strategy_specifics(**init_kwargs)
+        
         startup_tasks = config_manager.strategy_instance.get_startup_tasks()
         run_async_main(config_manager, startup_tasks=startup_tasks)
 
