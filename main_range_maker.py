@@ -1,10 +1,18 @@
 """
-main_range_maker.py
+CLI for Range Maker Strategy: Advanced Market Making with Concentrated Liquidity
 
-This script serves as the command-line interface for initializing and running the
-RangeMaker trading strategy. It parses arguments for pair configurations,
-backtesting, and animation, then sets up the strategy and executes it either
-in live mode or backtesting mode.
+This script initializes and runs the Range Maker trading strategy, which places
+limit orders within a defined price range to capture spread while managing
+impermanent loss. It supports both live trading and backtesting.
+
+Key Features:
+- Configurable liquidity bands with non-linear price distribution
+- Dual token balance management with auto-rebalancing
+- Comprehensive backtesting with animated order book visualization
+- Detailed performance metrics and impermanent loss analysis
+
+Usage: 
+  python main_range_maker.py --pairs '[{"pair": "BASE/QUOTE", ...}]' [--backtest] [--animate-graph]
 """
 
 from __future__ import annotations
@@ -40,56 +48,22 @@ def _setup_argument_parser() -> argparse.ArgumentParser:
 
     parser.add_argument("--pairs", type=json.loads, required=True,
                         help=(
-                            'JSON array of pair configurations. All configurations MUST include the required core parameters.\n\n'
-                            'REQUIRED PARAMETERS FOR EACH PAIR:\n'
-                            '  "pair": Trading pair symbol in "BASE/QUOTE" format (e.g., "LTC/DOGE")\n'
-                            '  "min_price": Minimum price boundary for liquidity range (float)\n'
-                            '  "max_price": Maximum price boundary for liquidity range (float)\n'
-                            '  "grid_density": Number of orders to place within price range (int)\n\n'
-
-                            'ADVANCED OPTIONAL PARAMETERS:\n'
-                            '  "initial_balances": Initial token balances in dict format (e.g., {"LTC":10, "DOGE":5000})\n'
-                            '  "initial_middle_price": Starting mid-price for grid (default: (min_price + max_price)/2, or first historical price in backtest mode)\n'
-                            '  "percent_min_size": Minimum order size as percentage of balance (float, default: 0.0001)\n\n'
-
-                            'CONCENTRATION CONTROLS (Non-Linear Order Patterns):\n\n'
-
-                            '[CURVE - Capital Allocation Method]\n'
-                            '  Controls how trading capital is distributed between orders:\n\n'
-                            '  Options (default="linear"):\n'
-                            '    • linear:      Equal funds at each price point\n'
-                            '    • exp_decay:   More funds near mid-price (exponential decay)\n'
-                            '    • sigmoid:     Heavy concentration at mid-price (S-curve)\n'
-                            '    • constant_product: Constant product (x*y=k) similar to Uniswap V2\n\n'
-                            '  Use "curve_strength" (float) to control intensity:\n'
-                            '    • Higher values = sharper concentration\n'
-                            '    • Typical range: 5-50 (default=10)\n\n'
-
-                            '[PRICE_STEPS - Price Distribution]\n'
-                            '  Controls where orders are placed along price axis:\n\n'
-                            '  Options (default="linear"):\n'
-                            '    • linear:      Uniformly spaced prices (equal steps)\n'
-                            '    • sigmoid:     Orders clustered near mid-price (S-curve distribution)\n'
-                            '    • exponential: Tight grouping near mid-price (aggressive clustering)\n'
-                            '    • power:       Smooth curve with adjustable concentration\n\n'
-                            '  "curve_strength" also adjusts concentration for these methods\n\n'
-                            '  RECOMMENDED COMBINATIONS:\n'
-                            '    • Balanced:   linear price_steps + sigmoid curve\n'
-                            '    • Aggressive: sigmoid price_steps + exp_decay curve\n\n'
-
-                            'FULL EXAMPLE CONFIG:\n'
-                            "  [{\n"
-                            '    "pair": "LTC/DOGE",\n'
-                            '    "min_price": 100,\n'
-                            '    "max_price": 1000,\n'
-                            '    "grid_density": 40,\n'
-                            '    "percent_min_size": 0.001,\n'
-                            '    "initial_balances": {"LTC": 10, "DOGE": 5000},\n'
-                            '    "initial_middle_price": 500,\n'
-                            '    "curve": "sigmoid",\n'
-                            '    "curve_strength": 25,\n'
-                            '    "price_steps": "exponential"\n'
-                            "  }]"))
+                            'JSON array of pair configurations. Each configuration must include:\n\n'
+                            'Required Parameters:\n'
+                            '  "pair": Trading pair in "BASE/QUOTE" format (e.g., "BTC/USD")\n'
+                            '  "min_price": Minimum price boundary (float)\n'
+                            '  "max_price": Maximum price boundary (float)\n'
+                            '  "grid_density": Number of orders in the range (int)\n\n'
+                            'Optional Parameters:\n'
+                            '  "initial_balances": Initial token balances (e.g., {"BTC":1, "USD":10000})\n'
+                            '  "initial_middle_price": Starting mid-price (default: average of min/max)\n'
+                            '  "percent_min_size": Minimum order size as balance percentage (default: 0.0001)\n'
+                            '  "curve": Capital allocation curve type (linear, exponential, sigmoid; default: linear)\n'
+                            '  "curve_strength": Curve intensity (default: 10.0)\n'
+                            '  "price_steps": Order price distribution method (linear, sigmoid, exponential, power; default: linear)\n\n'
+                            'Example:\n'
+                            '  [{"pair": "BTC/USD", "min_price": 50000, "max_price": 60000, "grid_density": 20, \n'
+                            '    "curve": "sigmoid", "curve_strength": 15, "price_steps": "exponential"}]'))
     parser.add_argument("--backtest", action='store_true',
                         help='Run in backtesting mode (ignores live exchanges, requires initial_balances)')
     parser.add_argument("--animate-graph", action='store_true',
@@ -148,10 +122,10 @@ def _log_strategy_configuration(logger: logging.Logger, pair_configs: List[Dict[
 
 
 def _handle_backtest_animation(
-    logger: logging.Logger,
-    args: argparse.Namespace,
-    backtester: RangeMakerBacktester,
-    pair_cfg: Dict[str, Any]
+        logger: logging.Logger,
+        args: argparse.Namespace,
+        backtester: RangeMakerBacktester,
+        pair_cfg: Dict[str, Any]
 ) -> None:
     """
     Handles the generation and saving of the backtest animation.
@@ -203,13 +177,13 @@ def start() -> None:
     """
     parser = _setup_argument_parser()
     args = parser.parse_args()
-    
+
     log_level = getattr(logging, args.log_level.upper())
     logger = setup_logging(name="main_range_maker", level=log_level, console=True)
-    
+
     # Set the root logger level to ensure all loggers respect this level
     logging.getLogger().setLevel(log_level)
-    
+
     # Set the level for specific loggers that might be used
     logging.getLogger("range_maker").setLevel(log_level)
     logging.getLogger("range_maker_backtester").setLevel(log_level)
@@ -249,16 +223,16 @@ def start() -> None:
             return
 
         from backtesting.backtest_range_maker_strategy import BacktestConfig, BacktestMode
-        
+
         # Create backtest configuration
         backtest_config = BacktestConfig(
-            period="6mo",
+            period="3mo",
             timeframe="1d",
             mode=BacktestMode.OHLC,
             animate=args.animate_graph,
-            log_level=logging.INFO
+            log_level=logging.DEBUG
         )
-        
+
         backtester = RangeMakerBacktester(config_manager.strategy_instance, backtest_config)
         backtester.logger.info(f"Initial balances: {initial_balances}")
         metrics = asyncio.run(
@@ -268,14 +242,10 @@ def start() -> None:
             _handle_backtest_animation(logger, args, backtester, primary_pair_cfg)
 
     else:
-        # Initialize strategy specifics for each pair in live mode
+        # Initialize strategy specifics for each pair
         for pair_cfg in processed_pair_configs:
-            # Ensure 'pair' is included in kwargs
-            init_kwargs = pair_cfg.copy()
-            if 'pair' not in init_kwargs:
-                init_kwargs['pair'] = pair_cfg.get('token_pair', pair_cfg.get('symbol'))
-            config_manager.strategy_instance.initialize_strategy_specifics(**init_kwargs)
-        
+            config_manager.strategy_instance.initialize_strategy_specifics(**pair_cfg)
+
         startup_tasks = config_manager.strategy_instance.get_startup_tasks()
         run_async_main(config_manager, startup_tasks=startup_tasks)
 
