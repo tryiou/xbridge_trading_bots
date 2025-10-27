@@ -1,4 +1,5 @@
 import argparse
+import sys
 
 from definitions.cli_runner import run_cli, add_custom_help
 from definitions.config_manager import ConfigManager
@@ -28,6 +29,16 @@ def start():
                              "If not provided, the 'min_profit_margin' setting from config_arbitrage.yaml is used.")
 
     args = parser.parse_args()
+
+    # Prevent running in live mode (still in testing)
+    if args.mode == 'live':
+        print("\n" + "=" * 60)
+        print("ERROR: Arbitrage strategy is still in testing phase")
+        print("=" * 60)
+        print("The arbitrage strategy is not yet ready for production use.")
+        print("Please run in 'dry' mode for testing purposes only.")
+        print("=" * 60 + "\n")
+        sys.exit(1)
 
     config_manager = ConfigManager(strategy="arbitrage")
 

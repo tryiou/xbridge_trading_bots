@@ -1,0 +1,67 @@
+# -----------------------------------------------------------------------------
+# THORChain Continuous-Chain Trading Configuration
+# -----------------------------------------------------------------------------
+# This config drives the continuous alternating swaps on a single TOKEN1/TOKEN2 pool.
+# Goal: Achieve dual-token accumulation via volume asymmetry and spread capture.
+# See thorchain-continuous-trading.md for strategy details.
+# -----------------------------------------------------------------------------
+
+# Core Trading Pair and Balances
+# Specify the two tokens for the liquidity pool. The bot alternates swaps between them.
+token1: "LTC"  # Primary token (e.g., LTC); used for anchor sell.
+token2: "DOGE"  # Secondary token (e.g., DOGE).
+
+# Starting balances for dual accumulation tracking. These are reference points to verify net growth in both tokens.
+# Actual balances are fetched from wallets; if lower, trading pauses until resolved.
+starting_balances:
+  LTC: 10.0  # Expected starting balance for token1 (in base units, e.g., LTC).
+  DOGE: 5000.0  # Expected starting balance for token2 (in base units, e.g., DOGE).
+
+# Trading Parameters
+# Minimum spread (as decimal, e.g., 0.01 = 1%) over anchor rate to execute a trade.
+# Enables volume asymmetry for dual accumulation.
+target_spread: 0.1
+
+# Minimum trade size per token (in base units). Ensures trades are viable.
+min_trade_size:
+  LTC: 1.0  # Min size when selling/buying LTC.
+  DOGE: 500.0  # Min size when selling/buying DOGE.
+
+# Maximum allowed slippage (as decimal, e.g., 0.005 = 0.5%) from quote.
+slippage_max: 0.005
+
+# Fixed size for the initial anchor trade (in token1 base units). Anchor establishes reference rate; may not be profitable.
+anchor_trade_size: 1.0
+
+# Risk Management
+# Maximum outbound fee as a fraction of trade amount (e.g., 0.001 = 0.1%). Aborts if exceeded.
+max_fee_threshold: 0.001
+
+# Use fixed sizing (true) or binary-search optimal size for target asymmetry (false).
+# Fixed: Uses min_trade_size or anchor_size (simpler, per MD examples).
+# Optimal: Dynamically finds amount achieving target_spread via quote simulation (more advanced).
+fixed_sizing: true
+
+# Skip trades if quote rate deviates > this % from anchor (volatility circuit breaker, e.g., 0.05 = 5%).
+max_volatility_threshold: 0.05
+
+# Maximum consecutive failures before pausing (circuit breaker for errors/abnormal markets).
+max_failure_threshold: 3
+
+# API Endpoints
+# THORChain API configuration (reuse reliable public nodes or your own).
+api:
+  # Base URL for general THORNode queries (e.g., inbound_addresses, path status).
+  thornode_url: "https://thornode.ninerealms.com"
+  # URL for fetching swap quotes.
+  thornode_quote_url: "https://thornode.ninerealms.com/thorchain"
+  # URL for checking transaction status.
+  thornode_tx_url: "https://thornode.ninerealms.com/thorchain/tx"
+
+# Monitoring Settings
+# For swap execution and confirmation loops.
+monitoring:
+  # Timeout in seconds for waiting for a Thorchain swap to complete/succeed.
+  timeout: 600
+  # Interval in seconds to poll for Thorchain swap status.
+  poll_interval: 30

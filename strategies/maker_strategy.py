@@ -14,7 +14,7 @@ class MakerStrategy(BaseStrategy):
     """
 
     @abstractmethod
-    def build_sell_order_details(self, dex_pair_instance: 'DexPair', manual_dex_price=None) -> tuple:
+    def build_sell_order_details(self, dex_pair: 'DexPair', manual_dex_price=None) -> tuple:
         """
         Strategy-specific logic to determine amount and offset for a sell order.
         Returns (amount, offset).
@@ -22,14 +22,14 @@ class MakerStrategy(BaseStrategy):
         pass
 
     @abstractmethod
-    def calculate_sell_price(self, dex_pair_instance: 'DexPair', manual_dex_price=None) -> float:
+    def calculate_sell_price(self, dex_pair: 'DexPair', manual_dex_price=None) -> float:
         """
         Strategy-specific logic to calculate the sell price.
         """
         pass
 
     @abstractmethod
-    def build_buy_order_details(self, dex_pair_instance: 'DexPair', manual_dex_price=None) -> tuple:
+    def build_buy_order_details(self, dex_pair: 'DexPair', manual_dex_price=None) -> tuple:
         """
         Strategy-specific logic to determine amount and spread for a buy order.
         Returns (amount, spread).
@@ -37,21 +37,21 @@ class MakerStrategy(BaseStrategy):
         pass
 
     @abstractmethod
-    def determine_buy_price(self, dex_pair_instance: 'DexPair', manual_dex_price=None) -> float:
+    def determine_buy_price(self, dex_pair: 'DexPair', manual_dex_price=None) -> float:
         """
         Strategy-specific logic to determine the buy price.
         """
         pass
 
     @abstractmethod
-    def get_price_variation_tolerance(self, dex_pair_instance: 'DexPair') -> float:
+    def get_price_variation_tolerance(self, dex_pair: 'DexPair') -> float:
         """
         Returns the price variation tolerance for the strategy.
         """
         pass
 
     @abstractmethod
-    def calculate_variation_based_on_side(self, dex_pair_instance: 'DexPair', current_order_side: str, cex_price: float,
+    def calculate_variation_based_on_side(self, dex_pair: 'DexPair', current_order_side: str, cex_price: float,
                                           original_price: float) -> float:
         """
         Strategy-specific logic to calculate price variation based on order side.
@@ -59,23 +59,23 @@ class MakerStrategy(BaseStrategy):
         pass
 
     @abstractmethod
-    def init_virtual_order_logic(self, dex_pair_instance: 'DexPair', order_history: dict):
+    def init_virtual_order_logic(self, dex_pair: 'DexPair', order_history: dict):
         pass
 
     @abstractmethod
-    async def handle_order_status_error(self, dex_pair_instance: 'DexPair'):
+    async def handle_order_status_error(self, dex_pair: 'DexPair'):
         pass
 
     @abstractmethod
-    def reinit_virtual_order_after_price_variation(self, dex_pair_instance: 'DexPair', disabled_coins: list):
+    def reinit_virtual_order_after_price_variation(self, dex_pair: 'DexPair', disabled_coins: list):
         pass
 
     @abstractmethod
-    def handle_finished_order(self, dex_pair_instance: 'DexPair', disabled_coins: list):
+    def handle_finished_order(self, dex_pair: 'DexPair', disabled_coins: list):
         pass
 
     @abstractmethod
-    async def handle_error_swap_status(self, dex_pair_instance: 'DexPair'):
+    async def handle_error_swap_status(self, dex_pair: 'DexPair'):
         pass
 
     def get_startup_tasks(self) -> list:

@@ -82,7 +82,6 @@ of these templates:
 | `config_coins.yaml.template`     | (Optional) Static USD prices for coins without live market data | PingPong & BasicSeller Bots |
 | `config_ccxt.yaml.template`      | Exchange API configuration for real-time price feeds            | PingPong Bots               |
 | `config_xbridge.yaml.template`   | XBridge specific fees and monitoring settings                   | All Bots                    |
-| `config_thorchain.yaml.template` | Thorchain API and monitoring settings                           | Arbitrage Bot               |
 | `api_keys.local.json.template`   | (Optional) Private API keys for CCXT exchange                   | None                        |
 
 #### Setup Commands
@@ -168,6 +167,7 @@ python main_basic_seller.py -tts BLOCK -ttb PIVX -atts 200 -mup 0.33 -spu 0.015
 python main_basic_seller.py -tts BLOCK -ttb PIVX -atts 200 -mup 0.33 -spu 0.015 --partial 0.5
 ```
 
+
 ### Command Line Parameters
 
 | Parameter             | Short   | Required | Type   | Description                                           |
@@ -210,44 +210,30 @@ python main_basic_seller.py -tts BLOCK -ttb PIVX -atts 200 -mup 0.33 -spu 0.015 
 
 ```text
 xbridge_trading_bots/
-├── config/
-│   ├── templates/          # Configuration templates
-│   └── [generated configs] # Your customized configurations
-├── data/                   # Stores trade history, state files, and generated addresses
-├── definitions/            # Core functionality, data models, and API managers
-│   ├── bcolors.py          # Color definitions for console output
-│   ├── ccxt_manager.py     # CCXT exchange API wrapper
-│   ├── config_manager.py   # Configuration loading and management
-│   ├── decorators.py       # Decorators for retries, etc.
-│   ├── detect_rpc.py       # RPC connection detection utilities
-│   ├── gui.py              # GUI components and dialogs
-│   ├── logger.py           # Logging configuration and handlers
-│   ├── pair.py             # Trading pair data model
-│   ├── pingpong_loader.py  # Configuration loading utilities
-│   ├── rpc.py              # RPC communication wrappers
-│   ├── starter.py          # Core application controller and main async loop
-│   ├── test_arbitrage_strategy.py # Internal test suite for arbitrage logic
-│   ├── thorchain_def.py    # Thorchain API wrappers
-│   ├── token.py            # Token data model
-│   ├── trade_state.py      # Manages state for recoverable trades (arbitrage)
-│   ├── xbridge_manager.py  # Xbridge protocol API wrapper
-│   └── yaml_mix.py         # YAML to object conversion utility
-├── data/                   # Store trades history and generated addresses
-├── logs/                   # Store logs
-├── strategies/             # Contains the logic for different trading strategies
-│   ├── arbitrage_strategy.py
-│   ├── base_strategy.py
-│   ├── basicseller_strategy.py
-│   ├── maker_strategy.py
-│   └── pingpong_strategy.py
-├── cancelallorders.py      # Utility script to cancel all open XBridge orders
-├── gui_pingpong.py         # PingPong bot GUI interface
-├── main_arbitrage.py       # Arbitrage bot console interface
-├── main_basic_seller.py    # BasicSeller bot console interface
-├── main_pingpong.py        # PingPong bot console interface
-├── pingpong_logparser.py   # PingPong bot Trade log parsing and analysis tool
-├── requirements.txt        # Python dependencies
-└── README.md               # This file
+├── backtesting/backtest_range_maker_strategy.py  # Range maker strategy backtester
+├── config/                              # Configuration management
+│   ├── templates/                       # Configuration templates
+│   └── [generated configs]              # Your customized configurations
+├── data/                                # Stores trade history, state files, generated addresses
+├── definitions/                         # Core functionality, data models, and API managers
+├── gui/                                 # Graphical user interface components
+│   ├── components/                      # Reusable GUI widgets
+│   ├── config_windows/                  # Strategy configuration windows
+│   ├── frames/                          # Main application frames
+│   ├── shutdown/                        # GUI shutdown coordination
+│   └── utils/                           # GUI utilities
+├── logs/                                # Application logs storage
+├── strategies/                          # Trading strategy implementations
+├── test_units/                          # Unit and integration tests
+├── main_gui.py                          # Main GUI launcher
+├── main_basic_seller.py                 # BasicSeller console launcher
+├── main_pingpong.py                     # PingPong console launcher
+├── pingpong_logparser.py                # PingPong log analysis utility
+├── proxy_ccxt.py                        # CCXT proxy and price fetcher
+├── cancelallorders.py                   # Utility script to cancel all open orders
+├── prepare_configs.py                   # Configuration preparation utility
+├── proxy_ccxt.py                        # CCXT proxy and price fetcher
+└── requirements.txt                     # Python dependencies
 ```
 
 ## 🤝 Contributing

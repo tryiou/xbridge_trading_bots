@@ -548,7 +548,7 @@ class ArbitrageStrategyTester:
         # --- Part 2: Verify that trading is paused ---
         with patch.object(self.strategy, '_check_arbitrage_leg') as mock_check_leg:
             pair_instance = MagicMock()
-            await self.strategy.thread_loop_async_action(pair_instance)
+            await self.strategy.process_pair_async(pair_instance)
             if mock_check_leg.called:
                 self.config_manager.general_log.error(
                     "[TEST FAILED] Bot continued to check for trades despite pause file.")

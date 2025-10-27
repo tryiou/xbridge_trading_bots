@@ -71,12 +71,14 @@ class AsyncUpdater:
             self.tk_widget.after_cancel(self._process_id)
             self._process_id = None
 
-        # It's a daemon thread, so no need to explicitly join in most GUI shutdown scenarios,
-        # but for completeness or if non-daemon, one might add:
+        # It's a daemon thread, but we try to clean up properly
         if self._updater_thread and self._updater_thread.is_alive():
             logger.debug(f"{self.name}: Waiting for fetcher thread to terminate.")
-            self._updater_thread.join(timeout=self.update_interval_sec * 2 + 1)  # Give it some time
-            logger.debug(f"{self.name}: Fetcher thread terminated.")
+            self._updater_thread.join(timeout=0.5)  # Safer synchronous timeout
+            if self._updater_thread.is_alive():
+                logger.warning(f"{self.name}: Thread didn't terminate cleanly")
+            else:
+                logger.debug(f"{self.name}: Fetcher thread terminated.")
 
     def _run_fetcher(self):
         """

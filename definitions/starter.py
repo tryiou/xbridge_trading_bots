@@ -94,6 +94,11 @@ class BalanceManager:
         Retrieves token UTXOs and calculates free/total balances.
         Handles errors through the application's error handler.
         """
+        strategy_instance = getattr(self.config_manager, 'strategy_instance', None)
+        if strategy_instance and hasattr(strategy_instance, 'dry_mode') and strategy_instance.dry_mode:
+            self.config_manager.general_log.debug("Skipping balance update in dry_mode.")
+            return
+
         if self._should_update_bals():
             try:
                 xb_tokens: List[str] = await self.config_manager.xbridge_manager.getlocaltokens()

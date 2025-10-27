@@ -8,6 +8,7 @@ config/config_xbridge.yaml
 config/config_thorchain.yaml
 config/config_arbitrage.yaml
 config/config_basic_seller.yaml
+config/config_thorchain_continuous.yaml
 data/
 logs/
 .history
@@ -15,6 +16,7 @@ logs/
 .aider*
 .env
 .venv
+venv/
 .aider.chat.history.md
 __pycache__
 *.pyc

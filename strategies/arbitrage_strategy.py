@@ -9,6 +9,8 @@ from typing import List, Dict, Any, Optional, Callable, Coroutine, TYPE_CHECKING
 import aiohttp
 
 from definitions.error_handler import OperationalError
+from definitions.thorchain_def import get_thorchain_quote, execute_thorchain_swap, check_thorchain_path_status, \
+    get_inbound_addresses, get_thorchain_tx_status
 from definitions.trade_state import TradeState
 from strategies.base_strategy import BaseStrategy
 
@@ -16,6 +18,8 @@ if TYPE_CHECKING:
     from definitions.config_manager import ConfigManager
     from definitions.pair import Pair
     from definitions.starter import MainController
+
+THORCHAIN_DECIMALS = 8
 
 
 class ArbitrageStrategy(BaseStrategy):
@@ -139,7 +143,7 @@ class ArbitrageStrategy(BaseStrategy):
     def should_update_cex_prices(self) -> bool:
         return False
 
-    async def thread_loop_async_action(self, pair_instance: 'Pair'):
+    async def process_pair_async(self, pair_instance: 'Pair'):
         """The core arbitrage logic. This is now an async method."""
         # --- PAUSE CHECK ---
         if os.path.exists(self.pause_file_path):
@@ -282,16 +286,16 @@ class ArbitrageStrategy(BaseStrategy):
         Evaluates a single arbitrage opportunity after the leg-specific parameters have been set.
         This helper centralizes quote fetching, profit calculation, and report generation.
         """
-        from definitions.thorchain_def import get_thorchain_quote
         log_prefix = check_id if self.test_mode else check_id[:8]
 
         try:
             thorchain_quote = await get_thorchain_quote(
                 from_asset=order_data['thorchain_from_asset'],
                 to_asset=order_data['thorchain_to_asset'],
-                amount=order_data['thorchain_swap_amount'],
+                base_amount=order_data['thorchain_swap_amount'],
                 session=self.http_session,
-                quote_url=self.thor_quote_url
+                quote_url=self.thor_quote_url,
+                logger=self.config_manager.general_log
             )
         except Exception as e:
             direction_desc = "Sell->Buy" if is_bid else "Buy->Sell"
@@ -318,8 +322,8 @@ class ArbitrageStrategy(BaseStrategy):
             return None
 
         # --- Calculation ---
-        gross_receive_amount = float(thorchain_quote['expected_amount_out']) / (10 ** 8)
-        outbound_fee = float(thorchain_quote.get('fees', {}).get('outbound', '0')) / (10 ** 8)
+        gross_receive_amount = float(thorchain_quote['expected_amount_out']) / (10 ** THORCHAIN_DECIMALS)
+        outbound_fee = float(thorchain_quote.get('fees', {}).get('outbound', '0')) / (10 ** THORCHAIN_DECIMALS)
 
         profit_data = self._calculate_profitability_and_fees(
             cost_amount=order_data['cost_amount'],
@@ -431,7 +435,6 @@ class ArbitrageStrategy(BaseStrategy):
                 f"[{log_prefix}] Found affordable XBridge {direction}: {order_amount:.8f} {pair_instance.t1.symbol} at {order_price:.8f}. Evaluating..."
             )
 
-            from definitions.thorchain_def import check_thorchain_path_status
             is_path_active, reason = await check_thorchain_path_status(
                 from_chain=order_data['thorchain_from_asset'].split('.')[0],
                 to_chain=order_data['thorchain_to_asset'].split('.')[0],
@@ -712,7 +715,6 @@ class ArbitrageStrategy(BaseStrategy):
         """
         if not self.thorchain_asset_decimals:
             self.config_manager.general_log.info("Thorchain asset decimal cache is empty. Populating...")
-            from definitions.thorchain_def import get_inbound_addresses
             inbound_addresses = await get_inbound_addresses(self.http_session, self.thor_api_url)
             if inbound_addresses:
                 for asset in inbound_addresses:
@@ -733,20 +735,21 @@ class ArbitrageStrategy(BaseStrategy):
         exec_data = state_data['execution_data']
         xb_trade_id = state_data['xbridge_trade_id']
 
-        from definitions.thorchain_def import get_thorchain_quote, execute_thorchain_swap
         log_prefix = check_id if self.test_mode else check_id[:8]
         try:
             thorchain_from_asset = f"{exec_data['thorchain_from_token']}.{exec_data['thorchain_from_token']}"
             thorchain_to_asset = f"{exec_data['thorchain_to_token']}.{exec_data['thorchain_to_token']}"
             new_quote = await get_thorchain_quote(
                 from_asset=thorchain_from_asset, to_asset=thorchain_to_asset,
-                amount=exec_data['thorchain_swap_amount'], session=self.http_session, quote_url=self.thor_quote_url
+                base_amount=exec_data['thorchain_swap_amount'], session=self.http_session,
+                quote_url=self.thor_quote_url,
+                logger=self.config_manager.general_log
             )
             if not (new_quote and new_quote.get('expected_amount_out')):
                 raise ValueError("Invalid new quote received during resumption.")
 
-            gross_received = float(new_quote['expected_amount_out']) / (10 ** 8)
-            outbound_fee = float(new_quote.get('fees', {}).get('outbound', '0')) / (10 ** 8)
+            gross_received = float(new_quote['expected_amount_out']) / (10 ** THORCHAIN_DECIMALS)
+            outbound_fee = float(new_quote.get('fees', {}).get('outbound', '0')) / (10 ** THORCHAIN_DECIMALS)
             net_received = gross_received - outbound_fee
             cost_amount = exec_data['xbridge_from_amount']
             xbridge_fee = exec_data.get('xbridge_fee', 0)
@@ -848,7 +851,6 @@ class ArbitrageStrategy(BaseStrategy):
 
     async def _monitor_thorchain_swap(self, txid: str, check_id: str) -> bool:
         """Monitors a Thorchain swap until it reaches a terminal state."""
-        from definitions.thorchain_def import get_thorchain_tx_status
         log_prefix = check_id if self.test_mode else check_id[:8]
         if self.test_mode:
             self.config_manager.general_log.info(
