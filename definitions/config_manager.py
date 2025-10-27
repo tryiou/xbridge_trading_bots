@@ -17,6 +17,7 @@ from strategies.base_strategy import BaseStrategy
 from strategies.basicseller_strategy import BasicSellerStrategy
 from strategies.pingpong_strategy import PingPongStrategy
 from strategies.range_maker_strategy import RangeMakerStrategy
+from strategies.thorchain_continuous_strategy import ThorChainContinuousStrategy
 
 
 class ConfigManager:
@@ -129,7 +130,8 @@ class ConfigManager:
             "config_basic_seller.yaml",
             "config_xbridge.yaml",
             "config_arbitrage.yaml",
-            "config_thorchain.yaml"
+            "config_thorchain.yaml",
+            "config_thorchain_continuous.yaml"
         ]
 
         for config_file in config_files:
@@ -240,6 +242,9 @@ class ConfigManager:
             self.config_arbitrage = self._load_and_update_config("config_arbitrage.yaml")
             self.config_thorchain = self._load_and_update_config("config_thorchain.yaml")
 
+        if self.strategy in ["thorchain_continuous", "gui"]:
+            self.config_thorchain_continuous = self._load_and_update_config("config_thorchain_continuous.yaml")
+
     def _init_ccxt(self):
         """Initialize CCXT instance with error handling"""
         try:
@@ -282,6 +287,7 @@ class ConfigManager:
                 "basic_seller": BasicSellerStrategy,
                 "arbitrage": ArbitrageStrategy,
                 "range_maker": RangeMakerStrategy,
+                "thorchain_continuous": ThorChainContinuousStrategy,
                 "gui": None,  # 'gui' strategy doesn't have a strategy instance
             }
             strategy_class = strategy_map.get(self.strategy)

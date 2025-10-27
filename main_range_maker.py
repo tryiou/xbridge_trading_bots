@@ -21,6 +21,7 @@ import argparse
 import asyncio
 import json
 import logging
+import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List
 
@@ -177,6 +178,16 @@ def start() -> None:
     """
     parser = _setup_argument_parser()
     args = parser.parse_args()
+
+    # Prevent running in live mode (still in testing)
+    if not args.backtest:
+        print("\n" + "=" * 60)
+        print("ERROR: Range Maker strategy is still in testing phase")
+        print("=" * 60)
+        print("The Range Maker strategy is not yet ready for production use.")
+        print("Please run with '--backtest' flag for testing purposes only.")
+        print("=" * 60 + "\n")
+        sys.exit(1)
 
     log_level = getattr(logging, args.log_level.upper())
     logger = setup_logging(name="main_range_maker", level=log_level, console=True)
