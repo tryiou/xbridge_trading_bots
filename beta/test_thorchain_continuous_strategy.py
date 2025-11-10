@@ -14,7 +14,7 @@ from strategies.thorchain_continuous_strategy import ThorChainContinuousStrategy
 from definitions.pair import Pair
 from definitions.token import Token
 from definitions.config_manager import ConfigManager  # For mocking
-from definitions.thorchain_def import get_thorchain_quote, check_thorchain_path_status, get_inbound_addresses
+from beta.thorchain_def import get_thorchain_quote, check_thorchain_path_status, get_inbound_addresses
 
 @pytest.fixture(scope="function")
 def config_manager():

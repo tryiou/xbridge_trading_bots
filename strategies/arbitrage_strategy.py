@@ -9,7 +9,7 @@ from typing import List, Dict, Any, Optional, Callable, Coroutine, TYPE_CHECKING
 import aiohttp
 
 from definitions.error_handler import OperationalError
-from definitions.thorchain_def import get_thorchain_quote, execute_thorchain_swap, check_thorchain_path_status, \
+from beta.thorchain_def import get_thorchain_quote, execute_thorchain_swap, check_thorchain_path_status, \
     get_inbound_addresses, get_thorchain_tx_status
 from definitions.trade_state import TradeState
 from strategies.base_strategy import BaseStrategy
