@@ -12,7 +12,7 @@ import yaml
 
 from definitions.error_handler import OperationalError
 from definitions.pair import Pair
-from definitions.thorchain_def import get_thorchain_quote, execute_thorchain_swap, check_thorchain_path_status, \
+from beta.thorchain_def import get_thorchain_quote, execute_thorchain_swap, check_thorchain_path_status, \
     get_actual_swap_received
 from definitions.token import Token
 from strategies.base_strategy import BaseStrategy
@@ -1037,7 +1037,7 @@ class ThorChainContinuousStrategy(BaseStrategy):
 
     async def _monitor_thorchain_swap(self, txid: str) -> str:
         """Monitor swap status with timeout."""
-        from definitions.thorchain_def import get_thorchain_tx_status
+        from beta.thorchain_def import get_thorchain_tx_status
 
         if self.dry_mode:
             self.config_manager.general_log.info(f"[DRY RUN] Simulated swap success for {txid}")
@@ -1063,7 +1063,7 @@ class ThorChainContinuousStrategy(BaseStrategy):
         """Fetch and cache decimals for chain from THORChain API."""
         if chain_symbol not in self.thorchain_asset_decimals:
             try:
-                from definitions.thorchain_def import _get_thorchain_decimals
+                from beta.thorchain_def import _get_thorchain_decimals
                 self.thorchain_asset_decimals[chain_symbol] = await _get_thorchain_decimals(chain_symbol,
                                                                                             self.http_session,
                                                                                             self.thor_api_url)

@@ -12,7 +12,7 @@ from ttkbootstrap import Style
 from definitions.config_manager import ConfigManager
 from gui.components.data_panels import BalancesPanel
 from gui.components.logging_components import LogFrame
-from gui.frames.strategy_frames import ArbitrageFrame, BasicSellerFrame, PingPongFrame
+from gui.frames.strategy_frames import BasicSellerFrame, PingPongFrame #, ArbitrageFrame
 from gui.shutdown.gui_shutdown_coordinator import GUIShutdownCoordinator
 from gui.utils.logging_setup import setup_console_logging, setup_gui_logging
 
@@ -178,7 +178,7 @@ class MainApplication:
         self.strategy_frames = {
             'PingPong': PingPongFrame(self.notebook, self, self.master_config_manager),
             'Basic Seller': BasicSellerFrame(self.notebook, self, self.master_config_manager),
-            'Arbitrage': ArbitrageFrame(self.notebook, self, self.master_config_manager),
+            # 'Arbitrage': ArbitrageFrame(self.notebook, self, self.master_config_manager),
         }
         for text, frame in self.strategy_frames.items():
             logger.debug(f"Initializing {text} strategy frame")
