@@ -1,10 +1,16 @@
+from __future__ import annotations
+
 import math
 import time
+from typing import TYPE_CHECKING, Optional, Dict, Any, Union
 
 import yaml
 
 from definitions.errors import OperationalError
-from definitions.token import Token
+
+if TYPE_CHECKING:
+    from definitions.token import Token
+    from definitions.config_manager import ConfigManager
 
 
 class Pair:
@@ -30,9 +36,19 @@ class Pair:
         cex: CexPair instance for CEX operations
     """
 
-    def __init__(self, token1: Token, token2: Token, config_manager, cfg: dict, amount_token_to_sell: float = None,
-                 min_sell_price_usd: float = None, sell_price_offset: float = None, strategy: str = None,
-                 dex_enabled: bool = True, partial_percent: float = None):
+    def __init__(
+        self,
+        token1: Token,
+        token2: Token,
+        config_manager: Optional[ConfigManager],
+        cfg: Dict[str, Any],
+        amount_token_to_sell: Optional[float] = None,
+        min_sell_price_usd: Optional[float] = None,
+        sell_price_offset: Optional[float] = None,
+        strategy: Optional[str] = None,
+        dex_enabled: bool = True,
+        partial_percent: Optional[float] = None
+    ) -> None:
         self.cfg = cfg
         self.name = cfg['name']
         self.strategy = strategy  # e.g.,  pingpong, basic_seller
@@ -40,7 +56,7 @@ class Pair:
         self.t2 = token2
         self.symbol = f'{self.t1.symbol}/{self.t2.symbol}'
         self.disabled = False
-        self.variation = None
+        self.variation: Optional[Union[float, list]] = None
         self.dex_enabled = dex_enabled
         self.amount_token_to_sell = amount_token_to_sell
         self.min_sell_price_usd = min_sell_price_usd
@@ -90,19 +106,19 @@ class DexPair:
 
     PRICE_VARIATION_TOLERANCE_DEFAULT = 0.01
 
-    def __init__(self, pair: Pair, partial_percent: float):
+    def __init__(self, pair: Pair, partial_percent: Optional[float]) -> None:
         self.pair = pair
         self.t1 = pair.t1
         self.t2 = pair.t2
         self.symbol = pair.symbol
-        self.order_history = None
-        self.current_order = None  # Virtual order
+        self.order_history: Optional[Dict[str, Any]] = None
+        self.current_order: Optional[Dict[str, Any]] = None  # Virtual order
         self.disabled = False
-        self.variation = None
+        self.variation: Optional[Union[float, list]] = None
         self.partial_percent = partial_percent
-        self.orderbook = None
-        self.orderbook_timer = None
-        self.order = None
+        self.orderbook: Optional[Dict[str, Any]] = None
+        self.orderbook_timer: Optional[float] = None
+        self.order: Optional[Dict[str, Any]] = None
         self.read_last_order_history()
 
     async def update_dex_orderbook(self):
@@ -615,14 +631,14 @@ class DexPair:
 
 
 class CexPair:
-    def __init__(self, pair):
+    def __init__(self, pair: Pair) -> None:
         self.pair = pair
         self.t1 = pair.t1
         self.t2 = pair.t2
         self.symbol = pair.symbol
-        self.price = None
-        self.cex_orderbook = None
-        self.cex_orderbook_timer = None
+        self.price: Optional[float] = None
+        self.cex_orderbook: Optional[Dict[str, Any]] = None
+        self.cex_orderbook_timer: Optional[float] = None
 
     async def update_pricing(self, display=False):
         await self._update_token_prices()

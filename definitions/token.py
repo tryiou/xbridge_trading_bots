@@ -1,10 +1,17 @@
+from __future__ import annotations
+
 import time
+from typing import TYPE_CHECKING, Optional, Any, Dict
 
 import aiohttp
 import yaml
 
 from definitions.errors import OperationalError
 from definitions.rpc import rpc_call
+
+if TYPE_CHECKING:
+    # Only import during type checking to avoid circular imports
+    from definitions.config_manager import ConfigManager
 
 
 class Token:
@@ -21,7 +28,13 @@ class Token:
         cex: CexToken instance for CEX operations
     """
 
-    def __init__(self, symbol: str, strategy, dex_enabled: bool = True, config_manager=None):
+    def __init__(
+        self,
+        symbol: str,
+        strategy: Any,
+        dex_enabled: bool = True,
+        config_manager: Optional[ConfigManager] = None
+    ) -> None:
         self.symbol = symbol
         self.strategy = strategy
         self.config_manager = config_manager
@@ -69,12 +82,12 @@ class DexToken:
         free_balance: Available token balance in DEX wallet
     """
 
-    def __init__(self, parent_token: Token, dex_enabled: bool = True):
+    def __init__(self, parent_token: Token, dex_enabled: bool = True) -> None:
         self.token = parent_token
         self.enabled = dex_enabled
-        self.address = None
-        self.total_balance = None
-        self.free_balance = None
+        self.address: Optional[str] = None
+        self.total_balance: Optional[float] = None
+        self.free_balance: Optional[float] = None
         # self.read_address() must be called asynchronously after object creation.
 
     def _get_address_file_path(self) -> str:
@@ -83,6 +96,8 @@ class DexToken:
         Returns:
             File path string
         """
+        if self.token.config_manager is None:
+            raise ValueError("Config manager not available")
         return self.token.config_manager.strategy_instance.get_dex_token_address_file_path(self.token.symbol)
 
     async def read_address(self) -> None:
@@ -154,13 +169,13 @@ class CexToken:
         cex_free_balance: Available token balance on CEX
     """
 
-    def __init__(self, parent_token: Token):
+    def __init__(self, parent_token: Token) -> None:
         self.token = parent_token
-        self.cex_price = None
-        self.usd_price = None
-        self.cex_price_timer = None
-        self.cex_total_balance = None
-        self.cex_free_balance = None
+        self.cex_price: Optional[float] = None
+        self.usd_price: Optional[float] = None
+        self.cex_price_timer: Optional[float] = None
+        self.cex_total_balance: Optional[float] = None
+        self.cex_free_balance: Optional[float] = None
 
     async def update_price(self, display: bool = False) -> None:
         """Fetch and update token prices from CEX with rate limiting.
@@ -211,10 +226,11 @@ class CexToken:
 
         btc_price = self.token.config_manager.tokens['BTC'].cex.usd_price
         if btc_price is None or btc_price == 0:
-            await self.token.config_manager.error_handler.handle_async(
-                OperationalError(f"BTC price unavailable for {self.token.symbol} price calculation"),
-                context={"token": self.token.symbol}
-            )
+            if self.token.config_manager:
+                await self.token.config_manager.error_handler.handle_async(
+                    OperationalError(f"BTC price unavailable for {self.token.symbol} price calculation"),
+                    context={"token": self.token.symbol}
+                )
             self.usd_price = None
             self.cex_price = None
             return
