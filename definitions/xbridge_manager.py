@@ -72,21 +72,21 @@ class XBridgeManager:
         else:
             self.logger.info(f'Blocknet RPC port {self.blocknet_port_rpc} is open.')
 
-        if getattr(self.config_manager, 'strategy', None) == "arbitrage":
-            with XBridgeManager._xbridge_conf_lock:
-                if XBridgeManager._xbridge_conf_cache is None:
-                    self.logger.info("Parsing xbridge.conf and calculating fees for the first time.")
-                    # Load and parse the xbridge.conf file
-                    self.parse_xbridge_conf()
-                    # Calculate fee estimates
-                    self.calculate_xbridge_fees()
-                    # Cache the results
-                    XBridgeManager._xbridge_conf_cache = self.xbridge_conf
-                    XBridgeManager._xbridge_fees_cache = self.xbridge_fees_estimate
-                else:
-                    self.logger.info("Using cached xbridge.conf and fee estimates.")
-                    self.xbridge_conf = XBridgeManager._xbridge_conf_cache
-                    self.xbridge_fees_estimate = XBridgeManager._xbridge_fees_cache
+        # if getattr(self.config_manager, 'strategy', None) == "arbitrage":
+        #     with XBridgeManager._xbridge_conf_lock:
+        #         if XBridgeManager._xbridge_conf_cache is None:
+        #             self.logger.info("Parsing xbridge.conf and calculating fees for the first time.")
+        #             # Load and parse the xbridge.conf file
+        #             self.parse_xbridge_conf()
+        #             # Calculate fee estimates
+        #             self.calculate_xbridge_fees()
+        #             # Cache the results
+        #             XBridgeManager._xbridge_conf_cache = self.xbridge_conf
+        #             XBridgeManager._xbridge_fees_cache = self.xbridge_fees_estimate
+        #         else:
+        #             self.logger.info("Using cached xbridge.conf and fee estimates.")
+        #             self.xbridge_conf = XBridgeManager._xbridge_conf_cache
+        #             self.xbridge_fees_estimate = XBridgeManager._xbridge_fees_cache
 
         # Only run test if port is actually open and we're not in main thread
         if (threading.current_thread() is not threading.main_thread() and is_port_open("127.0.0.1",

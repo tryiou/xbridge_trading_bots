@@ -11,10 +11,10 @@ import pytest
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from definitions.trade_state import TradeState
+from beta.trade_state import TradeState
 
 if TYPE_CHECKING:
-    from strategies.arbitrage_strategy import ArbitrageStrategy
+    from beta.arbitrage_strategy import ArbitrageStrategy
 
 from contextlib import contextmanager
 
@@ -23,7 +23,7 @@ from contextlib import contextmanager
 @pytest.fixture
 def mock_strategy():
     """Create a mock ArbitrageStrategy instance for testing."""
-    from strategies.arbitrage_strategy import ArbitrageStrategy
+    from beta.arbitrage_strategy import ArbitrageStrategy
     mock_config_manager = MagicMock()
     mock_config_manager.pairs = {}
     mock_config_manager.general_log = MagicMock()

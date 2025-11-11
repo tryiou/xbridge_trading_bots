@@ -10,7 +10,7 @@ from decimal import Decimal
 # Fix import path: Add project root to sys.path for 'strategies' module
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from strategies.thorchain_continuous_strategy import ThorChainContinuousStrategy, TradeDirection, TradeMetrics, ContinuousTradeState, execute_thorchain_swap, get_actual_swap_received
+from beta.thorchain_continuous_strategy import ThorChainContinuousStrategy, TradeDirection, TradeMetrics, ContinuousTradeState, execute_thorchain_swap, get_actual_swap_received
 from definitions.pair import Pair
 from definitions.token import Token
 from definitions.config_manager import ConfigManager  # For mocking

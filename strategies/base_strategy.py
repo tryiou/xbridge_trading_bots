@@ -55,10 +55,9 @@ class BaseStrategy(ABC):
             )
         for token_symbol in list(set(tokens_list)):
             if token_symbol not in self.config_manager.tokens:
-                dex_enabled = self.config_manager.strategy == 'arbitrage' or token_symbol != 'BTC'
                 self.config_manager.tokens[token_symbol] = Token(
                     token_symbol, strategy=self.config_manager.strategy, config_manager=self.config_manager,
-                    dex_enabled=dex_enabled
+                    dex_enabled=True
                 )
 
         # Initialize pairs

@@ -9,7 +9,7 @@ import pytest
 # Add parent directory to path for module imports
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from definitions.trade_state import TradeState
+from beta.trade_state import TradeState
 
 
 # Mock strategy and config_manager for tests

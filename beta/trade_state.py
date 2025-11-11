@@ -5,7 +5,7 @@ import time
 from typing import List, Dict, Any, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from strategies.arbitrage_strategy import ArbitrageStrategy
+    from beta.arbitrage_strategy import ArbitrageStrategy
 
 
 class TradeState:

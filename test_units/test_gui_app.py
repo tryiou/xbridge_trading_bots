@@ -77,7 +77,7 @@ def gui_app(tk_root):
             send_process=None
         ),
         'Basic Seller': MagicMock(),
-        'Arbitrage': MagicMock()
+        # 'Arbitrage': MagicMock()
     }
 
     # Mock config manager
@@ -124,14 +124,15 @@ def test_gui_initialization(gui_app, tk_root):
     app.notebook = MagicMock()  # Add missing notebook mock
 
     # Simulate tab texts directly in the tab_texts list
-    tab_texts = ['PingPong', 'Basic Seller', 'Arbitrage', 'Logs']
+    tab_texts = ['PingPong', 'Basic Seller',  'Logs']
+     #'Arbitrage',
 
     assert app.root.title() == "XBridge Trading Bots", "Window title is incorrect"
 
     # Verify tabs exist
     assert 'PingPong' in tab_texts, "PingPong tab is missing"
     assert 'Basic Seller' in tab_texts, "Basic Seller tab is missing"
-    assert 'Arbitrage' in tab_texts, "Arbitrage tab is missing"
+    # assert 'Arbitrage' in tab_texts, "Arbitrage tab is missing"
     assert 'Logs' in tab_texts, "Logs tab is missing"
 
 
@@ -422,7 +423,7 @@ def test_balance_updater_aggregation(gui_app):
                 dex_free_balance=80.0
             )
         },
-        'Arbitrage': {}  # Explicitly mock as empty
+        # 'Arbitrage': {}  # Explicitly mock as empty
     }
 
     # Clear all token data before test
@@ -519,14 +520,14 @@ def test_balance_updater_prioritizes_positive_balances(gui_app):
                 dex_total_balance=0.5,
                 dex_free_balance=0.3
             )
-        },
-        'Arbitrage': {
-            'BTC': MagicMock(
-                cex_usd_price=45000.0,
-                dex_total_balance=2.0,
-                dex_free_balance=1.5
-            )
         }
+        # 'Arbitrage': {
+        #     'BTC': MagicMock(
+        #         cex_usd_price=45000.0,
+        #         dex_total_balance=2.0,
+        #         dex_free_balance=1.5
+        #     )
+        # }
     }
 
     # Patch tokens in strategy frames
@@ -539,8 +540,8 @@ def test_balance_updater_prioritizes_positive_balances(gui_app):
 
     # Verify BTC balance prioritizes highest values
     btc_data = next(item for item in data if item['symbol'] == 'BTC')
-    assert btc_data['total'] == 2.0, "Total balance not prioritized correctly"
-    assert btc_data['free'] == 1.5, "Free balance not prioritized correctly"
+    assert btc_data['total'] == 1.5, "Total balance not prioritized correctly"
+    assert btc_data['free'] == 1.0, "Free balance not prioritized correctly"
 
 
 def test_balance_updater_graceful_shutdown(gui_app):
@@ -947,7 +948,7 @@ def test_balance_aggregation_edge_cases(gui_app):
 
     # Assign to multiple strategies
     app.strategy_frames['PingPong'].config_manager.tokens = tokens
-    app.strategy_frames['Arbitrage'].config_manager.tokens = tokens
+    # app.strategy_frames['Arbitrage'].config_manager.tokens = tokens
 
     # Run balance aggregation
     balances = {item['symbol']: item for item in app.get_aggregated_balances_data()}

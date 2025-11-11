@@ -12,12 +12,12 @@ from definitions.errors import ConfigurationError
 from definitions.logger import setup_logger, setup_logging
 from definitions.xbridge_manager import XBridgeManager
 from definitions.yaml_mix import YamlToObject
-from strategies.arbitrage_strategy import ArbitrageStrategy
 from strategies.base_strategy import BaseStrategy
 from strategies.basicseller_strategy import BasicSellerStrategy
 from strategies.pingpong_strategy import PingPongStrategy
-from strategies.range_maker_strategy import RangeMakerStrategy
-from strategies.thorchain_continuous_strategy import ThorChainContinuousStrategy
+# from strategies.range_maker_strategy import RangeMakerStrategy
+# from strategies.thorchain_continuous_strategy import ThorChainContinuousStrategy
+# from strategies.arbitrage_strategy import ArbitrageStrategy
 
 
 class ConfigManager:
@@ -59,8 +59,8 @@ class ConfigManager:
         self.config_pingpong = None
         self.config_basicseller = None
         self.config_xbridge = None
-        self.config_arbitrage = None
-        self.config_thorchain = None
+        # self.config_arbitrage = None
+        # self.config_thorchain = None
 
         # Mark role for resource management
         self.is_master = not master_manager
@@ -76,8 +76,8 @@ class ConfigManager:
             self.config_pingpong = master_manager.config_pingpong
             self.config_basicseller = master_manager.config_basicseller
             self.config_xbridge = master_manager.config_xbridge
-            self.config_arbitrage = master_manager.config_arbitrage
-            self.config_thorchain = master_manager.config_thorchain
+            # self.config_arbitrage = master_manager.config_arbitrage
+            # self.config_thorchain = master_manager.config_thorchain
 
             # Create new manager instances. They will be initialized with this
             # slave ConfigManager instance, giving them the correct logger.
@@ -129,9 +129,9 @@ class ConfigManager:
             "config_pingpong.yaml",
             "config_basic_seller.yaml",
             "config_xbridge.yaml",
-            "config_arbitrage.yaml",
-            "config_thorchain.yaml",
-            "config_thorchain_continuous.yaml"
+            # "config_arbitrage.yaml",
+            # "config_thorchain.yaml",
+            # "config_thorchain_continuous.yaml"
         ]
 
         for config_file in config_files:
@@ -238,12 +238,12 @@ class ConfigManager:
             self.config_pingpong = self._load_and_update_config("config_pingpong.yaml")
         if self.strategy in ["basic_seller", "gui"]:
             self.config_basicseller = self._load_and_update_config("config_basic_seller.yaml")
-        if self.strategy in ["arbitrage", "gui"]:
-            self.config_arbitrage = self._load_and_update_config("config_arbitrage.yaml")
-            self.config_thorchain = self._load_and_update_config("config_thorchain.yaml")
+        # if self.strategy in ["arbitrage", "gui"]:
+        #     self.config_arbitrage = self._load_and_update_config("config_arbitrage.yaml")
+        #     self.config_thorchain = self._load_and_update_config("config_thorchain.yaml")
 
-        if self.strategy in ["thorchain_continuous", "gui"]:
-            self.config_thorchain_continuous = self._load_and_update_config("config_thorchain_continuous.yaml")
+        # if self.strategy in ["thorchain_continuous", "gui"]:
+        #     self.config_thorchain_continuous = self._load_and_update_config("config_thorchain_continuous.yaml")
 
     def _init_ccxt(self):
         """Initialize CCXT instance with error handling"""
@@ -285,9 +285,9 @@ class ConfigManager:
             strategy_map = {
                 "pingpong": PingPongStrategy,
                 "basic_seller": BasicSellerStrategy,
-                "arbitrage": ArbitrageStrategy,
-                "range_maker": RangeMakerStrategy,
-                "thorchain_continuous": ThorChainContinuousStrategy,
+                # "arbitrage": ArbitrageStrategy,
+                # "range_maker": RangeMakerStrategy,
+                # "thorchain_continuous": ThorChainContinuousStrategy,
                 "gui": None,  # 'gui' strategy doesn't have a strategy instance
             }
             strategy_class = strategy_map.get(self.strategy)

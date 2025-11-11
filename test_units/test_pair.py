@@ -672,7 +672,8 @@ def test_dex_handle_order_status_error(dex_pair):
     assert dex_pair.order is None
 
 
-@pytest.mark.parametrize("strategy", ['pingpong', 'basic_seller', 'arbitrage'])
+@pytest.mark.parametrize("strategy", ['pingpong', 'basic_seller'])
+#, 'arbitrage'])
 def test_dex_handle_order_status_error_with_strategies(mock_pair, strategy):
     """Tests order clearing behavior for different strategies."""
     # Arrange

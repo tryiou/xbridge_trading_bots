@@ -11,7 +11,7 @@ import aiohttp
 from definitions.error_handler import OperationalError
 from beta.thorchain_def import get_thorchain_quote, execute_thorchain_swap, check_thorchain_path_status, \
     get_inbound_addresses, get_thorchain_tx_status
-from definitions.trade_state import TradeState
+from beta.trade_state import TradeState
 from strategies.base_strategy import BaseStrategy
 
 if TYPE_CHECKING:
