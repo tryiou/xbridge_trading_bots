@@ -35,11 +35,11 @@ def mock_config_manager():
 
     # Create more structured token mocks
     t1_mock = MagicMock(symbol='T1')
-    t1_mock.dex = create_autospec(DexToken, instance=True, total_balance=None, free_balance=None)
+    t1_mock.dex = MagicMock(total_balance=None, free_balance=None)
     t1_mock.dex.enabled = True
     t1_mock.dex.read_address = AsyncMock()
     t2_mock = MagicMock(symbol='T2')
-    t2_mock.dex = create_autospec(DexToken, instance=True, total_balance=None, free_balance=None)
+    t2_mock.dex = MagicMock(total_balance=None, free_balance=None)
     t2_mock.dex.enabled = True
     t2_mock.dex.read_address = AsyncMock()
 
@@ -55,12 +55,15 @@ def mock_config_manager():
     cm.tokens = {'T1': t1_mock, 'T2': t2_mock}
     cm.config_xbridge.max_concurrent_tasks = 2
     cm.strategy_instance = MagicMock()
+    cm.strategy_instance.dry_mode = False  # Set to False to allow updates
     cm.strategy_instance.should_update_cex_prices.return_value = True
     cm.error_handler = MagicMock()
     cm.general_log = MagicMock()
     cm.xbridge_manager = AsyncMock()
     cm.ccxt_manager = AsyncMock()
-    cm.resource_lock = threading.RLock()  # Mock lock for async context
+    cm.resource_lock = MagicMock()
+    cm.resource_lock.__enter__ = MagicMock(return_value=None)
+    cm.resource_lock.__exit__ = MagicMock(return_value=None)
     cm.controller = None
     return cm
 
@@ -80,12 +83,14 @@ def mock_main_controller(mock_config_manager, event_loop):
 @pytest.mark.asyncio
 async def test_balance_manager_update(mock_config_manager):
     """Tests BalanceManager balance update logic."""
-    mock_config_manager.xbridge_manager.getlocaltokens.return_value = {'T1': {}}
+    mock_config_manager.xbridge_manager.getlocaltokens.return_value = ['T1', 'T2']
     mock_config_manager.xbridge_manager.gettokenutxo.return_value = [
         {'amount': '10.0', 'orderid': ''},
         {'amount': '5.0', 'orderid': 'some_id'}
     ]
     balance_manager = BalanceManager(mock_config_manager.tokens, mock_config_manager, asyncio.get_event_loop())
+    # Force timer to be None so update proceeds
+    balance_manager.timer_main_dx_update_bals = None
 
     await balance_manager.update_balances()
 
@@ -245,6 +250,9 @@ async def test_balance_manager_token_not_in_xb_tokens(mock_config_manager):
     balance_manager = BalanceManager(
         {'ETH': token}, mock_config_manager, asyncio.get_event_loop()
     )
+    # Force timer to be None so update proceeds
+    balance_manager.timer_main_dx_update_bals = None
+    
     await balance_manager.update_balances()
 
     assert token.dex.total_balance is None
