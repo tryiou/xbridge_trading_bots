@@ -6,6 +6,7 @@ import threading
 import time
 import uuid
 import weakref
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from definitions.detect_rpc import detect_rpc
 from definitions.errors import RPCConfigError
@@ -14,32 +15,39 @@ from definitions.rpc import rpc_call, is_port_open, AsyncThreadingSemaphore
 
 
 class XBridgeManager:
-    _loops = weakref.WeakSet()
+    _loops: weakref.WeakSet = weakref.WeakSet()
     # Class-level attributes for global state, ensuring they are shared across all instances.
-    _active_rpc_counter = 0
+    _active_rpc_counter: int = 0
     _rpc_counter_lock = threading.Lock()
-    _rpc_semaphore = None
+    _rpc_semaphore: Optional[AsyncThreadingSemaphore] = None
     # Class-level UTXO cache and lock for thread-safe access
-    _utxo_cache = {}
+    _utxo_cache: Dict[str, Tuple[float, Any]] = {}
     _utxo_cache_lock = threading.Lock()
-    UTXO_CACHE_DURATION = 3.0  # Cache expiration time in seconds
+    UTXO_CACHE_DURATION: float = 3.0  # Cache expiration time in seconds
     # Class-level cache for RPC config to avoid re-detecting on each instantiation
-    _rpc_config = None
+    _rpc_config: Optional[Tuple[str, int, str, str]] = None
     _rpc_config_lock = threading.Lock()
     # Class-level cache for xbridge.conf parsing and fee estimates
-    _xbridge_conf_cache = None
-    _xbridge_fees_cache = {}
+    _xbridge_conf_cache: Optional[Dict[str, Dict[str, Any]]] = None
+    _xbridge_fees_cache: Dict[str, Optional[Dict[str, Any]]] = {}
     _xbridge_conf_lock = threading.Lock()
 
     @property
-    def active_rpc_counter(self):
+    def active_rpc_counter(self) -> int:
         """Provides read-only access to the shared RPC counter."""
         return XBridgeManager._active_rpc_counter
 
-    def __init__(self, config_manager):
-        self.config_manager = config_manager
+    def __init__(self, config_manager: Any) -> None:
+        self.config_manager: Any = config_manager
         strategy = self.config_manager.strategy if hasattr(config_manager, 'strategy') else 'no_strat'
-        self.logger = setup_logging(name=f"{strategy}.xbridge_manager", level=logging.DEBUG, console=True)
+        self.logger: logging.Logger = setup_logging(name=f"{strategy}.xbridge_manager", level=logging.DEBUG, console=True)
+        self.blocknet_user_rpc: str
+        self.blocknet_port_rpc: int
+        self.blocknet_password_rpc: str
+        self.blocknet_datadir_path: str
+        self.xbridge_conf: Optional[Dict[str, Dict[str, Any]]] = None
+        self.xbridge_fees_estimate: Dict[str, Optional[Dict[str, Any]]] = {}
+        
         try:
             # Singleton pattern for RPC detection
             if XBridgeManager._rpc_config is None:
@@ -53,8 +61,6 @@ class XBridgeManager:
         except RPCConfigError as e:
             self.logger.critical(f"Failed to initialize RPC: {str(e)}")
             raise
-        self.xbridge_conf = None
-        self.xbridge_fees_estimate = {}
 
         # Initialize shared semaphore only once
         if XBridgeManager._rpc_semaphore is None:
@@ -93,7 +99,8 @@ class XBridgeManager:
                                                                                        self.blocknet_port_rpc)):
             asyncio.run(self.async_test_rpc())
 
-    async def rpc_wrapper(self, method, params=None, shutdown_event=None, use_shutdown_event=True):
+    async def rpc_wrapper(self, method: str, params: Optional[List[Any]] = None,
+                         shutdown_event: Optional[asyncio.Event] = None, use_shutdown_event: bool = True) -> Any:
         """Execute RPC call with context tracking and optional shutdown event"""
         final_shutdown_event = shutdown_event
         if use_shutdown_event and shutdown_event is None:
@@ -137,7 +144,7 @@ class XBridgeManager:
                 with XBridgeManager._rpc_counter_lock:
                     XBridgeManager._active_rpc_counter -= 1
 
-    async def async_test_rpc(self):
+    async def async_test_rpc(self) -> bool:
         """Perform RPC connection test asynchronously with cancellation handling"""
         try:
             result = await self.rpc_wrapper("getwalletinfo")
@@ -152,7 +159,7 @@ class XBridgeManager:
             self.logger.error(f'XBridge RPC connection failed: {e}')
             return False
 
-    def parse_xbridge_conf(self):
+    def parse_xbridge_conf(self) -> None:
         """Parse the xbridge.conf file and store the configuration in self.xbridge_conf."""
         if not self.blocknet_datadir_path:
             self.logger.error("No Blocknet datadir path found, cannot parse xbridge.conf")
@@ -168,7 +175,7 @@ class XBridgeManager:
             config.read(conf_path)
             self.xbridge_conf = {}
 
-            # Get all supported coins (sections after [Main])                                                                                                                                   
+            # Get all supported coins (sections after [Main])
             for section in config.sections():
                 if section == 'Main':
                     continue
@@ -180,15 +187,15 @@ class XBridgeManager:
                 coin = section
                 self.xbridge_conf[coin] = {}
 
-                # Get all key-value pairs in the section                                                                                                                                        
+                # Get all key-value pairs in the section
                 for key, value in config.items(section):
-                    # Convert numeric values to appropriate types    
+                    # Convert numeric values to appropriate types
                     # self.logger.info(f"key: {key}, value: {value}")
                     if key in ['coin', 'minimumamount', 'dustamount', 'txversion', 'blocktime', 'feeperbyte',
                                'mintxfee', 'confirmations', 'addressprefix', 'scriptprefix', 'secretprefix']:
                         self.xbridge_conf[coin][key] = int(value)
                     elif key in ['getnewkeysupported', 'importwithnoscansupported', 'lockcoinssupported',
-                                 'txwithtimefield']:
+                                  'txwithtimefield']:
                         self.xbridge_conf[coin][key] = bool(value)
                     else:
                         self.xbridge_conf[coin][key] = value
@@ -199,7 +206,7 @@ class XBridgeManager:
             self.logger.error(f"Error parsing xbridge.conf: {str(e)}")
             self.xbridge_conf = None
 
-    def calculate_xbridge_fees(self):
+    def calculate_xbridge_fees(self) -> None:
         """Calculate and store estimated XBridge transaction fees for each coin."""
         if not self.xbridge_conf:
             self.logger.error("Cannot calculate fees: xbridge.conf not loaded")
@@ -242,17 +249,17 @@ class XBridgeManager:
         self.logger.info(f"XBridge fee estimates calculated for {len(self.xbridge_fees_estimate)} coins")
         # self.logger.info(f"XBridge fee estimates: {self.xbridge_fees_estimate}")
 
-    async def getnewtokenadress(self, token):
+    async def getnewtokenadress(self, token: str) -> Any:
         return await self.rpc_wrapper("dxGetNewTokenAddress", [token])
 
-    async def getmyordersbymarket(self, maker, taker):
+    async def getmyordersbymarket(self, maker: str, taker: str) -> List[Dict[str, Any]]:
         myorders = await self.rpc_wrapper("dxGetMyOrders")
         return [zz for zz in myorders if (zz['maker'] == maker) and (zz['taker'] == taker)]
 
-    async def cancelorder(self, order_id, use_shutdown_event=True):
+    async def cancelorder(self, order_id: str, use_shutdown_event: bool = True) -> Any:
         return await self.rpc_wrapper("dxCancelOrder", [order_id], use_shutdown_event=use_shutdown_event)
 
-    async def cancelallorders(self, use_shutdown_event=True):
+    async def cancelallorders(self, use_shutdown_event: bool = True) -> List[str]:
         myorders = await self.rpc_wrapper("dxGetMyOrders", use_shutdown_event=use_shutdown_event)
         successful = []
         failed = []
@@ -286,16 +293,16 @@ class XBridgeManager:
 
         return successful
 
-    async def dxloadxbridgeconf(self):
+    async def dxloadxbridgeconf(self) -> None:
         await self.rpc_wrapper("dxloadxbridgeconf")
 
-    async def dxflushcancelledorders(self):
+    async def dxflushcancelledorders(self) -> Any:
         return await self.rpc_wrapper("dxflushcancelledorders")
 
-    async def gettokenbalances(self):
+    async def gettokenbalances(self) -> Any:
         return await self.rpc_wrapper("dxgettokenbalances")
 
-    async def gettokenutxo(self, token, used=False):
+    async def gettokenutxo(self, token: str, used: bool = False) -> Any:
         cache_key = f"{token}_{used}"
         current_time = time.time()
 
@@ -314,10 +321,11 @@ class XBridgeManager:
             # self.logger.debug(f"Cached new class-level UTXO data for {token} (used={used})")
         return result
 
-    async def getlocaltokens(self):
+    async def getlocaltokens(self) -> Any:
         return await self.rpc_wrapper("dxgetlocaltokens")
 
-    async def makeorder(self, maker, makeramount, makeraddress, taker, takeramount, takeraddress, dryrun=None):
+    async def makeorder(self, maker: str, makeramount: float, makeraddress: str,
+                       taker: str, takeramount: float, takeraddress: str, dryrun: Optional[bool] = None) -> Any:
         if dryrun:
             result = await self.rpc_wrapper("dxMakeOrder",
                                             [maker, makeramount, makeraddress, taker, takeramount, takeraddress,
@@ -328,8 +336,9 @@ class XBridgeManager:
                                              'exact'])
         return result
 
-    async def makepartialorder(self, maker, makeramount, makeraddress, taker, takeramount, takeraddress, min_size,
-                               repost=False, dryrun=None):
+    async def makepartialorder(self, maker: str, makeramount: float, makeraddress: str,
+                              taker: str, takeramount: float, takeraddress: str, min_size: float,
+                              repost: bool = False, dryrun: Optional[bool] = None) -> Any:
         if dryrun:
             result = await self.rpc_wrapper("dxMakePartialOrder",
                                             [maker, makeramount, makeraddress, taker, takeramount, takeraddress,
@@ -340,13 +349,13 @@ class XBridgeManager:
                                              min_size, repost])
         return result
 
-    async def getorderstatus(self, oid):
+    async def getorderstatus(self, oid: str) -> Any:
         return await self.rpc_wrapper("dxGetOrder", [oid])
 
-    async def dxgetorderbook(self, detail, maker, taker):
+    async def dxgetorderbook(self, detail: int, maker: str, taker: str) -> Any:
         return await self.rpc_wrapper("dxgetorderbook", [detail, maker, taker])
 
-    async def take_order(self, order_id: str, from_address: str, to_address: str, test_mode: bool = False):
+    async def take_order(self, order_id: str, from_address: str, to_address: str, test_mode: bool = False) -> Optional[Dict[str, str]]:
         """Takes an XBridge order using dxTakeOrder."""
         self.logger.info(f"Attempting to take XBridge order {order_id} from {from_address} to {to_address}")
 

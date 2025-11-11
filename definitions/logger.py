@@ -1,5 +1,6 @@
 import logging
 import os
+from typing import Optional, Tuple, Union
 
 from .bcolors import bcolors
 
@@ -8,7 +9,7 @@ formatter = logging.Formatter('[%(asctime)s] [%(name)-20s] %(levelname)-8s - %(m
 _GUI_MODE_ACTIVE = False
 
 
-def set_gui_mode(active=True):
+def set_gui_mode(active: bool = True) -> None:
     """Sets a global flag to indicate if the application is running in GUI mode."""
     global _GUI_MODE_ACTIVE
     _GUI_MODE_ACTIVE = active
@@ -17,7 +18,7 @@ def set_gui_mode(active=True):
 class ColoredFormatter(logging.Formatter):
     """A custom formatter to add colors to log levels for console output."""
 
-    def format(self, record):
+    def format(self, record: logging.LogRecord) -> str:
         # Store the original levelname to restore it later, preventing side effects
         original_levelname = record.levelname
 
@@ -36,12 +37,13 @@ class ColoredFormatter(logging.Formatter):
 
 
 class FlushStreamHandler(logging.StreamHandler):
-    def emit(self, record):
+    def emit(self, record: logging.LogRecord) -> None:
         super().emit(record)
         self.flush()
 
 
-def setup_logging(name, log_file=None, level=logging.INFO, console=False, force=False):
+def setup_logging(name: str, log_file: Optional[str] = None,
+                 level: int = logging.INFO, console: bool = False, force: bool = False) -> logging.Logger:
     """To set up as many loggers as you want, with console flushing"""
     log_handle = logging.getLogger(name)
     log_handle.setLevel(level)
@@ -70,38 +72,43 @@ def setup_logging(name, log_file=None, level=logging.INFO, console=False, force=
     return log_handle
 
 
-def silence_noisy_loggers():
+def silence_noisy_loggers() -> None:
     """Sets the logging level for noisy third-party libraries to INFO."""
     logging.getLogger("urllib3.connectionpool").setLevel(logging.INFO)
     logging.getLogger("ccxt.base.exchange").setLevel(logging.INFO)
     logging.getLogger("asyncio").setLevel(logging.INFO)
 
 
-def setup_logger(strategy=None, ROOT_DIR=None):
-    if strategy:
-        # Ensure logs directory exists
-        logs_dir = os.path.join(ROOT_DIR, 'logs')
-        os.makedirs(logs_dir, exist_ok=True)
+def setup_logger(strategy: str, ROOT_DIR: str) -> Tuple[logging.Logger, logging.Logger, logging.Logger]:
+    """Setup logging for a trading strategy.
+    
+    Args:
+        strategy: The name of the trading strategy
+        ROOT_DIR: The root directory for the strategy
+        
+    Returns:
+        Tuple of (general_log, trade_log, ccxt_log) loggers
+    """
+    # Ensure logs directory exists
+    logs_dir = os.path.join(ROOT_DIR, 'logs')
+    os.makedirs(logs_dir, exist_ok=True)
 
-        general_log = setup_logging(name=f"{strategy}.general",
-                                    log_file=os.path.join(logs_dir, strategy + '_general.log'),
-                                    level=logging.DEBUG,  # Changed to DEBUG for comprehensive logging
-                                    console=True)
-        general_log.propagate = True
+    general_log = setup_logging(name=f"{strategy}.general",
+                                log_file=os.path.join(logs_dir, strategy + '_general.log'),
+                                level=logging.DEBUG,  # Changed to DEBUG for comprehensive logging
+                                console=True)
+    general_log.propagate = True
 
-        trade_log = setup_logging(name=f"{strategy}.trade",
-                                  log_file=os.path.join(logs_dir, strategy + '_trade.log'),
-                                  level=logging.INFO,
-                                  console=False)
+    trade_log = setup_logging(name=f"{strategy}.trade",
+                              log_file=os.path.join(logs_dir, strategy + '_trade.log'),
+                              level=logging.INFO,
+                              console=False)
 
-        ccxt_log = setup_logging(name=f"{strategy}.ccxt",
-                                 log_file=os.path.join(logs_dir, strategy + '_ccxt.log'),
-                                 level=logging.INFO,
-                                 console=True)
+    ccxt_log = setup_logging(name=f"{strategy}.ccxt",
+                             log_file=os.path.join(logs_dir, strategy + '_ccxt.log'),
+                             level=logging.INFO,
+                             console=True)
 
-        silence_noisy_loggers()
+    silence_noisy_loggers()
 
-        return general_log, trade_log, ccxt_log
-
-    else:
-        raise ValueError("setup_logger requires a 'strategy' argument.")
+    return general_log, trade_log, ccxt_log

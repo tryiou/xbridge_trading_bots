@@ -4,7 +4,7 @@ Centralized error handling with context propagation and recovery policies
 import asyncio
 import logging
 import time
-from typing import Optional, Dict, TYPE_CHECKING
+from typing import Optional, Dict, Any, TYPE_CHECKING, List
 
 from definitions.errors import CriticalError, OperationalError, TransientError, convert_exception
 
@@ -13,7 +13,13 @@ if TYPE_CHECKING:
 
 
 class ErrorHandler:
-    def __init__(self, config_manager=None, logger=None):
+    config_manager: Any  # ConfigManager type (forward reference)
+    logger: logging.Logger
+    max_retries: int
+    retry_delays: List[int]
+    _is_testing: bool
+
+    def __init__(self, config_manager: Optional[Any] = None, logger: Optional[logging.Logger] = None) -> None:
         self.config_manager = config_manager
         self.logger = logger or logging.getLogger("error_handler")
         self.max_retries = 3
@@ -21,7 +27,7 @@ class ErrorHandler:
         # For test mode handling
         self._is_testing = False
 
-    async def _async_notify_user(self, level, message, details):
+    async def _async_notify_user(self, level: str, message: str, details: Dict[str, Any]) -> None:
         """Async version of notify_user"""
         if self.config_manager:
             try:
@@ -42,7 +48,7 @@ class ErrorHandler:
             except Exception as e:
                 self.logger.warning(f"Notification failed: {e}")
 
-    def _notify_user_sync(self, level, message, details):
+    def _notify_user_sync(self, level: str, message: str, details: Dict[str, Any]) -> None:
         """Sync version of notify_user with fallback and error logging."""
         if self.config_manager:
             try:
@@ -55,7 +61,7 @@ class ErrorHandler:
             except Exception as e:
                 self.logger.warning(f"Notification failed: {e}")
 
-    def _get_full_context(self, error, context=None):
+    def _get_full_context(self, error: Exception, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Merges error context with provided context"""
         # Start with error's own context if present
         full_context = getattr(error, 'context', {}).copy()
@@ -88,7 +94,7 @@ class ErrorHandler:
         # as it wraps unknown exceptions. But as a safeguard:
         return 'critical'
 
-    def handle(self, error: Exception, context: Optional[Dict] = None) -> bool:
+    def handle(self, error: Exception, context: Optional[Dict[str, Any]] = None) -> bool:
         """Main sync error handler. Converts non-AppErrors and delegates."""
         app_error = convert_exception(error)
         full_context = self._get_full_context(app_error, context)
@@ -101,7 +107,7 @@ class ErrorHandler:
         }
         return handler_map[classification](app_error, full_context)
 
-    async def handle_async(self, error: Exception, context: Optional[Dict] = None) -> bool:
+    async def handle_async(self, error: Exception, context: Optional[Dict[str, Any]] = None) -> bool:
         """Main async error handler. Converts non-AppErrors and delegates."""
         app_error = convert_exception(error)
         full_context = self._get_full_context(app_error, context)
@@ -114,7 +120,7 @@ class ErrorHandler:
         }
         return await handler_map[classification](app_error, full_context)
 
-    def _handle_transient(self, error, context):
+    def _handle_transient(self, error: 'AppError', context: Dict[str, Any]) -> bool:
         """Handle transient errors with retry logic"""
         # For testing purposes, simulate retry logic
         if getattr(self.config_manager, '_is_testing', False) or self._is_testing:
@@ -138,7 +144,7 @@ class ErrorHandler:
         time.sleep(delay)
         return True  # Signal to retry operation
 
-    def _handle_operational_logic(self, error, context):
+    def _handle_operational_logic(self, error: 'AppError', context: Dict[str, Any]) -> Dict[str, str]:
         """Shared logic for handling operational errors."""
         self.logger.error(
             f"Operational error: {error} | Context: {context}",
@@ -150,13 +156,13 @@ class ErrorHandler:
             "details": context
         }
 
-    def _handle_operational(self, error, context):
+    def _handle_operational(self, error: 'AppError', context: Dict[str, Any]) -> bool:
         """Handle operational errors with logging and continuation"""
         notification_details = self._handle_operational_logic(error, context)
         self._notify_user_sync(**notification_details)
         return True  # Continue operation
 
-    def _handle_critical_logic(self, error, context):
+    def _handle_critical_logic(self, error: 'AppError', context: Dict[str, Any]) -> Dict[str, str]:
         """Shared logic for handling critical errors."""
         self.logger.critical(
             f"Critical error: {error} | Context: {context}",
@@ -168,7 +174,7 @@ class ErrorHandler:
             "details": context
         }
 
-    def _handle_critical(self, error, context):
+    def _handle_critical(self, error: 'AppError', context: Dict[str, Any]) -> bool:
         """Handle critical errors with shutdown procedure"""
         notification_details = self._handle_critical_logic(error, context)
         self._notify_user_sync(**notification_details)
@@ -178,7 +184,7 @@ class ErrorHandler:
             self.config_manager.controller.shutdown_event.set()
         return False  # Abort operation
 
-    async def _handle_transient_async(self, error, context):
+    async def _handle_transient_async(self, error: 'AppError', context: Dict[str, Any]) -> bool:
         """Async version of handling transient errors with retry logic"""
         # For testing purposes, simulate retry logic
         if getattr(self.config_manager, '_is_testing', False) or self._is_testing:
@@ -202,14 +208,14 @@ class ErrorHandler:
         await asyncio.sleep(delay)
         return True  # Signal to retry operation
 
-    async def _handle_operational_async(self, error, context):
+    async def _handle_operational_async(self, error: 'AppError', context: Dict[str, Any]) -> bool:
         """Async version of handling operational errors with logging and continuation"""
         notification_details = self._handle_operational_logic(error, context)
         # Add user notification hook
         await self._async_notify_user(**notification_details)
         return True  # Continue operation
 
-    async def _handle_critical_async(self, error, context):
+    async def _handle_critical_async(self, error: 'AppError', context: Dict[str, Any]) -> bool:
         """Handle critical errors with shutdown procedure - async version"""
         notification_details = self._handle_critical_logic(error, context)
         if self.config_manager:

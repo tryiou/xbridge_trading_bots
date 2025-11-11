@@ -6,7 +6,7 @@ import yaml
 class YamlToObject:
     """A class to convert YAML data into a Python object with attribute access."""
 
-    def __init__(self, yaml_data: Union[str, Dict[str, Any]]):
+    def __init__(self, yaml_data: Union[str, Dict[str, Any]]) -> None:
         """
         Initializes a YamlToObject instance from a YAML file path or a dictionary.
 

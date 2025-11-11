@@ -1,13 +1,13 @@
 import asyncio
 import logging
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
     from definitions.config_manager import ConfigManager
 
 
-async def wait_for_pending_rpcs(config_manager: 'ConfigManager', timeout=30):  # noqa: F821
+async def wait_for_pending_rpcs(config_manager: 'ConfigManager', timeout: int = 30) -> None:  # noqa: F821
     """Universal function to wait for pending RPCs to complete"""
     start_time = time.time()
     logger = config_manager.general_log
@@ -32,7 +32,7 @@ class ShutdownCoordinator:
 
     @staticmethod
     async def unified_shutdown(
-            config_manager: 'ConfigManager') -> None:  # noqa: F821
+            config_manager: Optional['ConfigManager']) -> None:  # noqa: F821
         """Core shutdown logic for both CLI and GUI per strategy"""
         from strategies.maker_strategy import MakerStrategy
         try:

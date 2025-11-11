@@ -7,7 +7,7 @@ import yaml
 
 from definitions.errors import RPCConfigError
 
-debug_level = 2
+debug_level: int = 2
 
 autoconf_rpc_log = logging.getLogger("autoconf_rpc_log")
 autoconf_rpc_log.setLevel(logging.DEBUG)

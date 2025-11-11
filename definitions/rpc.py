@@ -1,10 +1,12 @@
 import asyncio
+import logging
 import socket
 import threading
+from typing import Any, Dict, List, Optional, Union
 
 import aiohttp
 import async_timeout
-from aiohttp import BasicAuth
+from aiohttp import BasicAuth, ClientSession
 
 from definitions.error_handler import OperationalError
 
@@ -12,15 +14,15 @@ from definitions.error_handler import OperationalError
 class AsyncThreadingSemaphore:
     """A wrapper to use a threading.BoundedSemaphore in an async context."""
 
-    def __init__(self, value=1):
+    def __init__(self, value: int = 1) -> None:
         self._semaphore = threading.BoundedSemaphore(value)
 
-    async def __aenter__(self):
+    async def __aenter__(self) -> 'AsyncThreadingSemaphore':
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, self._semaphore.acquire)
         return self
 
-    async def __aexit__(self, exc_type, exc, tb):
+    async def __aexit__(self, exc_type, exc, tb) -> None:
         self._semaphore.release()
 
 
@@ -29,28 +31,40 @@ class RpcTimeoutError(Exception):
     pass
 
 
-async def rpc_call(method, params=None, url="http://127.0.0.1", rpc_user=None, rpc_password=None,
-                   rpc_port=None, debug=2, timeout=30, prefix='xbridge', max_err_count=5,
-                   logger=None, session=None, error_handler=None,
-                   shutdown_event=None):
+async def rpc_call(method: str,
+                   params: Optional[Union[List, Dict[str, Any]]] = None,
+                   url: str = "http://127.0.0.1",
+                   rpc_user: Optional[str] = None,
+                   rpc_password: Optional[str] = None,
+                   rpc_port: Optional[int] = None,
+                   debug: int = 2,
+                   timeout: int = 30,
+                   prefix: str = 'xbridge',
+                   max_err_count: int = 5,
+                   logger: Optional[logging.Logger] = None,
+                   session: Optional[ClientSession] = None,
+                   error_handler: Optional[Any] = None,
+                   shutdown_event: Optional[asyncio.Event] = None) -> Any:
     """
     Make an async JSON-RPC call with centralized error handling.
 
-    :param method: RPC method to call.
-    :param params: Parameters for the RPC call.
-    :param url: URL for the RPC server.
-    :param rpc_user: RPC server username.
-    :param rpc_password: RPC server password.
-    :param rpc_port: RPC port.
-    :param debug: Debug level.
-    :param timeout: Timeout for the HTTP request.
-    :param display: Whether to display debug information.
-    :param prefix: Prefix for debug messages.
-    :param max_err_count: Maximum number of retries in case of errors.
-    :param logger: Optional logger instance to use for messages.
-    :param session: Optional aiohttp.ClientSession instance.
-    :param error_handler: ErrorHandler instance for centralized error handling.
-    :return: Result of the RPC call, or None if failed after max attempts.
+    Args:
+        method: RPC method to call.
+        params: Parameters for the RPC call.
+        url: URL for the RPC server.
+        rpc_user: RPC server username.
+        rpc_password: RPC server password.
+        rpc_port: RPC port.
+        debug: Debug level.
+        timeout: Timeout for the HTTP request.
+        display: Whether to display debug information.
+        prefix: Prefix for debug messages.
+        max_err_count: Maximum number of retries in case of errors.
+        logger: Optional logger instance to use for messages.
+        session: Optional aiohttp.ClientSession instance.
+        error_handler: ErrorHandler instance for centralized error handling.
+    Returns:
+        Result of the RPC call, or None if failed after max attempts.
     """
     if params is None:
         params = []
@@ -60,7 +74,7 @@ async def rpc_call(method, params=None, url="http://127.0.0.1", rpc_user=None, r
     auth = BasicAuth(rpc_user, rpc_password) if rpc_user and rpc_password else None
     client_timeout = aiohttp.ClientTimeout(total=timeout)
 
-    async def _rpc_call_internal(s):
+    async def _rpc_call_internal(s: ClientSession) -> Any:
         for err_count in range(max_err_count):
             response_text = None
             try:

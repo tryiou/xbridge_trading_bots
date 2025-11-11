@@ -3,9 +3,10 @@ import asyncio
 import os
 import signal
 import sys
+from typing import Callable
 
 
-def add_custom_help(parser: argparse.ArgumentParser):
+def add_custom_help(parser: argparse.ArgumentParser) -> None:
     """Adds a custom help argument to the parser to support -h, --help, and -help."""
     parser.add_argument(
         "-h", "-help", "--help",
@@ -15,19 +16,19 @@ def add_custom_help(parser: argparse.ArgumentParser):
     )
 
 
-def run_cli(start_func):
+def run_cli(start_func: Callable[[], None]) -> None:
     """
     A wrapper to run command-line interface applications with standardized
     signal handling and graceful shutdown on KeyboardInterrupt.
 
     Args:
-        start_func (callable): The main function of the CLI application to run.
+        start_func: The main function of the CLI application to run.
     """
     # Ensure proper event loop policy for Windows
     if os.name == 'nt':
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
-    def handle_sigint(signum, frame):
+    def handle_sigint(signum: int, frame) -> None:
         """Signal handler that raises KeyboardInterrupt to stop the application."""
         raise KeyboardInterrupt
 

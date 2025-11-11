@@ -2,68 +2,78 @@
 Standardized error classes for the trading application
 """
 import asyncio
+from typing import Dict, Any, Type, Union
 
 
 class AppError(Exception):
     """Base class for all application errors"""
+    context: Dict[str, Any]
 
-    def __init__(self, message, context=None):
+    def __init__(self, message: str, context: Union[Dict[str, Any], None] = None) -> None:
         super().__init__(message)
         self.context = context or {}
         # Preserve original cause for better debugging
-        self.__cause__ = context.get('__cause__') if isinstance(context, dict) else None
+        self.__cause__ = self.context.get('__cause__') if isinstance(self.context, dict) else None
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self.__class__.__name__}: {super().__str__()} | Context: {self.context}"
 
 
 class TransientError(AppError):
     """Temporary errors (network issues, timeouts) that might resolve with retries"""
+    pass
 
 
 class OperationalError(AppError):
     """Recoverable errors (validation, input issues) that don't require shutdown"""
+    pass
 
 
 class CriticalError(AppError):
     """Unrecoverable errors (system failures, data corruption) requiring shutdown"""
+    pass
 
 
 class ConfigurationError(OperationalError):
     """Errors related to configuration issues"""
+    pass
 
 
 class RPCConfigError(ConfigurationError):
-    """Critical failure in RPC configuration during application initialization                                                                                                             
-                                                                                                                                                                                           
-    Indicates unrecoverable errors in Blocknet RPC setup that prevent trading operations.                                                                                                  
-    Typically caused by missing credentials, unresponsive ports, or inaccessible config files.                                                                                             
-                                                                                                                                                                                           
-    Attributes:                                                                                                                                                                            
-        context: Technical details about failure context. May include:                                                                                                                     
-            - path: Location of configuration file                                                                                                                                         
-            - port: RPC service port number                                                                                                                                                
-            - keys: Missing configuration keys                                                                                                                                             
+    """Critical failure in RPC configuration during application initialization
+    
+    Indicates unrecoverable errors in Blocknet RPC setup that prevent trading operations.
+    Typically caused by missing credentials, unresponsive ports, or inaccessible config files.
+    
+    Attributes:
+        context: Technical details about failure context. May include:
+            - path: Location of configuration file
+            - port: RPC service port number
+            - keys: Missing configuration keys
     """
 
-    def __init__(self, message, context=None):
+    def __init__(self, message: str, context: Union[Dict[str, Any], None] = None) -> None:
         super().__init__(message, context)
 
 
 class ExchangeError(TransientError):
     """Errors from exchange APIs"""
+    pass
 
 
 class BlockchainError(TransientError):
     """Errors from blockchain interactions"""
+    pass
 
 
 class StrategyError(OperationalError):
     """Errors specific to trading strategies"""
+    pass
 
 
 class GUIRenderingError(OperationalError):
     """Errors in GUI components"""
+    pass
 
 
 class OrderError(OperationalError):
@@ -86,14 +96,14 @@ class ProtocolError(OperationalError):
     pass
 
 
-def _wrap_exception(e: Exception, app_error_cls: type) -> 'AppError':
+def _wrap_exception(e: Exception, app_error_cls: Type[AppError]) -> AppError:
     """Wraps an exception in an AppError subclass, preserving the cause."""
     exc = app_error_cls(str(e))
     exc.__cause__ = e
     return exc
 
 
-def convert_exception(e: Exception) -> 'AppError':
+def convert_exception(e: Exception) -> AppError:
     """Convert third-party exceptions to native application error types"""
     # Preserve existing AppErrors
     if isinstance(e, AppError):

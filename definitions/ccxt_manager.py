@@ -3,6 +3,7 @@ import json
 import logging
 import threading
 import time
+from typing import Any, Dict, List, Optional, Tuple
 
 import ccxt
 
@@ -14,17 +15,17 @@ from proxy_ccxt import AsyncPriceService
 
 class CCXTManager:
     # Class-level variables for shared proxy state
-    _proxy_service_instance = None
-    _proxy_service_thread = None
-    _proxy_port = 2233
+    _proxy_service_instance: Optional[Any] = None
+    _proxy_service_thread: Optional[threading.Thread] = None
+    _proxy_port: int = 2233
     _proxy_lock = threading.Lock()
-    _proxy_ref_count = 0  # Track active strategies using proxy
+    _proxy_ref_count: int = 0  # Track active strategies using proxy
 
     # Class-level logger for proxy events
     _proxy_logger = logging.getLogger('ccxt_manager.proxy')
 
     @classmethod
-    def register_strategy(cls):
+    def register_strategy(cls) -> None:
         """Call whenever a strategy starts"""
         with cls._proxy_lock:
             cls._proxy_ref_count += 1
@@ -34,7 +35,7 @@ class CCXTManager:
             )
 
     @classmethod
-    def unregister_strategy(cls):
+    def unregister_strategy(cls) -> None:
         """Call when strategy stops"""
         with cls._proxy_lock:
             if cls._proxy_ref_count > 0:
@@ -58,16 +59,16 @@ class CCXTManager:
                     cls._proxy_service_thread = None
                     cls._proxy_service_instance = None
 
-    def __init__(self, config_manager):
-        self.cex_orderbook = None
-        self.cex_orderbook_timer = None
+    def __init__(self, config_manager: Any) -> None:
+        self.cex_orderbook: Optional[Dict[str, Any]] = None
+        self.cex_orderbook_timer: Optional[float] = None
         self.config_manager = config_manager  # Store ConfigManager reference
         # Instance doesn't need its own proxy_process reference
         self.error_handler = ErrorHandler(config_manager, logger=self.config_manager.ccxt_log)
         self.logger = self.config_manager.ccxt_log
 
     @classmethod
-    def _cleanup_proxy(cls):
+    def _cleanup_proxy(cls) -> None:
         """Coordinate proxy termination only when no strategies are running"""
         with cls._proxy_lock:
             # Double-check refcount under lock
@@ -100,10 +101,10 @@ class CCXTManager:
                 cls._proxy_service_thread = None
                 cls._proxy_logger.info("[PROXY.MAINTENANCE] Proxy state cleared")
 
-    def init_ccxt_instance(self, exchange, hostname=None, private_api=False, debug_level=1):
+    def init_ccxt_instance(self, exchange: str, hostname: Optional[str] = None, private_api: bool = False, debug_level: int = 1) -> Any:
         # CCXT instance
-        api_key = None
-        api_secret = None
+        api_key: Optional[str] = None
+        api_secret: Optional[str] = None
         if private_api:
             try:
                 with open(self.config_manager.ROOT_DIR + '/config/api_keys.local.json') as json_file:
@@ -158,7 +159,7 @@ class CCXTManager:
             self.logger.error(f"Unsupported exchange: {exchange}")
             return None
 
-    async def _ccxt_blocking_call_with_retry(self, func, context, *args):
+    async def _ccxt_blocking_call_with_retry(self, func: Any, context: Dict[str, Any], *args: Any) -> Any:
         """Helper method to run a blocking CCXT function with retry and error handling.
 
         Args:
@@ -187,7 +188,7 @@ class CCXTManager:
                 ):
                     return None
 
-    async def ccxt_call_fetch_order_book(self, ccxt_o, symbol, limit=25, ignore_timer=False):
+    async def ccxt_call_fetch_order_book(self, ccxt_o: Any, symbol: str, limit: int = 25, ignore_timer: bool = False) -> Optional[Dict[str, Any]]:
         update_cex_orderbook_timer_delay = 2
         if ignore_timer or self.cex_orderbook_timer is None or \
                 time.time() - self.cex_orderbook_timer > update_cex_orderbook_timer_delay:
@@ -195,7 +196,7 @@ class CCXTManager:
             self.cex_orderbook_timer = time.time()
         return self.cex_orderbook
 
-    async def _fetch_order_book(self, ccxt_o, symbol, limit):
+    async def _fetch_order_book(self, ccxt_o: Any, symbol: str, limit: int) -> Optional[Dict[str, Any]]:
         context = {
             "method": "_fetch_order_book",
             "symbol": symbol,
@@ -210,7 +211,7 @@ class CCXTManager:
             self._debug_display('ccxt_call_fetch_order_book', [symbol, limit], result)
         return result
 
-    async def ccxt_call_fetch_free_balance(self, ccxt_o):
+    async def ccxt_call_fetch_free_balance(self, ccxt_o: Any) -> Optional[Dict[str, Any]]:
         context = {
             "method": "ccxt_call_fetch_free_balance"
         }
@@ -222,7 +223,7 @@ class CCXTManager:
             self._debug_display('ccxt_call_fetch_free_balance', [], result)
         return result
 
-    async def ccxt_call_fetch_tickers(self, ccxt_o, symbols_list, proxy=True):
+    async def ccxt_call_fetch_tickers(self, ccxt_o: Any, symbols_list: List[str], proxy: bool = True) -> Optional[Dict[str, Any]]:
         start = time.time()
         err_count = 0
 
@@ -263,7 +264,7 @@ class CCXTManager:
                 ):
                     return None
 
-    async def ccxt_call_fetch_ticker(self, ccxt_o, symbol):
+    async def ccxt_call_fetch_ticker(self, ccxt_o: Any, symbol: str) -> Optional[Dict[str, Any]]:
         context = {
             "method": "ccxt_call_fetch_ticker",
             "symbol": symbol
@@ -277,7 +278,7 @@ class CCXTManager:
             self._debug_display('ccxt_call_fetch_ticker', [symbol], result)
         return result
 
-    def _start_proxy(self):
+    def _start_proxy(self) -> None:
         """Start shared CCXT proxy service in a thread. This is a blocking call."""
         with CCXTManager._proxy_lock:
             if CCXTManager._proxy_service_thread and CCXTManager._proxy_service_thread.is_alive():
@@ -296,7 +297,7 @@ class CCXTManager:
             try:
                 CCXTManager._proxy_service_instance = AsyncPriceService()
 
-                def service_runner():
+                def service_runner() -> None:
                     loop = asyncio.new_event_loop()
                     asyncio.set_event_loop(loop)
                     try:
@@ -339,7 +340,7 @@ class CCXTManager:
                     context={"stage": "proxy_startup"}
                 )
 
-    def _debug_display(self, func, params, result, timer=None):
+    def _debug_display(self, func: str, params: Any, result: Any, timer: Optional[float] = None) -> None:
         debug_level = self.config_manager.config_ccxt.debug_level
         if debug_level < 2:
             return
