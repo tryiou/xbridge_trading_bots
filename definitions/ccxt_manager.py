@@ -1,5 +1,4 @@
 import asyncio
-import json
 import logging
 import threading
 import time
@@ -106,25 +105,17 @@ class CCXTManager:
                 cls._proxy_logger.info("[PROXY.MAINTENANCE] Proxy state cleared")
 
     def init_ccxt_instance(self, exchange: str, hostname: Optional[str] = None, private_api: bool = False, debug_level: int = 1) -> Any:
-        # CCXT instance
         api_key: Optional[str] = None
         api_secret: Optional[str] = None
         if private_api:
-            try:
-                with open(self.config_manager.ROOT_DIR + '/config/api_keys.local.json') as json_file:
-                    data_json = json.load(json_file)
-                    for data in data_json['api_info']:
-                        if exchange in data['exchange']:
-                            api_key = data['api_key']
-                            api_secret = data['api_secret']
-            except Exception as e:
-                self.error_handler.handle(
-                    e,
-                    context={"method": "init_ccxt_instance",
-                             "exchange": exchange,
-                             "file": "api_keys.local.json"}
-                )
-                return None
+            api_keys_data = self.config_manager.secrets_manager.get_api_keys()
+            for data in api_keys_data.get('api_info', []):
+                if exchange.lower() in data.get('exchange', '').lower():
+                    api_key = data.get('api_key')
+                    api_secret = data.get('api_secret')
+                    break
+            if not api_key:
+                self.logger.warning(f"No API credentials found for {exchange} in environment variables")
 
         if exchange in ccxt.exchanges:
             exchange_class = getattr(ccxt, exchange)

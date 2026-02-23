@@ -103,7 +103,6 @@ CONFIG_COINS: Final[str] = "config_coins.yaml"
 CONFIG_XBRIDGE: Final[str] = "config_xbridge.yaml"
 CONFIG_PINGPONG: Final[str] = "config_pingpong.yaml"
 CONFIG_BASIC_SELLER: Final[str] = "config_basic_seller.yaml"
-API_KEYS_FILE: Final[str] = "api_keys.local.json"
 
 
 # =============================================================================

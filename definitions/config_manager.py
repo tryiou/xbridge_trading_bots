@@ -1,4 +1,3 @@
-import json
 import logging
 import os
 import shutil
@@ -12,6 +11,7 @@ from definitions.config_validation import ConfigValidationManager, ValidationRes
 from definitions.error_handler import ErrorHandler
 from definitions.errors import ConfigurationError
 from definitions.logger import setup_logger, setup_logging
+from definitions.secrets_manager import SecretsManager
 from definitions.xbridge_manager import XBridgeManager
 from definitions.yaml_mix import YamlToObject
 from strategies.base_strategy import BaseStrategy
@@ -28,6 +28,7 @@ class ConfigManager:
                                     level=logging.DEBUG, console=True)
         self.error_handler = ErrorHandler(self)
         self.current_module = None
+        self.secrets_manager = SecretsManager(self.logger)
         # Initialize validation manager
         self.validation_manager = ConfigValidationManager()
         self.validation_enabled = True  # Enable validation by default
@@ -120,17 +121,12 @@ class ConfigManager:
         return None
 
     def create_configs_from_templates(self):
-        # Common config files
         config_files = [
             "config_ccxt.yaml",
             "config_coins.yaml",
-            "api_keys.local.json",
             "config_pingpong.yaml",
             "config_basic_seller.yaml",
             "config_xbridge.yaml",
-            # "config_arbitrage.yaml",
-            # "config_thorchain.yaml",
-            # "config_thorchain_continuous.yaml"
         ]
 
         for config_file in config_files:
@@ -290,7 +286,6 @@ class ConfigManager:
             "config_pingpong.yaml": "pingpong",
             "config_basic_seller.yaml": "basic_seller",
             "config_xbridge.yaml": "xbridge",
-            "api_keys.local.json": "api_keys"
         }
         return mapping.get(filename)
 
@@ -336,52 +331,26 @@ class ConfigManager:
             self.logger.debug(f"Configuration validation passed for {config_type}")
 
     def _load_and_validate_api_keys(self) -> Dict[str, Any]:
-        """Load and validate API keys configuration.
+        """Load API keys from secrets manager (environment variables only).
         
         Returns:
             Dictionary containing the API keys data.
         """
-        api_keys_path = os.path.join(self.ROOT_DIR, "config", "api_keys.local.json")
-
-        # Validate file existence and readability
-        if self.validation_enabled:
-            validation_result = self.validation_manager.validate_file_existence_and_readability(api_keys_path)
-            if not validation_result.is_valid:
-                self._handle_validation_error('api_keys', api_keys_path, validation_result)
-                return {}
-
-            # Validate file format
-            format_result = self.validation_manager.validate_file_format(api_keys_path, 'json')
-            if not format_result.is_valid:
-                self._handle_validation_error('api_keys', api_keys_path, format_result)
-                return {}
-
-        try:
-            with open(api_keys_path, 'r') as f:
-                api_keys_data = json.load(f)
-        except json.JSONDecodeError as e:
-            self.error_handler.handle(
-                ConfigurationError(f"Invalid JSON in API keys file: {str(e)}"),
-                context={"file_path": api_keys_path}
+        api_keys_data = self.secrets_manager.get_api_keys()
+        
+        if not api_keys_data.get("api_info"):
+            self.logger.warning(
+                "No API keys found in environment variables. "
+                "Set XBRIDGE_EXCHANGE_<EXCHANGE>_API_KEY and "
+                "XBRIDGE_EXCHANGE_<EXCHANGE>_API_SECRET for each exchange."
             )
-            return {}
-        except Exception as e:
-            self.error_handler.handle(
-                e,
-                context={"file_path": api_keys_path, "operation": "load_api_keys"}
-            )
-            return {}
-
-        # Validate API keys configuration
-        if self.validation_enabled:
+        
+        if self.validation_enabled and api_keys_data.get("api_info"):
             validation_result = self.validation_manager.validate_config_file(
-                'api_keys', api_keys_data, api_keys_path
+                'api_keys', api_keys_data, "environment"
             )
             self.validation_results['api_keys'] = validation_result
             self._log_validation_result('api_keys', validation_result)
-
-            if not validation_result.is_valid:
-                self.logger.error(f"API keys configuration validation failed: {validation_result}")
 
         return api_keys_data
 

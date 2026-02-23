@@ -25,6 +25,8 @@ def mock_config_manager():
     manager.general_log = MagicMock(spec=logging.Logger)
     manager.config_ccxt = MagicMock(debug_level=1)
     manager.config_xbridge = MagicMock(taker_fee_block=0.01)
+    manager.secrets_manager = MagicMock()
+    manager.secrets_manager.get_api_keys.return_value = {"api_info": []}
     return manager
 
 
@@ -93,19 +95,17 @@ class TestCCXTManager:
         mock_is_port_open.return_value = True
         mock_exchange = MagicMock()
         mock_binance.return_value = mock_exchange
-        # Setup mock API keys
-        api_data = json.dumps({"api_info": [{"exchange": "binance", "api_key": "key1", "api_secret": "sec1"}]})
-        with patch("builtins.open", mock_open(read_data=api_data)):
-            instance = self.manager.init_ccxt_instance("binance", private_api=True)
+        self.mock_cm.secrets_manager.get_api_keys.return_value = {
+            "api_info": [{"exchange": "binance", "api_key": "key1", "api_secret": "sec1"}]
+        }
+        instance = self.manager.init_ccxt_instance("binance", private_api=True)
 
-        # Check binance was initialized correctly with api_key and api_secret
         mock_binance.assert_called_once_with({
             'apiKey': 'key1',
             'secret': 'sec1',
             'enableRateLimit': True,
             'rateLimit': 1000,
         })
-        # Verify no error logging occurred
         self.manager.logger.error.assert_not_called()
         self.mock_cm.ccxt_log.error.assert_not_called()
 
