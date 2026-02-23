@@ -95,14 +95,14 @@ class BaseStrategy(ABC):
         pass
 
     # Methods for MainController to call strategy-specific actions
-    @abstractmethod  # Renamed for clarity
+    @abstractmethod
     async def thread_init_async_action(self, pair_instance):
         """
         Strategy-specific asynchronous action for initial pair processing.
         """
         pass
 
-    @abstractmethod  # Renamed for clarity
+    @abstractmethod
     async def process_pair_async(self, pair_instance):
         """
         Strategy-specific asynchronous action for the main loop processing.

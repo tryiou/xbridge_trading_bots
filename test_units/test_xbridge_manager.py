@@ -16,6 +16,7 @@ from definitions.xbridge_manager import XBridgeManager
 def reset_xbridge_manager_class_vars():
     XBridgeManager._active_rpc_counter = 0
     XBridgeManager._rpc_semaphore = None
+    XBridgeManager._rpc_config = None
     yield
 
 

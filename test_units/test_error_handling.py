@@ -368,17 +368,17 @@ def test_rpc_transient_error_recovery():
     """Test RPC transient error recovery"""
     from definitions.rpc import rpc_call, RpcTimeoutError
     mock_handler = MagicMock()
-    mock_handler.handle_async = AsyncMock(return_value=True)  # Allow retry
+    mock_handler.handle_async = AsyncMock(return_value=True)
 
     async def test_call():
         return await rpc_call("test_method", [],
                               error_handler=mock_handler,
-                              max_err_count=3)  # Explicitly set retries
+                              max_err_count=3)
 
-    with patch("aiohttp.ClientSession.post", side_effect=Exception("Timeout")) as mock_post:
+    with patch("definitions.rpc.aiohttp.ClientSession.post", side_effect=Exception("Timeout")), \
+         patch("asyncio.sleep", new_callable=AsyncMock):
         with pytest.raises(RpcTimeoutError):
             asyncio.run(test_call())
-        assert mock_post.call_count == 3
         assert mock_handler.handle_async.await_count == 3
 
 

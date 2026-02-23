@@ -8,9 +8,6 @@ import pytest
 # Add parent directory to path for module imports
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from definitions.config_manager import ConfigManager
-from strategies.basicseller_strategy import BasicSellerStrategy
-
 
 class BasicSellerStrategyTester:
     """
@@ -243,22 +240,29 @@ class BasicSellerStrategyTester:
         self.config_manager.general_log.info("[TEST PASSED] Static value methods returned correct values.")
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="session")
 def mock_strategy_cli():
     """Fixture to create a mock strategy instance for testing in CLI mode."""
-    config_manager = ConfigManager(strategy="basic_seller")
-    # Simulate CLI arguments for initialization
-    config_manager.initialize(
-        token_to_sell="BLOCK",
-        token_to_buy="LTC",
-        amount_token_to_sell=100.0,
-        min_sell_price_usd=0.5,
-        sell_price_offset=0.01
-    )
-    return config_manager.strategy_instance
+    from unittest.mock import patch
+    
+    with patch('definitions.xbridge_manager.detect_rpc', return_value=("user", 1234, "pass", "/tmp")):
+        with patch('definitions.xbridge_manager.is_port_open', return_value=True):
+            with patch('definitions.ccxt_manager.CCXTManager'):
+                with patch('asyncio.run'):
+                    with patch('definitions.xbridge_manager.rpc_call'):
+                        from definitions.config_manager import ConfigManager
+                        config_manager = ConfigManager(strategy="basic_seller")
+                        config_manager.initialize(
+                            token_to_sell="BLOCK",
+                            token_to_buy="LTC",
+                            amount_token_to_sell=100.0,
+                            min_sell_price_usd=0.5,
+                            sell_price_offset=0.01
+                        )
+                        return config_manager.strategy_instance
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="session")
 def basicseller_tester(mock_strategy_cli):
     """Fixture to create a BasicSellerStrategyTester instance."""
     return BasicSellerStrategyTester(mock_strategy_cli)

@@ -7,6 +7,12 @@ import aiohttp
 import ccxt
 
 from definitions.ccxt_manager import CCXTManager
+from definitions.constants import (
+    CCXT_PRICE_REFRESH_INTERVAL,
+    UPDATE_BALANCES_DELAY,
+    FLUSH_DELAY,
+    SLEEP_INTERVAL,
+)
 from definitions.errors import RPCConfigError
 from definitions.pair import Pair
 from definitions.shutdown import ShutdownCoordinator
@@ -18,12 +24,6 @@ if TYPE_CHECKING:
     from definitions.xbridge_manager import XBridgeManager
 
 debug_level = 2
-
-CCXT_PRICE_REFRESH: int = 2
-UPDATE_BALANCES_DELAY: float = 0.5
-FLUSH_DELAY: int = 15 * 60
-MAX_THREADS: int = 5
-SLEEP_INTERVAL: int = 1  # Shorter sleep interval (in seconds)
 
 
 class TradingProcessor:
@@ -219,7 +219,7 @@ class PriceHandler:
             return
 
         now: float = time.time()
-        if self.ccxt_price_timer is None or now - self.ccxt_price_timer > CCXT_PRICE_REFRESH:
+        if self.ccxt_price_timer is None or now - self.ccxt_price_timer > CCXT_PRICE_REFRESH_INTERVAL:
             try:
                 await self._fetch_and_update_prices()
                 self.ccxt_price_timer = now

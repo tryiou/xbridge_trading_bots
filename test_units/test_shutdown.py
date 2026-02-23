@@ -19,11 +19,11 @@ async def test_wait_for_pending_rpcs_completes():
     """Tests that wait_for_pending_rpcs exits when the counter reaches zero."""
     config_manager = MagicMock()
     config_manager.general_log = MagicMock()
-    # Simulate counter dropping to 0 after two checks
     p = PropertyMock(side_effect=[2, 1, 0])
     type(config_manager.xbridge_manager).active_rpc_counter = p
 
-    await wait_for_pending_rpcs(config_manager, timeout=5)
+    with patch("asyncio.sleep", new_callable=AsyncMock):
+        await wait_for_pending_rpcs(config_manager, timeout=5)
 
     assert p.call_count == 3
 
@@ -33,14 +33,12 @@ async def test_wait_for_pending_rpcs_times_out():
     """Tests that wait_for_pending_rpcs times out if the counter never reaches zero."""
     config_manager = MagicMock()
     config_manager.general_log = MagicMock()
-    # Counter never reaches zero
     p = PropertyMock(return_value=1)
     type(config_manager.xbridge_manager).active_rpc_counter = p
 
-    # Use a short timeout for the test
-    await wait_for_pending_rpcs(config_manager, timeout=1.5)
+    with patch("definitions.shutdown.asyncio.sleep", new_callable=AsyncMock):
+        await wait_for_pending_rpcs(config_manager, timeout=1.5)
 
-    # The warning should be logged on timeout
     config_manager.general_log.warning.assert_called_once()
 
 

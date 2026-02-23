@@ -8,6 +8,13 @@ import uuid
 import weakref
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+from definitions.circuit_breaker import (
+    CircuitBreaker,
+    CircuitBreakerConfig,
+    CircuitBreakerError,
+    get_circuit_breaker_manager,
+)
+from definitions.constants import MAX_CONCURRENT_RPC_TASKS
 from definitions.detect_rpc import detect_rpc
 from definitions.errors import RPCConfigError
 from definitions.logger import setup_logging
@@ -16,31 +23,36 @@ from definitions.rpc import rpc_call, is_port_open, AsyncThreadingSemaphore
 
 class XBridgeManager:
     _loops: weakref.WeakSet = weakref.WeakSet()
-    # Class-level attributes for global state, ensuring they are shared across all instances.
     _active_rpc_counter: int = 0
     _rpc_counter_lock = threading.Lock()
     _rpc_semaphore: Optional[AsyncThreadingSemaphore] = None
-    # Class-level UTXO cache and lock for thread-safe access
     _utxo_cache: Dict[str, Tuple[float, Any]] = {}
     _utxo_cache_lock = threading.Lock()
-    UTXO_CACHE_DURATION: float = 3.0  # Cache expiration time in seconds
-    # Class-level cache for RPC config to avoid re-detecting on each instantiation
+    UTXO_CACHE_DURATION: float = 3.0
     _rpc_config: Optional[Tuple[str, int, str, str]] = None
     _rpc_config_lock = threading.Lock()
-    # Class-level cache for xbridge.conf parsing and fee estimates
     _xbridge_conf_cache: Optional[Dict[str, Dict[str, Any]]] = None
     _xbridge_fees_cache: Dict[str, Optional[Dict[str, Any]]] = {}
     _xbridge_conf_lock = threading.Lock()
 
     @property
     def active_rpc_counter(self) -> int:
-        """Provides read-only access to the shared RPC counter."""
         return XBridgeManager._active_rpc_counter
 
-    def __init__(self, config_manager: Any) -> None:
+    def __init__(
+        self,
+        config_manager: Any,
+        logger: Optional[logging.Logger] = None,
+        circuit_breaker: Optional[CircuitBreaker] = None,
+        rpc_semaphore: Optional[AsyncThreadingSemaphore] = None,
+    ) -> None:
         self.config_manager: Any = config_manager
         strategy = self.config_manager.strategy if hasattr(config_manager, 'strategy') else 'no_strat'
-        self.logger: logging.Logger = setup_logging(name=f"{strategy}.xbridge_manager", level=logging.DEBUG, console=True)
+        self.logger: logging.Logger = logger or setup_logging(
+            name=f"{strategy}.xbridge_manager", level=logging.DEBUG, console=True
+        )
+        self._provided_logger = logger is not None
+        
         self.blocknet_user_rpc: str
         self.blocknet_port_rpc: int
         self.blocknet_password_rpc: str
@@ -49,10 +61,8 @@ class XBridgeManager:
         self.xbridge_fees_estimate: Dict[str, Optional[Dict[str, Any]]] = {}
         
         try:
-            # Singleton pattern for RPC detection
             if XBridgeManager._rpc_config is None:
                 with XBridgeManager._rpc_config_lock:
-                    # Double-check locking to ensure thread safety
                     if XBridgeManager._rpc_config is None:
                         self.logger.info("Detecting RPC configuration.")
                         XBridgeManager._rpc_config = detect_rpc()
@@ -62,14 +72,17 @@ class XBridgeManager:
             self.logger.critical(f"Failed to initialize RPC: {str(e)}")
             raise
 
-        # Initialize shared semaphore only once
-        if XBridgeManager._rpc_semaphore is None:
+        if rpc_semaphore is not None:
+            self._rpc_semaphore = rpc_semaphore
+        elif XBridgeManager._rpc_semaphore is None:
             max_tasks = 5
             try:
                 max_tasks = self.config_manager.config_xbridge.max_concurrent_tasks
             except AttributeError:
                 self.logger.info(f"Falling back to default max_concurrent_tasks ({max_tasks})")
             XBridgeManager._rpc_semaphore = AsyncThreadingSemaphore(max_tasks)
+
+        self._rpc_semaphore = rpc_semaphore if rpc_semaphore is not None else XBridgeManager._rpc_semaphore
 
         # Check if RPC port is open (synchronous check)
         if not is_port_open("127.0.0.1", self.blocknet_port_rpc):
@@ -78,26 +91,54 @@ class XBridgeManager:
         else:
             self.logger.info(f'Blocknet RPC port {self.blocknet_port_rpc} is open.')
 
-        # if getattr(self.config_manager, 'strategy', None) == "arbitrage":
-        #     with XBridgeManager._xbridge_conf_lock:
-        #         if XBridgeManager._xbridge_conf_cache is None:
-        #             self.logger.info("Parsing xbridge.conf and calculating fees for the first time.")
-        #             # Load and parse the xbridge.conf file
-        #             self.parse_xbridge_conf()
-        #             # Calculate fee estimates
-        #             self.calculate_xbridge_fees()
-        #             # Cache the results
-        #             XBridgeManager._xbridge_conf_cache = self.xbridge_conf
-        #             XBridgeManager._xbridge_fees_cache = self.xbridge_fees_estimate
-        #         else:
-        #             self.logger.info("Using cached xbridge.conf and fee estimates.")
-        #             self.xbridge_conf = XBridgeManager._xbridge_conf_cache
-        #             self.xbridge_fees_estimate = XBridgeManager._xbridge_fees_cache
-
         # Only run test if port is actually open and we're not in main thread
         if (threading.current_thread() is not threading.main_thread() and is_port_open("127.0.0.1",
                                                                                        self.blocknet_port_rpc)):
             asyncio.run(self.async_test_rpc())
+
+        # Initialize circuit breaker for RPC calls
+        cb_config = CircuitBreakerConfig(
+            failure_threshold=5,
+            success_threshold=2,
+            timeout=30.0
+        )
+        self.circuit_breaker = CircuitBreaker(
+            name=f"xbridge_rpc_{strategy}",
+            config=cb_config,
+            logger=self.logger
+        )
+
+    async def _execute_rpc_call(
+        self,
+        method: str,
+        params: List[Any],
+        final_shutdown_event: Optional[asyncio.Event]
+    ) -> Any:
+        """Execute the actual RPC call. Used by circuit breaker."""
+        async with XBridgeManager._rpc_semaphore:
+            with XBridgeManager._rpc_counter_lock:
+                XBridgeManager._active_rpc_counter += 1
+
+            try:
+                try:
+                    return await rpc_call(
+                        method=method,
+                        params=params,
+                        rpc_user=self.blocknet_user_rpc,
+                        rpc_password=self.blocknet_password_rpc,
+                        rpc_port=self.blocknet_port_rpc,
+                        debug=self.config_manager.config_xbridge.debug_level,
+                        logger=self.logger,
+                        session=None,
+                        shutdown_event=final_shutdown_event,
+                        error_handler=getattr(self.config_manager, 'error_handler', None)
+                    )
+                except Exception as e:
+                    from definitions.errors import convert_exception
+                    raise convert_exception(e) from e
+            finally:
+                with XBridgeManager._rpc_counter_lock:
+                    XBridgeManager._active_rpc_counter -= 1
 
     async def rpc_wrapper(self, method: str, params: Optional[List[Any]] = None,
                          shutdown_event: Optional[asyncio.Event] = None, use_shutdown_event: bool = True) -> Any:
@@ -115,34 +156,17 @@ class XBridgeManager:
                 self.logger.debug(f"RPC call to {method} cancelled due to shutdown signal.")
                 return None
 
-        async with XBridgeManager._rpc_semaphore:
-            with XBridgeManager._rpc_counter_lock:
-                XBridgeManager._active_rpc_counter += 1
-
-            try:
-                # Default parameters
-                if params is None:
-                    params = []
-
-                try:
-                    return await rpc_call(
-                        method=method,
-                        params=params,
-                        rpc_user=self.blocknet_user_rpc,
-                        rpc_password=self.blocknet_password_rpc,
-                        rpc_port=self.blocknet_port_rpc,
-                        debug=self.config_manager.config_xbridge.debug_level,
-                        logger=self.logger,
-                        session=None,  # Create new session per call
-                        shutdown_event=final_shutdown_event,
-                        error_handler=getattr(self.config_manager, 'error_handler', None)
-                    )
-                except Exception as e:
-                    from definitions.errors import convert_exception
-                    raise convert_exception(e) from e
-            finally:
-                with XBridgeManager._rpc_counter_lock:
-                    XBridgeManager._active_rpc_counter -= 1
+        # Execute with circuit breaker protection
+        try:
+            return await self.circuit_breaker.call(
+                self._execute_rpc_call,
+                method,
+                params or [],
+                final_shutdown_event
+            )
+        except CircuitBreakerError as e:
+            self.logger.warning(f"Circuit breaker open for {method}: {e}")
+            return None
 
     async def async_test_rpc(self) -> bool:
         """Perform RPC connection test asynchronously with cancellation handling"""

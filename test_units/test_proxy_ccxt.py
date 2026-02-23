@@ -321,16 +321,15 @@ async def test_block_ticker_error_handling():
     """Test BLOCK ticker returns error on API failure."""
     config = MagicMock()
 
-    # Create a mock session that returns an error
     session = AsyncMock(spec=aiohttp.ClientSession)
     session.get.return_value.__aenter__.side_effect = aiohttp.ClientError("API timeout")
 
     fetcher = PriceFetcher(config, session)
     fetcher.ccxt_i = AsyncMock()
 
-    # First fetch (API call fails)
-    with pytest.raises(aiohttp.ClientError, match="API timeout"):
-        await fetcher.get_block_ticker()
+    with patch("asyncio.sleep", new_callable=AsyncMock):
+        with pytest.raises(aiohttp.ClientError, match="API timeout"):
+            await fetcher.get_block_ticker()
 
 
 @pytest.mark.asyncio
@@ -369,12 +368,11 @@ async def test_rate_limiting_exception(mock_price_fetcher):
     mock_ccxt = fetcher.ccxt_i
     mock_ccxt.fetchTickers.side_effect = ccxt.RateLimitExceeded("Rate limit exceeded")
 
-    # This should trigger retries and eventually fail
-    with pytest.raises(ccxt.RateLimitExceeded):
-        await fetcher.get_ccxt_tickers("BTC/USD")
+    with patch("asyncio.sleep", new_callable=AsyncMock):
+        with pytest.raises(ccxt.RateLimitExceeded):
+            await fetcher.get_ccxt_tickers("BTC/USD")
 
-    # Should have retried 3 times (default retry count)
-    assert mock_ccxt.fetchTickers.await_count == 3
+        assert mock_ccxt.fetchTickers.await_count == 3
 
 
 @pytest.mark.asyncio
@@ -410,16 +408,16 @@ async def test_network_failure_scenarios(mock_price_fetcher):
     """Test handling of network failures and timeouts."""
     fetcher = mock_price_fetcher
     mock_ccxt = fetcher.ccxt_i
-    mock_ccxt.fetchTickers.side_effect = aiohttp.ClientConnectionError
+    
+    with patch("asyncio.sleep", new_callable=AsyncMock):
+        mock_ccxt.fetchTickers.side_effect = aiohttp.ClientConnectionError
+        with pytest.raises(aiohttp.ClientConnectionError):
+            await fetcher.get_ccxt_tickers("BTC/USD")
 
-    # Test CCXT network failure
-    with pytest.raises(aiohttp.ClientConnectionError):
-        await fetcher.get_ccxt_tickers("BTC/USD")
-
-    # Test BLOCK API network failure
-    with patch('aiohttp.ClientSession.get', side_effect=aiohttp.ClientError("Simulated network failure")):
-        with pytest.raises(aiohttp.ClientError):
-            await fetcher.get_block_ticker()
+        fetcher.custom_tickers = {}  # Clear cache
+        with patch('aiohttp.ClientSession.get', side_effect=aiohttp.ClientError("Simulated network failure")):
+            with pytest.raises(aiohttp.ClientError):
+                await fetcher.get_block_ticker()
 
 
 @pytest.mark.asyncio

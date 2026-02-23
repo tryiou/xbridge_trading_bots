@@ -59,13 +59,17 @@ class CCXTManager:
                     cls._proxy_service_thread = None
                     cls._proxy_service_instance = None
 
-    def __init__(self, config_manager: Any) -> None:
+    def __init__(
+        self,
+        config_manager: Any,
+        logger: Optional[logging.Logger] = None,
+        error_handler: Optional[ErrorHandler] = None,
+    ) -> None:
         self.cex_orderbook: Optional[Dict[str, Any]] = None
         self.cex_orderbook_timer: Optional[float] = None
-        self.config_manager = config_manager  # Store ConfigManager reference
-        # Instance doesn't need its own proxy_process reference
-        self.error_handler = ErrorHandler(config_manager, logger=self.config_manager.ccxt_log)
-        self.logger = self.config_manager.ccxt_log
+        self.config_manager = config_manager
+        self.logger = logger or (self.config_manager.ccxt_log if hasattr(self.config_manager, 'ccxt_log') else logging.getLogger('ccxt_manager'))
+        self.error_handler = error_handler or ErrorHandler(config_manager, logger=self.logger)
 
     @classmethod
     def _cleanup_proxy(cls) -> None:
@@ -228,15 +232,15 @@ class CCXTManager:
         err_count = 0
 
         # Start proxy if needed before first attempt
-        if proxy and not is_port_open("127.0.0.1", 2233):
+        if proxy and not is_port_open("127.0.0.1", self._proxy_port):
             loop = asyncio.get_running_loop()
             await loop.run_in_executor(None, self._start_proxy)
 
         while True:
             try:
                 used_proxy = False
-                if is_port_open("127.0.0.1", 2233) and proxy:  # CCXT PROXY
-                    result = await rpc_call("ccxt_call_fetch_tickers", tuple(symbols_list), rpc_port=2233,
+                if is_port_open("127.0.0.1", self._proxy_port) and proxy:  # CCXT PROXY
+                    result = await rpc_call("ccxt_call_fetch_tickers", tuple(symbols_list), rpc_port=self._proxy_port,
                                             debug=self.config_manager.config_ccxt.debug_level,
                                             logger=self.config_manager.general_log, timeout=60)
                     used_proxy = True

@@ -6,8 +6,10 @@ from typing import TYPE_CHECKING, Optional, Any, Dict
 import aiohttp
 import yaml
 
+from definitions.constants import CCXT_PRICE_REFRESH_INTERVAL, DEFAULT_PROXY_PORT
 from definitions.errors import OperationalError
-from definitions.rpc import rpc_call
+from definitions.rpc import rpc_call, is_port_open
+
 
 if TYPE_CHECKING:
     # Only import during type checking to avoid circular imports
@@ -184,7 +186,7 @@ class CexToken:
             display: Flag to enable debug logging
         """
         if (self.cex_price_timer is not None and
-                time.time() - self.cex_price_timer <= 2):
+                time.time() - self.cex_price_timer <= CCXT_PRICE_REFRESH_INTERVAL):
             if display:
                 self.token.config_manager.general_log.debug(
                     f"Token.update_ccxt_price() too fast call? {self.token.symbol}")
@@ -271,10 +273,13 @@ class CexToken:
             self.usd_price = result if self.token.symbol == "BTC" else (
                     result * self.token.config_manager.tokens['BTC'].cex.usd_price)
             self.cex_price_timer = time.time()
+            btc_usd = self.token.config_manager.tokens['BTC'].cex.usd_price
+            btc_price_fmt = format(float(btc_usd), '.8f').rstrip('0').rstrip('.')
             self.token.config_manager.general_log.debug(
-                f"fetch_ticker {self.token.symbol}, BTC_PRICE: {format(float(self.cex_price), '.8f').rstrip('0').rstrip('.')}, "
+                f"fetch_ticker {self.token.symbol}, "
+                f"BTC_PRICE: {format(float(self.cex_price), '.8f').rstrip('0').rstrip('.')}, "
                 f"USD_PRICE: {format(float(self.usd_price), '.8f').rstrip('0').rstrip('.')}, "
-                f"BTC_USD_PRICE: {format(float(self.token.config_manager.tokens['BTC'].cex.usd_price), '.8f').rstrip('0').rstrip('.')}"
+                f"BTC_USD_PRICE: {btc_price_fmt}"
             )
 
         else:
@@ -292,8 +297,8 @@ class CexToken:
         async with aiohttp.ClientSession() as session:
             try:
                 # First try proxy if available
-                if self.token.config_manager.ccxt_manager.isportopen_sync("127.0.0.1", 2233):
-                    result = await rpc_call("fetch_ticker_block", rpc_port=2233, debug=2, session=session)
+                if is_port_open("127.0.0.1", DEFAULT_PROXY_PORT):
+                    result = await rpc_call("fetch_ticker_block", rpc_port=DEFAULT_PROXY_PORT, debug=2, session=session)
                     used_proxy = True
                 else:
                     # Fall back to cryptocompare API
@@ -313,9 +318,10 @@ class CexToken:
                     try:
                         result = float(result)
                     except (TypeError, ValueError):
+                        source = 'proxy' if used_proxy else 'cryptocompare'
                         await self.token.config_manager.error_handler.handle_async(
                             OperationalError(
-                                f"Invalid BLOCK ticker price from {'proxy' if used_proxy else 'cryptocompare'}: {result}"),
+                                f"Invalid BLOCK ticker price from {source}: {result}"),
                             context={"token": "BLOCK", "stage": "update_block_ticker"}
                         )
                         return None

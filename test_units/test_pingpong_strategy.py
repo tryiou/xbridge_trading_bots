@@ -469,15 +469,23 @@ class PingPongStrategyTester:
                 "[SUB-TEST PASSED] Correctly did not signal lock when price is below last sell.")
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="session")
 def mock_strategy():
     """Fixture to create a mock strategy instance for testing."""
-    config_manager = ConfigManager(strategy="pingpong")
-    config_manager.initialize()
-    return config_manager.strategy_instance
+    from unittest.mock import patch
+    
+    with patch('definitions.xbridge_manager.detect_rpc', return_value=("user", 1234, "pass", "/tmp")):
+        with patch('definitions.xbridge_manager.is_port_open', return_value=True):
+            with patch('definitions.ccxt_manager.CCXTManager'):
+                with patch('asyncio.run'):
+                    with patch('definitions.xbridge_manager.rpc_call'):
+                        from definitions.config_manager import ConfigManager
+                        config_manager = ConfigManager(strategy="pingpong")
+                        config_manager.initialize()
+                        return config_manager.strategy_instance
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="session")
 def pingpong_tester(mock_strategy):
     """Fixture to create a PingPongStrategyTester instance."""
     return PingPongStrategyTester(mock_strategy)

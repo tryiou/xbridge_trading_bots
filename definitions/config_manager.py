@@ -19,11 +19,6 @@ from strategies.basicseller_strategy import BasicSellerStrategy
 from strategies.pingpong_strategy import PingPongStrategy
 
 
-# from strategies.range_maker_strategy import RangeMakerStrategy
-# from strategies.thorchain_continuous_strategy import ThorChainContinuousStrategy
-# from strategies.arbitrage_strategy import ArbitrageStrategy
-
-
 class ConfigManager:
     def __init__(self, strategy: str, master_manager: Optional['ConfigManager'] = None):
         self.strategy = strategy
@@ -67,8 +62,6 @@ class ConfigManager:
         self.config_pingpong = None
         self.config_basicseller = None
         self.config_xbridge = None
-        # self.config_arbitrage = None
-        # self.config_thorchain = None
 
         # Mark role for resource management
         self.is_master = not master_manager
@@ -84,8 +77,6 @@ class ConfigManager:
             self.config_pingpong = master_manager.config_pingpong
             self.config_basicseller = master_manager.config_basicseller
             self.config_xbridge = master_manager.config_xbridge
-            # self.config_arbitrage = master_manager.config_arbitrage
-            # self.config_thorchain = master_manager.config_thorchain
 
             # Create new manager instances. They will be initialized with this
             # slave ConfigManager instance, giving them the correct logger.
@@ -217,22 +208,7 @@ class ConfigManager:
             )
             return YamlToObject(user_config)
 
-        def merge_configs(template, user):
-            updated = False
-            if not isinstance(user, dict) or not isinstance(template, dict):
-                return False
-            for key, value in template.items():
-                if key not in user:
-                    user[key] = value
-                    updated = True
-                    self.logger.info(
-                        f"Added missing key '{key}' to {os.path.basename(config_path)} from template.")
-                elif isinstance(value, dict) and isinstance(user.get(key), dict):
-                    if merge_configs(value, user.get(key, {})):
-                        updated = True
-            return updated
-
-        if merge_configs(template_config, user_config):
+        if self._merge_configs(template_config, user_config):
             try:
                 with open(config_path, 'w') as f:
                     yaml.dump(user_config, f)
@@ -260,6 +236,30 @@ class ConfigManager:
 
         return YamlToObject(user_config)
 
+    def _merge_configs(self, template: dict, user: dict) -> bool:
+        """Recursively merge template config into user config, adding missing keys.
+        
+        Args:
+            template: The template configuration dictionary.
+            user: The user configuration dictionary to merge into.
+            
+        Returns:
+            True if any keys were added, False otherwise.
+        """
+        updated = False
+        if not isinstance(user, dict) or not isinstance(template, dict):
+            return False
+        for key, value in template.items():
+            if key not in user:
+                user[key] = value
+                updated = True
+                self.logger.info(
+                    f"Added missing key '{key}' to config from template.")
+            elif isinstance(value, dict) and isinstance(user.get(key), dict):
+                if self._merge_configs(value, user.get(key, {})):
+                    updated = True
+        return updated
+
     def load_configs(self):
         self.create_configs_from_templates()
         self.config_ccxt = self._load_and_update_config("config_ccxt.yaml")
@@ -271,18 +271,19 @@ class ConfigManager:
             self.config_pingpong = self._load_and_update_config("config_pingpong.yaml")
         if self.strategy in ["basic_seller", "gui"]:
             self.config_basicseller = self._load_and_update_config("config_basic_seller.yaml")
-        # if self.strategy in ["arbitrage", "gui"]:
-        #     self.config_arbitrage = self._load_and_update_config("config_arbitrage.yaml")
-        #     self.config_thorchain = self._load_and_update_config("config_thorchain.yaml")
-
-        # if self.strategy in ["thorchain_continuous", "gui"]:
-        #     self.config_thorchain_continuous = self._load_and_update_config("config_thorchain_continuous.yaml")
 
         # Load and validate API keys
         self._load_and_validate_api_keys()
 
     def _get_config_type_from_filename(self, filename: str) -> Optional[str]:
-        """Extract configuration type from filename."""
+        """Extract configuration type from filename.
+        
+        Args:
+            filename: The config filename to map to a type.
+            
+        Returns:
+            The configuration type string or None if not recognized.
+        """
         mapping = {
             "config_ccxt.yaml": "ccxt",
             "config_coins.yaml": "coins",
@@ -294,7 +295,13 @@ class ConfigManager:
         return mapping.get(filename)
 
     def _handle_validation_error(self, config_type: str, file_path: str, validation_result: ValidationResult):
-        """Handle validation errors based on severity."""
+        """Handle validation errors based on severity.
+        
+        Args:
+            config_type: The type of configuration being validated.
+            file_path: Path to the config file that failed validation.
+            validation_result: The validation result containing errors.
+        """
         if config_type in ['ccxt', 'xbridge', 'api_keys']:
             # Critical configurations - log as error
             self.logger.error(f"Critical configuration validation failed for {config_type}: {validation_result}")
@@ -312,7 +319,12 @@ class ConfigManager:
             self.logger.warning(f"Configuration validation failed for {config_type}: {validation_result}")
 
     def _log_validation_result(self, config_type: str, validation_result: ValidationResult):
-        """Log validation result at appropriate level."""
+        """Log validation result at appropriate level.
+        
+        Args:
+            config_type: The type of configuration being validated.
+            validation_result: The validation result to log.
+        """
         if not validation_result.is_valid:
             if config_type in ['ccxt', 'xbridge', 'api_keys']:
                 self.logger.error(f"Validation failed for {config_type}: {validation_result}")
@@ -324,7 +336,11 @@ class ConfigManager:
             self.logger.debug(f"Configuration validation passed for {config_type}")
 
     def _load_and_validate_api_keys(self) -> Dict[str, Any]:
-        """Load and validate API keys configuration."""
+        """Load and validate API keys configuration.
+        
+        Returns:
+            Dictionary containing the API keys data.
+        """
         api_keys_path = os.path.join(self.ROOT_DIR, "config", "api_keys.local.json")
 
         # Validate file existence and readability
@@ -546,9 +562,6 @@ class ConfigManager:
             strategy_map = {
                 "pingpong": PingPongStrategy,
                 "basic_seller": BasicSellerStrategy,
-                # "arbitrage": ArbitrageStrategy,
-                # "range_maker": RangeMakerStrategy,
-                # "thorchain_continuous": ThorChainContinuousStrategy,
                 "gui": None,  # 'gui' strategy doesn't have a strategy instance
             }
             strategy_class = strategy_map.get(self.strategy)

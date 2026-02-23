@@ -141,7 +141,7 @@ async def test_cex_token_update_block_ticker(token):
     with patch('definitions.token.rpc_call', new_callable=AsyncMock) as mock_rpc, \
             patch('aiohttp.ClientSession.get') as mock_get:
         mock_rpc.return_value = 0.00015
-        with patch.object(token.config_manager.ccxt_manager, 'isportopen_sync', return_value=True):
+        with patch('definitions.token.is_port_open', return_value=True):
             result = await token.cex.update_block_ticker()
             assert result == 0.00015
             mock_rpc.assert_awaited_once()
@@ -156,7 +156,7 @@ async def test_cex_token_update_block_ticker(token):
         mock_response.json = AsyncMock(return_value={'BTC': 0.00016})
         mock_get.return_value.__aenter__.return_value = mock_response
 
-        with patch.object(token.config_manager.ccxt_manager, 'isportopen_sync', return_value=False):
+        with patch('definitions.token.is_port_open', return_value=False):
             result = await token.cex.update_block_ticker()
             assert result == 0.00016
             mock_rpc.assert_not_awaited()
@@ -167,7 +167,7 @@ async def test_cex_token_update_block_ticker(token):
             patch('aiohttp.ClientSession.get', new_callable=MagicMock) as mock_get:
         mock_rpc.side_effect = Exception("Proxy error")
         mock_get.side_effect = Exception("Network fail")
-        with patch.object(token.config_manager.ccxt_manager, 'isportopen_sync', return_value=False):
+        with patch('definitions.token.is_port_open', return_value=False):
             result = await token.cex.update_block_ticker()
             assert result is None
 
@@ -175,7 +175,7 @@ async def test_cex_token_update_block_ticker(token):
     with patch('definitions.token.rpc_call', new_callable=AsyncMock) as mock_rpc, \
             patch('aiohttp.ClientSession.get') as mock_get:
         mock_rpc.return_value = "invalid_price"
-        with patch.object(token.config_manager.ccxt_manager, 'isportopen_sync', return_value=True):
+        with patch('definitions.token.is_port_open', return_value=True):
             result = await token.cex.update_block_ticker()
             assert result is None
 
