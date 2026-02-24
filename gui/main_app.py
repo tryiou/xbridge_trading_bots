@@ -5,14 +5,17 @@ import threading
 import time
 import tkinter as tk
 from tkinter import ttk
-from typing import Any, Dict, List
+from typing import Any
 
 from ttkbootstrap import Style
 
 from definitions.config_manager import ConfigManager
 from gui.components.data_panels import BalancesPanel
 from gui.components.logging_components import LogFrame
-from gui.frames.strategy_frames import BasicSellerFrame, PingPongFrame #, ArbitrageFrame
+from gui.frames.strategy_frames import (
+    BasicSellerFrame,
+    PingPongFrame,
+)  # , ArbitrageFrame
 from gui.shutdown.gui_shutdown_coordinator import GUIShutdownCoordinator
 from gui.utils.logging_setup import setup_console_logging, setup_gui_logging
 
@@ -65,31 +68,29 @@ class MainApplication:
             # Signal handling and window close protocol are managed in main_gui.py
 
         except Exception as e:
-            error_msg = f"Critical error during application initialization: {str(e)}"
+            error_msg = f"Critical error during application initialization: {e!s}"
             logger.critical(error_msg, exc_info=True)
             # Use error handler if available
-            if hasattr(self, 'master_config_manager') and self.master_config_manager:
+            if hasattr(self, "master_config_manager") and self.master_config_manager:
                 self.master_config_manager.error_handler.handle(
-                    e,
-                    context={"stage": "application_init"}
+                    e, context={"stage": "application_init"}
                 )
             # Show error in UI if root exists
-            if hasattr(self, 'root') and self.root.winfo_exists():
+            if hasattr(self, "root") and self.root.winfo_exists():
                 self.status_var.set(error_msg)
             else:
                 print(error_msg)
 
     def _handle_balance_error(self, error: Exception, context: str) -> None:
         """Helper method to handle errors during balance updates."""
-        error_msg = f"Balance updater error: {str(error)}"
+        error_msg = f"Balance updater error: {error!s}"
         logger.error(error_msg, exc_info=True)
         if self.master_config_manager:
             self.master_config_manager.error_handler.handle(
-                error,
-                context={"stage": f"balance_{context}"}
+                error, context={"stage": f"balance_{context}"}
             )
 
-    def get_aggregated_balances_data(self) -> List[Dict[str, Any]]:
+    def get_aggregated_balances_data(self) -> list[dict[str, Any]]:
         """
         Aggregates token balances from all running strategy frames.
         This method is public to allow for direct testing.
@@ -98,29 +99,44 @@ class MainApplication:
         balances = {}
         with self.master_config_manager.resource_lock:
             for frame in self.strategy_frames.values():
-                if getattr(frame, 'config_manager', None) and hasattr(frame.config_manager, 'tokens'):
+                if getattr(frame, "config_manager", None) and hasattr(
+                        frame.config_manager, "tokens"
+                ):
                     tokens = frame.config_manager.tokens
                     for token_symbol, token_obj in tokens.items():
-                        if getattr(token_obj, 'cex', None) and getattr(token_obj, 'dex', None):
+                        if getattr(token_obj, "cex", None) and getattr(
+                                token_obj, "dex", None
+                        ):
                             balance_total = token_obj.dex_total_balance or 0.0
                             balance_free = token_obj.dex_free_balance or 0.0
-                            usd_price = token_obj.cex_usd_price if token_obj.cex_usd_price is not None else 0.0
+                            usd_price = (
+                                token_obj.cex_usd_price
+                                if token_obj.cex_usd_price is not None
+                                else 0.0
+                            )
 
                             if token_symbol not in balances:
                                 balances[token_symbol] = {
                                     "symbol": token_symbol,
                                     "usd_price": usd_price,
                                     "total": balance_total,
-                                    "free": balance_free
+                                    "free": balance_free,
                                 }
                             else:
                                 existing_balance = balances[token_symbol]
-                                existing_balance["total"] = max(existing_balance["total"], balance_total)
-                                existing_balance["free"] = max(existing_balance["free"], balance_free)
-                                existing_balance["usd_price"] = usd_price if usd_price > 0 else existing_balance[
-                                    "usd_price"]
+                                existing_balance["total"] = max(
+                                    existing_balance["total"], balance_total
+                                )
+                                existing_balance["free"] = max(
+                                    existing_balance["free"], balance_free
+                                )
+                                existing_balance["usd_price"] = (
+                                    usd_price
+                                    if usd_price > 0
+                                    else existing_balance["usd_price"]
+                                )
         # Return sorted by symbol
-        return sorted(balances.values(), key=lambda x: x['symbol'])
+        return sorted(balances.values(), key=lambda x: x["symbol"])
 
     def _init_root_window(self, root) -> None:
         """Initialize root window properties and signals."""
@@ -161,23 +177,25 @@ class MainApplication:
     def _create_main_structure(self) -> None:
         """Create main panels and layout structure."""
         main_panel = ttk.Frame(self.root)
-        main_panel.pack(fill='both', expand=True, padx=10, pady=10)
+        main_panel.pack(fill="both", expand=True, padx=10, pady=10)
 
         # Create notebook for tabs
         self.notebook = ttk.Notebook(main_panel)
-        self.notebook.pack(fill='both', expand=True, pady=10)
+        self.notebook.pack(fill="both", expand=True, pady=10)
 
         # Create shared balances panel below notebook
         balances_frame = ttk.LabelFrame(main_panel, text="Balances")
-        balances_frame.pack(fill='x', padx=5, pady=(0, 5))
+        balances_frame.pack(fill="x", padx=5, pady=(0, 5))
         self.balances_panel = BalancesPanel(balances_frame)
-        self.balances_panel.pack(fill='both', expand=True)
+        self.balances_panel.pack(fill="both", expand=True)
 
     def _init_strategy_frames(self) -> None:
         """Initialize and add all strategy frames to the notebook."""
         self.strategy_frames = {
-            'PingPong': PingPongFrame(self.notebook, self, self.master_config_manager),
-            'Basic Seller': BasicSellerFrame(self.notebook, self, self.master_config_manager),
+            "PingPong": PingPongFrame(self.notebook, self, self.master_config_manager),
+            "Basic Seller": BasicSellerFrame(
+                self.notebook, self, self.master_config_manager
+            ),
             # 'Arbitrage': ArbitrageFrame(self.notebook, self, self.master_config_manager),
         }
         for text, frame in self.strategy_frames.items():
@@ -189,7 +207,7 @@ class MainApplication:
         # Create and add the log frame as the last tab
         logger.debug("Initializing log frame")
         self.log_frame = LogFrame(self.notebook)
-        self.notebook.add(self.log_frame, text='Logs')
+        self.notebook.add(self.log_frame, text="Logs")
         setup_gui_logging(self.log_frame)
 
     def _init_balance_updater(self) -> None:
@@ -197,8 +215,8 @@ class MainApplication:
         # Create and start balance updater thread
         self.balance_updater_thread = threading.Thread(
             target=self._run_balance_updater,
-            name=f"BalanceUpdater-{str(time.time())}",
-            daemon=True
+            name=f"BalanceUpdater-{time.time()!s}",
+            daemon=True,
         )
         self.balance_updater_thread.start()
 
@@ -222,7 +240,7 @@ class MainApplication:
         """Create status bar with live status updates at bottom of window."""
         status_frame = ttk.Frame(self.root)
         status_frame.pack(side="bottom", fill="x", padx=5, pady=5)
-        status_label = ttk.Label(status_frame, textvariable=self.status_var, anchor='w')
+        status_label = ttk.Label(status_frame, textvariable=self.status_var, anchor="w")
         status_label.pack(fill="x")
 
     def on_closing(self) -> None:
@@ -281,44 +299,53 @@ class MainApplication:
             # Use centralized error handling
             if self.master_config_manager:
                 self.master_config_manager.error_handler.handle(
-                    e,
-                    context={"stage": "process_balance_updates"}
+                    e, context={"stage": "process_balance_updates"}
                 )
         finally:
             if self.root.winfo_exists():  # Only reschedule if still running
-                self.root.after(250, self._process_balance_updates)  # Schedule next check
+                self.root.after(
+                    250, self._process_balance_updates
+                )  # Schedule next check
 
     def notify_strategy_started(self, strategy_name: str) -> None:
         """Notifies MainApplication that a strategy has started."""
         self.running_strategies.add(strategy_name)
-        logger.info(f"Strategy '{strategy_name}' started. Active strategies: {len(self.running_strategies)}")
+        logger.info(
+            f"Strategy '{strategy_name}' started. Active strategies: {len(self.running_strategies)}"
+        )
 
     def notify_strategy_stopped(self, strategy_name: str) -> None:
         """Notifies MainApplication that a strategy has stopped."""
         if strategy_name in self.running_strategies:
             self.running_strategies.remove(strategy_name)
-            logger.info(f"Strategy '{strategy_name}' stopped. Active strategies: {len(self.running_strategies)}")
+            logger.info(
+                f"Strategy '{strategy_name}' stopped. Active strategies: {len(self.running_strategies)}"
+            )
             # If no strategies are running, clear the balances display
             if not self.running_strategies:
                 self.balances_panel.update_data(self._get_initial_balances_data())
 
-    def _get_initial_balances_data(self) -> List[Dict[str, Any]]:
+    def _get_initial_balances_data(self) -> list[dict[str, Any]]:
         """Returns the initial state of aggregate coins with 0.00 value for each field, sorted by token symbol."""
         initial_balances = []
         with self.master_config_manager.resource_lock:
             # Collect all unique tokens from all strategy frames to get the full list of aggregate coins
             all_tokens = {}
             for frame in self.strategy_frames.values():
-                if getattr(frame, 'config_manager', None) and hasattr(frame.config_manager, 'tokens'):
+                if getattr(frame, "config_manager", None) and hasattr(
+                        frame.config_manager, "tokens"
+                ):
                     for token_symbol, token_obj in frame.config_manager.tokens.items():
                         all_tokens[token_symbol] = token_obj
 
-            for token_symbol in all_tokens.keys():
-                initial_balances.append({
-                    "symbol": token_symbol,
-                    "usd_price": 0.00,
-                    "total": 0.00,
-                    "free": 0.00
-                })
+            for token_symbol in all_tokens:
+                initial_balances.append(
+                    {
+                        "symbol": token_symbol,
+                        "usd_price": 0.00,
+                        "total": 0.00,
+                        "free": 0.00,
+                    }
+                )
         # Sort by symbol
-        return sorted(initial_balances, key=lambda x: x['symbol'])
+        return sorted(initial_balances, key=lambda x: x["symbol"])

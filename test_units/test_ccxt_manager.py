@@ -1,26 +1,23 @@
+import asyncio
+import logging
 import sys
 from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import ccxt
+import pytest
 
 # Add parent directory to path to resolve the 'definitions' module
 project_root = Path(__file__).parent.parent
 sys.path.append(str(project_root))
 
-import asyncio
-import json
-import logging
-from unittest.mock import AsyncMock, MagicMock, patch, mock_open
-
-import ccxt
-import pytest
-
-# Note: We need to mock the environment where CCXTManager operates
-from definitions.ccxt_manager import CCXTManager
+from definitions.ccxt_manager import CCXTManager  # noqa: E402
 
 
 @pytest.fixture
 def mock_config_manager():
     manager = MagicMock()
-    manager.ROOT_DIR = '/fake/project/root'
+    manager.ROOT_DIR = "/fake/project/root"
     manager.ccxt_log = MagicMock(spec=logging.Logger)
     manager.general_log = MagicMock(spec=logging.Logger)
     manager.config_ccxt = MagicMock(debug_level=1)
@@ -31,7 +28,6 @@ def mock_config_manager():
 
 
 class TestCCXTManager:
-
     @pytest.fixture(autouse=True)
     def setup(self, mock_config_manager):
         self.mock_cm = mock_config_manager
@@ -96,16 +92,20 @@ class TestCCXTManager:
         mock_exchange = MagicMock()
         mock_binance.return_value = mock_exchange
         self.mock_cm.secrets_manager.get_api_keys.return_value = {
-            "api_info": [{"exchange": "binance", "api_key": "key1", "api_secret": "sec1"}]
+            "api_info": [
+                {"exchange": "binance", "api_key": "key1", "api_secret": "sec1"}
+            ]
         }
-        instance = self.manager.init_ccxt_instance("binance", private_api=True)
+        self.manager.init_ccxt_instance("binance", private_api=True)
 
-        mock_binance.assert_called_once_with({
-            'apiKey': 'key1',
-            'secret': 'sec1',
-            'enableRateLimit': True,
-            'rateLimit': 1000,
-        })
+        mock_binance.assert_called_once_with(
+            {
+                "apiKey": "key1",
+                "secret": "sec1",
+                "enableRateLimit": True,
+                "rateLimit": 1000,
+            }
+        )
         self.manager.logger.error.assert_not_called()
         self.mock_cm.ccxt_log.error.assert_not_called()
 
@@ -116,18 +116,20 @@ class TestCCXTManager:
         mock_exchange = MagicMock()
         mock_binance.return_value = mock_exchange
 
-        instance = self.manager.init_ccxt_instance("binance", hostname="global.binance.com")
+        self.manager.init_ccxt_instance("binance", hostname="global.binance.com")
 
         self.manager.logger.error.assert_not_called()
         self.mock_cm.ccxt_log.error.assert_not_called()
         # Check binance was initialized correctly with hostname in the config
-        mock_binance.assert_called_once_with({
-            'apiKey': None,
-            'secret': None,
-            'enableRateLimit': True,
-            'rateLimit': 1000,
-            'hostname': 'global.binance.com',
-        })
+        mock_binance.assert_called_once_with(
+            {
+                "apiKey": None,
+                "secret": None,
+                "enableRateLimit": True,
+                "rateLimit": 1000,
+                "hostname": "global.binance.com",
+            }
+        )
 
     @patch("definitions.ccxt_manager.is_port_open")
     @patch("definitions.ccxt_manager.getattr")
@@ -139,7 +141,10 @@ class TestCCXTManager:
         self.mock_cm.ccxt_log.error.assert_called_once()
 
     @pytest.mark.asyncio
-    @patch("definitions.ccxt_manager.CCXTManager._ccxt_blocking_call_with_retry", new_callable=AsyncMock)
+    @patch(
+        "definitions.ccxt_manager.CCXTManager._ccxt_blocking_call_with_retry",
+        new_callable=AsyncMock,
+    )
     async def test_fetch_order_book_with_rate_limit(self, mock_retry):
         mock_retry.return_value = {"bids": [], "asks": []}
         mock_ccxt = MagicMock()
@@ -148,7 +153,10 @@ class TestCCXTManager:
         assert result == mock_retry.return_value
 
     @pytest.mark.asyncio
-    @patch("definitions.ccxt_manager.CCXTManager._ccxt_blocking_call_with_retry", new_callable=AsyncMock)
+    @patch(
+        "definitions.ccxt_manager.CCXTManager._ccxt_blocking_call_with_retry",
+        new_callable=AsyncMock,
+    )
     async def test_fetch_free_balance(self, mock_retry):
         mock_retry.return_value = {"BTC": 1.5}
         mock_ccxt = MagicMock()
@@ -163,12 +171,15 @@ class TestCCXTManager:
         mock_ccxt = MagicMock()
         # Set port closed to trigger proxy start, then open to use it
         with patch("definitions.ccxt_manager.is_port_open", side_effect=[False, True]):
-            result = await self.manager.ccxt_call_fetch_tickers(mock_ccxt, ["BTC/USDT"])
+            await self.manager.ccxt_call_fetch_tickers(mock_ccxt, ["BTC/USDT"])
             mock_start_proxy.assert_called_once()
             mock_rpc_call.assert_awaited_once()
 
     def test_start_proxy_handles_process_creation_failure(self):
-        with patch("definitions.ccxt_manager.AsyncPriceService", side_effect=OSError("Process error")):
+        with patch(
+                "definitions.ccxt_manager.AsyncPriceService",
+                side_effect=OSError("Process error"),
+        ):
             self.manager._start_proxy()
             CCXTManager._proxy_logger.error.assert_called()
             # Verify the proxy process is set to None after failure
@@ -182,7 +193,7 @@ class TestCCXTManager:
             (1, [], 0, 0),  # Level 1: no logging
             (2, ["function_name", "params"], 1, 0),  # Level 2: info log
             (3, ["function_name", "params"], 1, 0),  # Level 3: info with params
-            (4, ["function_name", "params"], 1, 1)  # Level 4: info + debug
+            (4, ["function_name", "params"], 1, 1),  # Level 4: info + debug
         ]
 
         for level, params, expected_info_calls, expected_debug_calls in test_cases:
@@ -197,7 +208,7 @@ class TestCCXTManager:
     async def test_ccxt_blocking_retry(self, mock_loop):
         # Setup a mock function that fails then succeeds
         future1 = asyncio.Future()
-        future1.set_exception(Exception('Transient'))
+        future1.set_exception(Exception("Transient"))
         future2 = asyncio.Future()
         future2.set_result("Success")
         mock_loop.return_value.run_in_executor.side_effect = [future1, future2]

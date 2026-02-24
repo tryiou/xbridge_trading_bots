@@ -1,6 +1,7 @@
 """
 Unit tests for configuration validation system.
 """
+
 import logging
 import os
 import sys
@@ -9,17 +10,17 @@ import unittest
 from unittest.mock import patch
 
 # Add the root directory to the Python path
-sys.path.insert(0, '/home/tryou/Documents/share/xbridge_trading_bots')
+sys.path.insert(0, "/home/tryou/Documents/share/xbridge_trading_bots")
 
 from definitions.config_validation import (
-    ConfigValidationManager,
-    ValidationResult,
+    APIKeysConfigValidator,
+    BasicSellerConfigValidator,
     CCXTConfigValidator,
     CoinsConfigValidator,
+    ConfigValidationManager,
     PingPongConfigValidator,
-    BasicSellerConfigValidator,
+    ValidationResult,
     XBridgeConfigValidator,
-    APIKeysConfigValidator
 )
 
 
@@ -52,7 +53,9 @@ class TestValidationResult(unittest.TestCase):
         self.assertEqual(str(result), expected)
 
         result.add_error("Test error")
-        expected = "INVALID\nErrors (1):\n  - Test error\nWarnings (1):\n  - Test warning"
+        expected = (
+            "INVALID\nErrors (1):\n  - Test error\nWarnings (1):\n  - Test warning"
+        )
         self.assertEqual(str(result), expected)
 
 
@@ -65,7 +68,7 @@ class TestCCXTConfigValidator(unittest.TestCase):
             "ccxt_exchange": "binance",
             "ccxt_hostname": None,
             "debug_level": 3,
-            "use_proxy": True
+            "use_proxy": True,
         }
 
     def test_valid_config(self):
@@ -107,12 +110,7 @@ class TestCoinsConfigValidator(unittest.TestCase):
 
     def setUp(self):
         self.validator = CoinsConfigValidator()
-        self.valid_config = {
-            "usd_ticker_custom": {
-                "BLOCK": 0.035,
-                "UNO": 5
-            }
-        }
+        self.valid_config = {"usd_ticker_custom": {"BLOCK": 0.035, "UNO": 5}}
 
     def test_valid_config(self):
         """Test valid coins configuration."""
@@ -159,9 +157,9 @@ class TestPingPongConfigValidator(unittest.TestCase):
                     "price_variation_tolerance": 0.02,
                     "sell_price_offset": 0.05,
                     "usd_amount": 1,
-                    "spread": 0.1
+                    "spread": 0.1,
                 }
-            ]
+            ],
         }
 
     def test_valid_config(self):
@@ -218,7 +216,7 @@ class TestBasicSellerConfigValidator(unittest.TestCase):
                     "pair": "BLOCK/LTC",
                     "amount_to_sell": 100.0,
                     "min_sell_price_usd": 0.04,
-                    "sell_price_offset": 0.015
+                    "sell_price_offset": 0.015,
                 }
             ]
         }
@@ -256,12 +254,9 @@ class TestXBridgeConfigValidator(unittest.TestCase):
         self.validator = XBridgeConfigValidator()
         self.valid_config = {
             "taker_fee_block": 0.015,
-            "monitoring": {
-                "timeout": 300,
-                "poll_interval": 15
-            },
+            "monitoring": {"timeout": 300, "poll_interval": 15},
             "debug_level": 3,
-            "max_concurrent_tasks": 5
+            "max_concurrent_tasks": 5,
         }
 
     def test_valid_config(self):
@@ -301,7 +296,7 @@ class TestAPIKeysConfigValidator(unittest.TestCase):
                 {
                     "exchange": "binance",
                     "api_key": "real_api_key",
-                    "api_secret": "real_api_secret"
+                    "api_secret": "real_api_secret",
                 }
             ]
         }
@@ -355,7 +350,9 @@ class TestConfigValidationManager(unittest.TestCase):
     def test_file_existence_validation(self):
         """Test file existence validation."""
         # Test with non-existent file
-        result = self.manager.validate_file_existence_and_readability("/fake/nonexistent/file.yaml")
+        result = self.manager.validate_file_existence_and_readability(
+            "/fake/nonexistent/file.yaml"
+        )
         self.assertFalse(result.is_valid)
         self.assertIn("does not exist", result.errors[0])
 
@@ -365,7 +362,7 @@ class TestConfigValidationManager(unittest.TestCase):
 
         # Create a temporary file with invalid JSON
         temp_file = "/tmp/test_invalid.json"
-        with open(temp_file, 'w') as f:
+        with open(temp_file, "w") as f:
             f.write('{"invalid": json content}')
 
         result = self.manager.validate_file_format(temp_file, "json")
@@ -373,8 +370,8 @@ class TestConfigValidationManager(unittest.TestCase):
 
         # Test wrong extension detection
         temp_yaml_file = "/tmp/test.yaml"
-        with open(temp_yaml_file, 'w') as f:
-            f.write('test: value')
+        with open(temp_yaml_file, "w") as f:
+            f.write("test: value")
 
         # Should fail because we're expecting JSON but file has .yaml extension
         result = self.manager.validate_file_format(temp_yaml_file, "json")
@@ -408,6 +405,7 @@ class TestConfigManagerValidation(unittest.TestCase):
     def tearDown(self):
         # Clean up temporary directory
         import shutil
+
         shutil.rmtree(self.temp_dir)
 
     def create_template_files(self):
@@ -457,18 +455,20 @@ max_concurrent_tasks: 5
     }
   ]
 }
-"""
+""",
         }
 
         for filename, content in templates.items():
             template_path = os.path.join(self.templates_dir, filename)
-            with open(template_path, 'w') as f:
+            with open(template_path, "w") as f:
                 f.write(content.strip())
 
-    @patch('definitions.config_manager.setup_logging')
-    @patch('definitions.config_manager.setup_logger')
-    @patch('definitions.error_handler.ErrorHandler')
-    def test_config_manager_with_validation(self, mock_error_handler, mock_setup_logger, mock_setup_logging):
+    @patch("definitions.config_manager.setup_logging")
+    @patch("definitions.config_manager.setup_logger")
+    @patch("definitions.error_handler.ErrorHandler")
+    def test_config_manager_with_validation(
+            self, mock_error_handler, mock_setup_logger, mock_setup_logging
+    ):
         """Test ConfigManager with validation enabled."""
         # Mock the logging setup
         mock_logger = unittest.mock.MagicMock()
@@ -482,33 +482,34 @@ max_concurrent_tasks: 5
             "config_pingpong.yaml": "debug_level: 2\npair_configs: []\n",
             "config_basic_seller.yaml": "seller_configs: []\n",
             "config_xbridge.yaml": "taker_fee_block: 0.015\ndebug_level: 3\n",
-            "api_keys.local.json": '{"api_info": []}'
+            "api_keys.local.json": '{"api_info": []}',
         }
 
         for filename, content in config_files.items():
             config_path = os.path.join(self.config_dir, filename)
-            with open(config_path, 'w') as f:
+            with open(config_path, "w") as f:
                 f.write(content)
 
         # Mock os.path.abspath
-        with patch('os.path.abspath', return_value=self.temp_dir):
+        with patch("os.path.abspath", return_value=self.temp_dir):
             # Import after patching to avoid import-time errors
             import sys
             from unittest.mock import MagicMock
 
             # Mock modules that may not be available
-            sys.modules['definitions.ccxt_manager'] = MagicMock()
-            sys.modules['definitions.xbridge_manager'] = MagicMock()
-            sys.modules['strategies.base_strategy'] = MagicMock()
-            sys.modules['strategies.basicseller_strategy'] = MagicMock()
-            sys.modules['strategies.pingpong_strategy'] = MagicMock()
+            sys.modules["definitions.ccxt_manager"] = MagicMock()
+            sys.modules["definitions.xbridge_manager"] = MagicMock()
+            sys.modules["strategies.base_strategy"] = MagicMock()
+            sys.modules["strategies.basicseller_strategy"] = MagicMock()
+            sys.modules["strategies.pingpong_strategy"] = MagicMock()
 
             try:
                 from definitions.config_manager import ConfigManager
+
                 config_manager = ConfigManager("pingpong")
                 self.assertTrue(config_manager.validation_enabled)
                 self.assertIsNotNone(config_manager.validation_manager)
-            except Exception as e:
+            except Exception:
                 # Expected since we're mocking many dependencies - that's fine for this test
                 pass
 
@@ -519,7 +520,7 @@ max_concurrent_tasks: 5
         pass
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     # Set up logging to reduce test output noise
     logging.basicConfig(level=logging.WARNING)
 

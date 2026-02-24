@@ -4,17 +4,24 @@ import statistics
 import sys
 import time
 from pathlib import Path
-from unittest.mock import MagicMock, patch, AsyncMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import aiohttp
 import pytest
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from definitions.error_handler import ErrorHandler, TransientError, OperationalError
-from definitions.errors import ConfigurationError, ExchangeError, StrategyError, CriticalError, \
-    GUIRenderingError, RPCConfigError
 import asyncio
+
+from definitions.error_handler import ErrorHandler, OperationalError, TransientError
+from definitions.errors import (
+    ConfigurationError,
+    CriticalError,
+    ExchangeError,
+    GUIRenderingError,
+    RPCConfigError,
+    StrategyError,
+)
 
 
 # Static Analysis Verification
@@ -27,45 +34,64 @@ class ErrorHandlingVisitor(ast.NodeVisitor):
         for handler in node.handlers:
             # Check for bare except blocks (this is always a violation)
             if handler.type is None:
-                self.violations.append({
-                    "file": self.current_file,
-                    "line": handler.lineno,
-                    "message": "Bare except block",
-                    "code": self.get_code_snippet(handler.lineno)
-                })
+                self.violations.append(
+                    {
+                        "file": self.current_file,
+                        "line": handler.lineno,
+                        "message": "Bare except block",
+                        "code": self.get_code_snippet(handler.lineno),
+                    }
+                )
                 continue
 
             # Only check for missing error_handler.handle() calls in specific error types
             # that should be handled by our error handler
-            if (isinstance(handler.type, ast.Name) and
-                    handler.type.id in ["TransientError", "OperationalError", "CriticalError"]):
+            if isinstance(handler.type, ast.Name) and handler.type.id in [
+                "TransientError",
+                "OperationalError",
+                "CriticalError",
+            ]:
                 uses_handler = False
                 for stmt in handler.body:
-                    if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call):
-                        if (isinstance(stmt.value.func, ast.Attribute) and
-                                stmt.value.func.attr == "handle" and
-                                isinstance(stmt.value.func.value, ast.Name) and
-                                stmt.value.func.value.id == "error_handler"):
-                            uses_handler = True
+                    if (
+                        isinstance(stmt, ast.Expr)
+                        and isinstance(stmt.value, ast.Call)
+                        and isinstance(stmt.value.func, ast.Attribute)
+                        and stmt.value.func.attr == "handle"
+                        and isinstance(stmt.value.func.value, ast.Name)
+                        and stmt.value.func.value.id == "error_handler"
+                    ):
+                        uses_handler = True
 
                 if not uses_handler:
-                    self.violations.append({
-                        "file": self.current_file,
-                        "line": handler.lineno,
-                        "message": f"Missing error_handler.handle() call for {handler.type.id}",
-                        "code": self.get_code_snippet(handler.lineno)
-                    })
+                    self.violations.append(
+                        {
+                            "file": self.current_file,
+                            "line": handler.lineno,
+                            "message": f"Missing error_handler.handle() call for {handler.type.id}",
+                            "code": self.get_code_snippet(handler.lineno),
+                        }
+                    )
 
         self.generic_visit(node)
 
     def visit_Raise(self, node):
         # Only check for context parameter in our custom error types
-        if (isinstance(node.exc, ast.Call) and
-                hasattr(node.exc.func, "id") and
-                node.exc.func.id in ["TransientError", "OperationalError", "CriticalError",
-                                     "ConfigurationError", "ExchangeError", "StrategyError",
-                                     "GUIRenderingError", "RPCConfigError"]):
-
+        if (
+            isinstance(node.exc, ast.Call)
+            and hasattr(node.exc.func, "id")
+            and node.exc.func.id
+            in [
+                "TransientError",
+                "OperationalError",
+                "CriticalError",
+                "ConfigurationError",
+                "ExchangeError",
+                "StrategyError",
+                "GUIRenderingError",
+                "RPCConfigError",
+            ]
+        ):
             has_context = False
             for keyword in node.exc.keywords:
                 if keyword.arg == "context":
@@ -73,17 +99,19 @@ class ErrorHandlingVisitor(ast.NodeVisitor):
                     break
 
             if not has_context:
-                self.violations.append({
-                    "file": self.current_file,
-                    "line": node.lineno,
-                    "message": f"Error {node.exc.func.id} raised without context parameter",
-                    "code": self.get_code_snippet(node.lineno)
-                })
+                self.violations.append(
+                    {
+                        "file": self.current_file,
+                        "line": node.lineno,
+                        "message": f"Error {node.exc.func.id} raised without context parameter",
+                        "code": self.get_code_snippet(node.lineno),
+                    }
+                )
 
         self.generic_visit(node)
 
     def get_code_snippet(self, lineno):
-        with open(self.current_file, "r") as f:
+        with open(self.current_file) as f:
             lines = f.readlines()
             start = max(0, lineno - 3)
             end = min(len(lines), lineno + 2)
@@ -101,7 +129,7 @@ def test_static_analysis():
         "definitions/ccxt_manager.py",
         "definitions/rpc.py",
         "definitions/xbridge_manager.py",
-        "definitions/detect_rpc.py"  # New module to analyze
+        "definitions/detect_rpc.py",  # New module to analyze
     ]
 
     violations = []
@@ -109,20 +137,24 @@ def test_static_analysis():
         full_path = project_root / module_path
         if full_path.exists():
             visitor.current_file = str(full_path)
-            with open(full_path, "r") as f:
+            with open(full_path) as f:
                 try:
                     tree = ast.parse(f.read())
                     visitor.visit(tree)
                 except SyntaxError:
-                    violations.append({
-                        "file": str(full_path),
-                        "line": 0,
-                        "message": "Syntax error in file",
-                        "code": ""
-                    })
+                    violations.append(
+                        {
+                            "file": str(full_path),
+                            "line": 0,
+                            "message": "Syntax error in file",
+                            "code": "",
+                        }
+                    )
 
     # Assert no violations found
-    assert len(visitor.violations) == 0, f"Static analysis violations found: {visitor.violations}"
+    assert len(visitor.violations) == 0, (
+        f"Static analysis violations found: {visitor.violations}"
+    )
 
 
 # Error Scenario Tests
@@ -145,7 +177,7 @@ class MockConfigManager:
         self._notify_user_mock(level=level, message=message, details=details)
 
         # Update GUI status bar if available
-        if self.gui_app and hasattr(self.gui_app, 'status_var'):
+        if self.gui_app and hasattr(self.gui_app, "status_var"):
             self.gui_app.status_var.set(f"{level.upper()}: {message}")
 
     async def async_notify_user(self, level, message, details):
@@ -193,20 +225,17 @@ def test_transient_error_retry_success(error_handler):
 def test_operational_error_notification(error_handler):
     """Test operational error triggers notification"""
     with patch.object(error_handler.config_manager, "_notify_user_mock") as mock_notify:
-        error_handler.handle(
-            OperationalError("Config error"),
-            {"file": "config.yaml"}
-        )
+        error_handler.handle(OperationalError("Config error"), {"file": "config.yaml"})
         mock_notify.assert_called_once_with(
             level="warning",
             message="Operational Error: OperationalError: Config error | Context: {}",
             details={
-                'file': 'config.yaml',
-                'error_type': 'OperationalError',
-                '__cause__': None,
-                'strategy': 'arbitrage',
-                'module': 'trade_executor'
-            }
+                "file": "config.yaml",
+                "error_type": "OperationalError",
+                "__cause__": None,
+                "strategy": "arbitrage",
+                "module": "trade_executor",
+            },
         )
 
 
@@ -224,32 +253,34 @@ def test_critical_error_shutdown(error_handler):
 def test_rpc_error_propagates_to_shutdown():
     """Test RPCConfigError propagates to clean shutdown"""
     from definitions.starter import run_async_main
+
     mock_config = MagicMock()
 
-    with patch("definitions.shutdown.ShutdownCoordinator.unified_shutdown") as mock_shutdown, \
-            patch("definitions.starter.MainController") as MockController, \
-            patch("definitions.ccxt_manager.CCXTManager._cleanup_proxy") as mock_cleanup:
+    with (
+        patch(
+            "definitions.shutdown.ShutdownCoordinator.unified_shutdown"
+        ) as _mock_shutdown,
+        patch("definitions.starter.MainController") as MockController,
+        patch("definitions.ccxt_manager.CCXTManager._cleanup_proxy") as _mock_cleanup,
+    ):
         # Simulate RPCConfigError during initialization with port details
         MockController.side_effect = RPCConfigError(
             "Invalid RPC config",
             {
                 "path": "/bad/path",
                 "rpc_port": 2233,  # CCXT proxy port
-                "blocknet_port": 44552  # Default RPC port
-            }
+                "blocknet_port": 44552,  # Default RPC port
+            },
         )
 
-        with patch.object(mock_config.general_log, 'critical') as mock_critical:
+        with patch.object(mock_config.general_log, "critical") as mock_critical:
             with pytest.raises(RPCConfigError):
                 run_async_main(mock_config)
 
             # Verify RPC port details in context
-            assert "/bad/path" in mock_critical.call_args[0][
-                0]  # From error context
-            assert "2233" in mock_critical.call_args[0][
-                0]  # CCXT proxy port
-            assert "44552" in mock_critical.call_args[0][
-                0]  # Default RPC port
+            assert "/bad/path" in mock_critical.call_args[0][0]  # From error context
+            assert "2233" in mock_critical.call_args[0][0]  # CCXT proxy port
+            assert "44552" in mock_critical.call_args[0][0]  # Default RPC port
 
             # Unified shutdown only called for SystemExit/KeyboardInterrupt
             # RPC errors are handled separately in finally block
@@ -258,21 +289,25 @@ def test_rpc_error_propagates_to_shutdown():
 
 
 # Error classification tests
-@pytest.mark.parametrize("error,expected_type", [
-    (ConfigurationError("Invalid config"), OperationalError),
-    (RPCConfigError("Invalid RPC path"), OperationalError),
-    (ExchangeError("API timeout"), TransientError),
-    (StrategyError("Logic failure"), OperationalError),
-    (GUIRenderingError("Display issue"), OperationalError),
-    # ValueError is handled as RPCConfigError, an OperationalError
-    (ValueError("Generic error"), OperationalError)
-])
+@pytest.mark.parametrize(
+    "error,expected_type",
+    [
+        (ConfigurationError("Invalid config"), OperationalError),
+        (RPCConfigError("Invalid RPC path"), OperationalError),
+        (ExchangeError("API timeout"), TransientError),
+        (StrategyError("Logic failure"), OperationalError),
+        (GUIRenderingError("Display issue"), OperationalError),
+        # ValueError is handled as RPCConfigError, an OperationalError
+        (ValueError("Generic error"), OperationalError),
+    ],
+)
 def test_error_classification(error, expected_type, error_handler):
     """Test proper error classification"""
-    with patch.object(ErrorHandler, "_handle_critical") as mock_critical, \
-            patch.object(ErrorHandler, "_handle_operational") as mock_operational, \
-            patch.object(ErrorHandler, "_handle_transient") as mock_transient:
-
+    with (
+        patch.object(ErrorHandler, "_handle_critical") as mock_critical,
+        patch.object(ErrorHandler, "_handle_operational") as mock_operational,
+        patch.object(ErrorHandler, "_handle_transient") as mock_transient,
+    ):
         error_handler.handle(error, {})
 
         if expected_type == OperationalError:
@@ -291,18 +326,15 @@ def test_context_enrichment(error_handler):
         error_handler.config_manager.strategy = "arbitrage"
         error_handler.config_manager.current_module = "trade_execution"
 
-        error_handler.handle(
-            OperationalError("Test error"),
-            {"param": "value"}
-        )
+        error_handler.handle(OperationalError("Test error"), {"param": "value"})
 
         context = mock_handle.call_args[0][1]
         assert context == {
-            'param': 'value',
-            'error_type': 'OperationalError',
-            '__cause__': None,
-            'strategy': 'arbitrage',
-            'module': 'trade_execution'
+            "param": "value",
+            "error_type": "OperationalError",
+            "__cause__": None,
+            "strategy": "arbitrage",
+            "module": "trade_execution",
         }
 
     # This test is covered by test_context_enrichment and test_error_classification
@@ -339,25 +371,35 @@ def test_ccxt_manager_proxy_error():
 
         try:
             # Simulate the error handler call that would happen in _start_proxy
-            manager.error_handler.handle(runtime_error, context={"stage": "proxy_startup"})
+            manager.error_handler.handle(
+                runtime_error, context={"stage": "proxy_startup"}
+            )
 
             # Verify the error handler was called with the correct context
             assert handle_mock.called, "Error handler was not called"
 
             # Get the call arguments
             call_args = handle_mock.call_args
-            assert len(call_args[0]) >= 1, "Error handler was called without error argument"
+            assert len(call_args[0]) >= 1, (
+                "Error handler was called without error argument"
+            )
 
             # Verify the error argument is a RuntimeError
             error_arg = call_args[0][0]
-            assert isinstance(error_arg, RuntimeError), f"Expected RuntimeError, got {type(error_arg)}"
-            assert str(error_arg) == "Proxy failed", f"Expected 'Proxy failed', got '{str(error_arg)}'"
+            assert isinstance(error_arg, RuntimeError), (
+                f"Expected RuntimeError, got {type(error_arg)}"
+            )
+            assert str(error_arg) == "Proxy failed", (
+                f"Expected 'Proxy failed', got '{error_arg!s}'"
+            )
 
             # Verify the context was passed correctly
             kwargs = call_args[1] if len(call_args) > 1 else {}
-            context = kwargs.get('context', {})
+            context = kwargs.get("context", {})
             assert "stage" in context, "Context missing 'stage' key"
-            assert context["stage"] == "proxy_startup", f"Expected 'proxy_startup', got '{context['stage']}'"
+            assert context["stage"] == "proxy_startup", (
+                f"Expected 'proxy_startup', got '{context['stage']}'"
+            )
 
         finally:
             # Restore the original handle method
@@ -366,17 +408,23 @@ def test_ccxt_manager_proxy_error():
 
 def test_rpc_transient_error_recovery():
     """Test RPC transient error recovery"""
-    from definitions.rpc import rpc_call, RpcTimeoutError
+    from definitions.rpc import RpcTimeoutError, rpc_call
+
     mock_handler = MagicMock()
     mock_handler.handle_async = AsyncMock(return_value=True)
 
     async def test_call():
-        return await rpc_call("test_method", [],
-                              error_handler=mock_handler,
-                              max_err_count=3)
+        return await rpc_call(
+            "test_method", [], error_handler=mock_handler, max_err_count=3
+        )
 
-    with patch("definitions.rpc.aiohttp.ClientSession.post", side_effect=Exception("Timeout")), \
-         patch("asyncio.sleep", new_callable=AsyncMock):
+    with (
+        patch(
+            "definitions.rpc.aiohttp.ClientSession.post",
+            side_effect=Exception("Timeout"),
+        ),
+        patch("asyncio.sleep", new_callable=AsyncMock),
+    ):
         with pytest.raises(RpcTimeoutError):
             asyncio.run(test_call())
         assert mock_handler.handle_async.await_count == 3
@@ -402,7 +450,7 @@ def test_gui_error_notification():
 
         # Verify GUI notification through the mock
         config_manager._notify_user_mock.assert_called_once()
-        assert "GUI crash" in config_manager._notify_user_mock.call_args[1]['message']
+        assert "GUI crash" in config_manager._notify_user_mock.call_args[1]["message"]
 
         # Verify GUI status bar was updated
         mock_app.status_var.set.assert_called_once()
@@ -417,7 +465,7 @@ ERROR_TYPES = [
     ConfigurationError,
     ExchangeError,
     StrategyError,
-    GUIRenderingError
+    GUIRenderingError,
 ]
 
 CONTEXTS = [
@@ -425,16 +473,10 @@ CONTEXTS = [
     {"module": "trade_execution", "symbol": "BTC/USDT"},
     {"component": "price_feed", "interval": 60},
     {"strategy": "arbitrage", "pair": "XRP/BTC"},
-    {"service": "blockchain", "rpc_url": "https://rpc.example.com"}
+    {"service": "blockchain", "rpc_url": "https://rpc.example.com"},
 ]
 
-RECOVERY_ACTIONS = [
-    "retry",
-    "notify",
-    "shutdown",
-    "degrade",
-    "archive"
-]
+RECOVERY_ACTIONS = ["retry", "notify", "shutdown", "degrade", "archive"]
 
 
 @pytest.mark.parametrize("error_cls", ERROR_TYPES)
@@ -443,7 +485,7 @@ RECOVERY_ACTIONS = [
 def test_error_scenarios(error_cls, context, action, error_handler):
     """Comprehensive error scenario testing (150 tests)"""
     # Verify test mode is enabled
-    assert hasattr(error_handler.config_manager, '_is_testing')
+    assert hasattr(error_handler.config_manager, "_is_testing")
     assert error_handler.config_manager._is_testing is True
 
     # Create error instance
@@ -452,12 +494,15 @@ def test_error_scenarios(error_cls, context, action, error_handler):
     # Mock dependencies based on action
     # For retry action, we want to call the actual _handle_transient method to verify time.sleep is called
     # For other actions, we mock _handle_transient to verify it's called
-    patch_transient = patch.object(ErrorHandler, "_handle_transient") if action != "retry" else None
+    patch_transient = (
+        patch.object(ErrorHandler, "_handle_transient") if action != "retry" else None
+    )
 
-    with patch.object(error_handler.config_manager, "_notify_user_mock") as mock_notify, \
-            patch.object(error_handler.config_manager, "_shutdown_mock") as mock_shutdown, \
-            patch("definitions.error_handler.time.sleep") as mock_sleep:
-
+    with (
+        patch.object(error_handler.config_manager, "_notify_user_mock") as mock_notify,
+        patch.object(error_handler.config_manager, "_shutdown_mock") as _mock_shutdown,
+        patch("definitions.error_handler.time.sleep") as mock_sleep,
+    ):
         # Reset the mock for the shutdown event before each test scenario
         error_handler.config_manager.controller.shutdown_event.set.reset_mock()
 
@@ -470,7 +515,7 @@ def test_error_scenarios(error_cls, context, action, error_handler):
             result = error_handler.handle(error, context)
 
             # Verify behavior based on actual error type (using isinstance)
-        if isinstance(error, TransientError) or isinstance(error, ExchangeError):
+        if isinstance(error, (TransientError, ExchangeError)):
             if action == "retry":
                 # In test mode, sleep is called immediately for retry
                 assert mock_sleep.call_count >= 1
@@ -491,20 +536,24 @@ def test_error_scenarios(error_cls, context, action, error_handler):
 
 
 # Additional edge case tests (50 scenarios)
-@pytest.mark.parametrize("error,expected_handler_name", [
-    (KeyError("missing"), "_handle_operational"),
-    (TypeError("invalid type"), "_handle_operational"),
-    (RuntimeError("runtime failure"), "_handle_operational"),
-    (ConnectionResetError("connection reset"), "_handle_transient"),
-    (asyncio.TimeoutError("timeout"), "_handle_transient"),
-    (aiohttp.ClientError("client error"), "_handle_transient"),
-])
+@pytest.mark.parametrize(
+    "error,expected_handler_name",
+    [
+        (KeyError("missing"), "_handle_operational"),
+        (TypeError("invalid type"), "_handle_operational"),
+        (RuntimeError("runtime failure"), "_handle_operational"),
+        (ConnectionResetError("connection reset"), "_handle_transient"),
+        (asyncio.TimeoutError("timeout"), "_handle_transient"),
+        (aiohttp.ClientError("client error"), "_handle_transient"),
+    ],
+)
 def test_non_standard_errors(error, expected_handler_name, error_handler):
     """Test handling of non-standard error types."""
-    with patch.object(ErrorHandler, "_handle_critical") as mock_critical, \
-            patch.object(ErrorHandler, "_handle_transient") as mock_transient, \
-            patch.object(ErrorHandler, "_handle_operational") as mock_operational:
-
+    with (
+        patch.object(ErrorHandler, "_handle_critical") as mock_critical,
+        patch.object(ErrorHandler, "_handle_transient") as mock_transient,
+        patch.object(ErrorHandler, "_handle_operational") as mock_operational,
+    ):
         error_handler.handle(error, {"source": "test"})
 
         handler_map = {
@@ -537,7 +586,7 @@ def benchmark_error_handling(error_handler, error_type, context, iterations=10):
         "median": statistics.median(times) / 1000,
         "mean": statistics.mean(times) / 1000,
         "stdev": statistics.stdev(times) / 1000,
-        "iterations": iterations
+        "iterations": iterations,
     }
 
 
@@ -545,10 +594,7 @@ def test_transient_error_performance(error_handler):
     """Benchmark transient error handling"""
     with patch("definitions.error_handler.time.sleep"):  # Mock sleep to avoid delays
         results = benchmark_error_handling(
-            error_handler,
-            TransientError,
-            {"operation": "benchmark"},
-            1000
+            error_handler, TransientError, {"operation": "benchmark"}, 1000
         )
         assert results["mean"] < 500, "Transient error handling too slow"
 
@@ -559,7 +605,7 @@ def test_operational_error_performance(error_handler):
         error_handler,
         OperationalError,
         {"file": "benchmark.yaml"},
-        1000  # Reduced from 5000 to avoid timeout
+        1000,  # Reduced from 5000 to avoid timeout
     )
     assert results["mean"] < 500, "Operational error handling too slow"
 
@@ -570,10 +616,7 @@ def test_error_handling_throughput(error_handler):
     start = time.perf_counter()
 
     for i in range(iterations):
-        error_handler.handle(
-            OperationalError(f"Error {i}"),
-            {"iteration": i}
-        )
+        error_handler.handle(OperationalError(f"Error {i}"), {"iteration": i})
 
     duration = time.perf_counter() - start
     throughput = iterations / duration

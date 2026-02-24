@@ -3,16 +3,18 @@ import asyncio
 import os
 import signal
 import sys
-from typing import Callable
+from collections.abc import Callable
 
 
 def add_custom_help(parser: argparse.ArgumentParser) -> None:
     """Adds a custom help argument to the parser to support -h, --help, and -help."""
     parser.add_argument(
-        "-h", "-help", "--help",
+        "-h",
+        "-help",
+        "--help",
         action="help",
         default=argparse.SUPPRESS,
-        help="Show this help message and exit."
+        help="Show this help message and exit.",
     )
 
 
@@ -25,7 +27,7 @@ def run_cli(start_func: Callable[[], None]) -> None:
         start_func: The main function of the CLI application to run.
     """
     # Ensure proper event loop policy for Windows
-    if os.name == 'nt':
+    if os.name == "nt":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
     def handle_sigint(signum: int, frame) -> None:

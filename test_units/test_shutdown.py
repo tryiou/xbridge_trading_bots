@@ -1,7 +1,7 @@
 import asyncio
 import os
 import sys
-from unittest.mock import MagicMock, AsyncMock, PropertyMock, patch
+from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
 import pytest
 
@@ -10,7 +10,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 import threading
 
-from definitions.shutdown import wait_for_pending_rpcs, ShutdownCoordinator
+from definitions.shutdown import ShutdownCoordinator, wait_for_pending_rpcs
 from strategies.maker_strategy import MakerStrategy
 
 
@@ -64,7 +64,9 @@ async def test_unified_shutdown_sequence():
     mock_cm.http_session.close = AsyncMock()
 
     # Patch wait_for pending RPCs
-    with patch('definitions.shutdown.wait_for_pending_rpcs', new_callable=AsyncMock) as mock_wait_rpc:
+    with patch(
+            "definitions.shutdown.wait_for_pending_rpcs", new_callable=AsyncMock
+    ) as mock_wait_rpc:
         # Act
         await ShutdownCoordinator.unified_shutdown(mock_cm)
 

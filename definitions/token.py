@@ -1,16 +1,15 @@
 from __future__ import annotations
 
-import time
 import logging
-from typing import TYPE_CHECKING, Optional, Any
+import time
+from typing import TYPE_CHECKING, Any
 
 import aiohttp
 import yaml
 
 from definitions.constants import CCXT_PRICE_REFRESH_INTERVAL, DEFAULT_PROXY_PORT
 from definitions.errors import OperationalError
-from definitions.rpc import rpc_call, is_port_open
-
+from definitions.rpc import is_port_open, rpc_call
 
 if TYPE_CHECKING:
     from definitions.config_manager import ConfigManager
@@ -18,25 +17,33 @@ if TYPE_CHECKING:
 
 class Token:
     def __init__(
-        self,
-        symbol: str,
-        strategy: Any,
-        dex_enabled: bool = True,
-        config_manager: Optional[ConfigManager] = None,
-        xbridge_manager: Optional[Any] = None,
-        ccxt_manager: Optional[Any] = None,
-        error_handler: Optional[Any] = None,
-        logger: Optional[logging.Logger] = None
+            self,
+            symbol: str,
+            strategy: Any,
+            dex_enabled: bool = True,
+            config_manager: ConfigManager | None = None,
+            xbridge_manager: Any | None = None,
+            ccxt_manager: Any | None = None,
+            error_handler: Any | None = None,
+            logger: logging.Logger | None = None,
     ) -> None:
         self.symbol = symbol
         self.strategy = strategy
         self._config_manager = config_manager
-        
+
         # Dependency Injection with fallback for backward compatibility
-        self.xbridge_manager = xbridge_manager or getattr(config_manager, 'xbridge_manager', None)
-        self.ccxt_manager = ccxt_manager or getattr(config_manager, 'ccxt_manager', None)
-        self.error_handler = error_handler or getattr(config_manager, 'error_handler', None)
-        self.logger = logger or getattr(config_manager, 'general_log', logging.getLogger(__name__))
+        self.xbridge_manager = xbridge_manager or getattr(
+            config_manager, "xbridge_manager", None
+        )
+        self.ccxt_manager = ccxt_manager or getattr(
+            config_manager, "ccxt_manager", None
+        )
+        self.error_handler = error_handler or getattr(
+            config_manager, "error_handler", None
+        )
+        self.logger = logger or getattr(
+            config_manager, "general_log", logging.getLogger(__name__)
+        )
 
         self.dex = DexToken(self, dex_enabled)
         self.cex = CexToken(self)
@@ -48,29 +55,33 @@ class Token:
 
     @property
     def dex_total_balance(self) -> float | None:
-        return getattr(self.dex, 'total_balance', None) if self.dex else None
+        return getattr(self.dex, "total_balance", None) if self.dex else None
 
     @property
     def dex_free_balance(self) -> float | None:
-        return getattr(self.dex, 'free_balance', None) if self.dex else None
+        return getattr(self.dex, "free_balance", None) if self.dex else None
 
     @property
     def cex_usd_price(self) -> float | None:
-        return getattr(self.cex, 'usd_price', None) if self.cex else None
+        return getattr(self.cex, "usd_price", None) if self.cex else None
 
 
 class DexToken:
     def __init__(self, parent_token: Token, dex_enabled: bool = True) -> None:
         self.token = parent_token
         self.enabled = dex_enabled
-        self.address: Optional[str] = None
-        self.total_balance: Optional[float] = None
-        self.free_balance: Optional[float] = None
+        self.address: str | None = None
+        self.total_balance: float | None = None
+        self.free_balance: float | None = None
 
     def _get_address_file_path(self) -> str:
         if self.token.config_manager is None:
             raise ValueError("Config manager not available")
-        return self.token.config_manager.strategy_instance.get_dex_token_address_file_path(self.token.symbol)
+        return (
+            self.token.config_manager.strategy_instance.get_dex_token_address_file_path(
+                self.token.symbol
+            )
+        )
 
     async def read_address(self) -> None:
         if not self.enabled:
@@ -78,16 +89,20 @@ class DexToken:
 
         file_path = self._get_address_file_path()
         try:
-            with open(file_path, 'r') as fp:
+            with open(file_path) as fp:
                 data = yaml.safe_load(fp)
-                self.address = data.get('address') if isinstance(data, dict) else None
+                self.address = data.get("address") if isinstance(data, dict) else None
         except FileNotFoundError:
             self.token.logger.info("File not found: %s", file_path)
             await self.request_addr()
         except Exception as e:
             await self.token.error_handler.handle_async(
-                OperationalError(f"Error reading token address file: {str(e)}"),
-                context={"token": self.token.symbol, "stage": "read_address", "file_path": file_path}
+                OperationalError(f"Error reading token address file: {e!s}"),
+                context={
+                    "token": self.token.symbol,
+                    "stage": "read_address",
+                    "file_path": file_path,
+                },
             )
             await self.request_addr()
 
@@ -97,74 +112,107 @@ class DexToken:
 
         file_path = self._get_address_file_path()
         try:
-            with open(file_path, 'w') as fp:
-                yaml.safe_dump({'address': self.address}, fp)
+            with open(file_path, "w") as fp:
+                yaml.safe_dump({"address": self.address}, fp)
         except Exception as e:
             await self.token.error_handler.handle_async(
-                OperationalError(f"Error writing token address file: {str(e)}"),
-                context={"token": self.token.symbol, "stage": "write_address", "file_path": file_path}
+                OperationalError(f"Error writing token address file: {e!s}"),
+                context={
+                    "token": self.token.symbol,
+                    "stage": "write_address",
+                    "file_path": file_path,
+                },
             )
 
     async def request_addr(self) -> None:
         try:
-            address = (await self.token.xbridge_manager.getnewtokenadress(self.token.symbol))[0]
+            address = (
+                await self.token.xbridge_manager.getnewtokenadress(self.token.symbol)
+            )[0]
             self.address = address
-            self.token.logger.info("dx_request_addr: %s, %s", self.token.symbol, address)
+            self.token.logger.info(
+                "dx_request_addr: %s, %s", self.token.symbol, address
+            )
             await self.write_address()
         except Exception as e:
             await self.token.error_handler.handle_async(
-                OperationalError(f"Error requesting token address: {str(e)}"),
-                context={"token": self.token.symbol, "stage": "request_addr"}
+                OperationalError(f"Error requesting token address: {e!s}"),
+                context={"token": self.token.symbol, "stage": "request_addr"},
             )
 
 
 class CexToken:
     def __init__(self, parent_token: Token) -> None:
         self.token = parent_token
-        self.cex_price: Optional[float] = None
-        self.usd_price: Optional[float] = None
-        self.cex_price_timer: Optional[float] = None
-        self.cex_total_balance: Optional[float] = None
-        self.cex_free_balance: Optional[float] = None
+        self.cex_price: float | None = None
+        self.usd_price: float | None = None
+        self.cex_price_timer: float | None = None
+        self.cex_total_balance: float | None = None
+        self.cex_free_balance: float | None = None
 
     async def update_price(self, display: bool = False) -> None:
-        if (self.cex_price_timer is not None and
-                time.time() - self.cex_price_timer <= CCXT_PRICE_REFRESH_INTERVAL):
+        if (
+                self.cex_price_timer is not None
+                and time.time() - self.cex_price_timer <= CCXT_PRICE_REFRESH_INTERVAL
+        ):
             if display:
-                self.token.logger.debug("Token.update_ccxt_price() too fast call? %s", self.token.symbol)
+                self.token.logger.debug(
+                    "Token.update_ccxt_price() too fast call? %s", self.token.symbol
+                )
             return
 
-        cex_symbol = "BTC/USDT" if self.token.symbol == "BTC" else f"{self.token.symbol}/BTC"
-        my_ccxt = getattr(self.token.config_manager, 'my_ccxt', None) if self.token.config_manager else None
-        exchange_id = getattr(my_ccxt, 'id', 'default') if my_ccxt else 'default'
-        lastprice_string = {'kucoin': 'last', 'binance': 'lastPrice'}.get(exchange_id, 'lastTradeRate')
+        cex_symbol = (
+            "BTC/USDT" if self.token.symbol == "BTC" else f"{self.token.symbol}/BTC"
+        )
+        my_ccxt = (
+            getattr(self.token.config_manager, "my_ccxt", None)
+            if self.token.config_manager
+            else None
+        )
+        exchange_id = getattr(my_ccxt, "id", "default") if my_ccxt else "default"
+        lastprice_string = {"kucoin": "last", "binance": "lastPrice"}.get(
+            exchange_id, "lastTradeRate"
+        )
 
         async def fetch_ticker_async(symbol: str) -> float | None:
             try:
-                ticker = await self.token.ccxt_manager.ccxt_call_fetch_ticker(my_ccxt, symbol)
+                ticker = await self.token.ccxt_manager.ccxt_call_fetch_ticker(
+                    my_ccxt, symbol
+                )
             except Exception as e:
                 await self.token.error_handler.handle_async(
-                    OperationalError(f"Error fetching ticker: {str(e)}"),
-                    context={"token": self.token.symbol, "cex_symbol": symbol, "stage": "fetch_ticker"}
+                    OperationalError(f"Error fetching ticker: {e!s}"),
+                    context={
+                        "token": self.token.symbol,
+                        "cex_symbol": symbol,
+                        "stage": "fetch_ticker",
+                    },
                 )
                 return None
 
-            if not ticker: return None
+            if not ticker:
+                return None
             try:
-                return float(ticker['info'][lastprice_string])
+                return float(ticker["info"][lastprice_string])
             except (KeyError, TypeError, ValueError) as e:
                 await self.token.error_handler.handle_async(
-                    OperationalError(f"Malformed ticker response: {str(e)}"),
-                    context={"token": self.token.symbol, "cex_symbol": symbol, "ticker_response": ticker}
+                    OperationalError(f"Malformed ticker response: {e!s}"),
+                    context={
+                        "token": self.token.symbol,
+                        "cex_symbol": symbol,
+                        "ticker_response": ticker,
+                    },
                 )
                 return None
 
-        btc_price = self.token.config_manager.tokens['BTC'].cex.usd_price
+        btc_price = self.token.config_manager.tokens["BTC"].cex.usd_price
         if btc_price is None or btc_price == 0:
             if self.token.error_handler:
                 await self.token.error_handler.handle_async(
-                    OperationalError(f"BTC price unavailable for {self.token.symbol} price calculation"),
-                    context={"token": self.token.symbol}
+                    OperationalError(
+                        f"BTC price unavailable for {self.token.symbol} price calculation"
+                    ),
+                    context={"token": self.token.symbol},
                 )
             self.usd_price, self.cex_price = None, None
             return
@@ -175,7 +223,7 @@ class CexToken:
             return
 
         result = None
-        if hasattr(self.token.config_manager.config_coins, 'usd_ticker_custom'):
+        if hasattr(self.token.config_manager.config_coins, "usd_ticker_custom"):
             custom_tickers = self.token.config_manager.config_coins.usd_ticker_custom
             if hasattr(custom_tickers, self.token.symbol):
                 custom_price = getattr(custom_tickers, self.token.symbol)
@@ -183,12 +231,18 @@ class CexToken:
                     result = float(custom_price) / btc_price
                 except (TypeError, ValueError):
                     await self.token.error_handler.handle_async(
-                        OperationalError(f"Invalid custom price value for {self.token.symbol}: {custom_price}"),
-                        context={"token": self.token.symbol, "stage": "update_price", "custom_price": custom_price}
+                        OperationalError(
+                            f"Invalid custom price value for {self.token.symbol}: {custom_price}"
+                        ),
+                        context={
+                            "token": self.token.symbol,
+                            "stage": "update_price",
+                            "custom_price": custom_price,
+                        },
                     )
 
         if result is None:
-            if hasattr(my_ccxt, 'symbols') and cex_symbol in my_ccxt.symbols:
+            if hasattr(my_ccxt, "symbols") and cex_symbol in my_ccxt.symbols:
                 result = await fetch_ticker_async(cex_symbol)
             else:
                 self.usd_price, self.cex_price = None, None
@@ -198,13 +252,13 @@ class CexToken:
             self.cex_price = result
             self.usd_price = result * btc_price
             self.cex_price_timer = time.time()
-            btc_price_fmt = format(float(btc_price), '.8f').rstrip('0').rstrip('.')
+            btc_price_fmt = format(float(btc_price), ".8f").rstrip("0").rstrip(".")
             self.token.logger.debug(
                 "fetch_ticker %s, BTC_PRICE: %s, USD_PRICE: %s, BTC_USD_PRICE: %s",
                 self.token.symbol,
-                format(float(self.cex_price), '.8f').rstrip('0').rstrip('.'),
-                format(float(self.usd_price), '.8f').rstrip('0').rstrip('.'),
-                btc_price_fmt
+                format(float(self.cex_price), ".8f").rstrip("0").rstrip("."),
+                format(float(self.usd_price), ".8f").rstrip("0").rstrip("."),
+                btc_price_fmt,
             )
         else:
             self.usd_price, self.cex_price = None, None
@@ -215,30 +269,41 @@ class CexToken:
         async with aiohttp.ClientSession() as session:
             try:
                 if is_port_open("127.0.0.1", DEFAULT_PROXY_PORT):
-                    result = await rpc_call("fetch_ticker_block", rpc_port=DEFAULT_PROXY_PORT, debug=2, session=session)
+                    result = await rpc_call(
+                        "fetch_ticker_block",
+                        rpc_port=DEFAULT_PROXY_PORT,
+                        debug=2,
+                        session=session,
+                    )
                     used_proxy = True
                 else:
-                    async with session.get('https://min-api.cryptocompare.com/data/price?fsym=BLOCK&tsyms=BTC') as response:
+                    async with session.get(
+                            "https://min-api.cryptocompare.com/data/price?fsym=BLOCK&tsyms=BTC"
+                    ) as response:
                         response.raise_for_status()
                         data = await response.json()
-                        result = data.get('BTC')
+                        result = data.get("BTC")
             except Exception as e:
                 await self.token.error_handler.handle_async(
-                    OperationalError(f"Error updating BLOCK ticker: {str(e)}"),
-                    context={"token": "BLOCK", "stage": "update_block_ticker"}
+                    OperationalError(f"Error updating BLOCK ticker: {e!s}"),
+                    context={"token": "BLOCK", "stage": "update_block_ticker"},
                 )
             else:
                 if result is not None:
                     try:
                         result = float(result)
                     except (TypeError, ValueError):
-                        source = 'proxy' if used_proxy else 'cryptocompare'
+                        source = "proxy" if used_proxy else "cryptocompare"
                         await self.token.error_handler.handle_async(
-                            OperationalError(f"Invalid BLOCK ticker price from {source}: {result}"),
-                            context={"token": "BLOCK", "stage": "update_block_ticker"}
+                            OperationalError(
+                                f"Invalid BLOCK ticker price from {source}: {result}"
+                            ),
+                            context={"token": "BLOCK", "stage": "update_block_ticker"},
                         )
                         return None
                     else:
-                        self.token.logger.info("Updated BLOCK ticker: %s BTC proxy: %s", result, used_proxy)
+                        self.token.logger.info(
+                            "Updated BLOCK ticker: %s BTC proxy: %s", result, used_proxy
+                        )
                         return result
         return None

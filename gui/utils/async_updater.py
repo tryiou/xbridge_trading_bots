@@ -4,7 +4,8 @@ import logging
 import queue
 import threading
 import time
-from typing import Callable, Any
+from collections.abc import Callable
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -15,9 +16,15 @@ class AsyncUpdater:
     and thread-safe updates to a Tkinter GUI component.
     """
 
-    def __init__(self, tk_widget: Any, update_target_method: Callable,
-                 fetch_data_callable: Callable, update_interval_ms: int = 1500,
-                 process_interval_ms: int = 250, name: str = "AsyncUpdater"):
+    def __init__(
+            self,
+            tk_widget: Any,
+            update_target_method: Callable,
+            fetch_data_callable: Callable,
+            update_interval_ms: int = 1500,
+            process_interval_ms: int = 250,
+            name: str = "AsyncUpdater",
+    ):
         """
         Initializes the AsyncUpdater.
 
@@ -52,9 +59,13 @@ class AsyncUpdater:
 
             logger.info(f"{self.name}: Starting updater.")
             self._running = True
-            self._updater_thread = threading.Thread(target=self._run_fetcher, daemon=True, name=f"{self.name}Fetcher")
+            self._updater_thread = threading.Thread(
+                target=self._run_fetcher, daemon=True, name=f"{self.name}Fetcher"
+            )
             self._updater_thread.start()
-            self._process_id = self.tk_widget.after(self.process_interval_ms, self._process_updates)
+            self._process_id = self.tk_widget.after(
+                self.process_interval_ms, self._process_updates
+            )
 
     def stop(self):
         with self._lock:
@@ -102,13 +113,18 @@ class AsyncUpdater:
                     self._update_queue.put(data)
 
                 # Check for stop signal in queue
-                if not self._update_queue.empty() and self._update_queue.queue[0] is None:
+                if (
+                        not self._update_queue.empty()
+                        and self._update_queue.queue[0] is None
+                ):
                     self._update_queue.get()  # Consume the None
                     break
 
                 time.sleep(self.update_interval_sec)
             except Exception as e:
-                logger.error(f"{self.name}: Error in fetcher thread: {e}", exc_info=True)
+                logger.error(
+                    f"{self.name}: Error in fetcher thread: {e}", exc_info=True
+                )
                 time.sleep(self.update_interval_sec * 2)  # Wait longer on error
 
         # Close the event loop when the thread terminates
@@ -133,7 +149,12 @@ class AsyncUpdater:
         except queue.Empty:
             pass  # No updates yet
         except Exception as e:
-            logger.error(f"{self.name}: Error processing updates in main thread: {e}", exc_info=True)
+            logger.error(
+                f"{self.name}: Error processing updates in main thread: {e}",
+                exc_info=True,
+            )
         finally:
             if self._running:  # Only reschedule if still running
-                self._process_id = self.tk_widget.after(self.process_interval_ms, self._process_updates)
+                self._process_id = self.tk_widget.after(
+                    self.process_interval_ms, self._process_updates
+                )

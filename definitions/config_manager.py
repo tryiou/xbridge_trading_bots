@@ -1,29 +1,28 @@
 import logging
 import os
 import threading
-from typing import Dict, Any, Optional
+from typing import Any, Optional
 
 from definitions.ccxt_manager import CCXTManager
 from definitions.config_loader import ConfigLoader
-from definitions.config_validation import ConfigValidationManager, ValidationResult
+from definitions.config_validation import ConfigValidationManager
 from definitions.error_handler import ErrorHandler
 from definitions.errors import ConfigurationError
 from definitions.logger import setup_logger, setup_logging
-from definitions.secrets_manager import SecretsManager
 from definitions.xbridge_manager import XBridgeManager
-from definitions.yaml_mix import YamlToObject
 from strategies.base_strategy import BaseStrategy
 from strategies.basicseller_strategy import BasicSellerStrategy
 from strategies.pingpong_strategy import PingPongStrategy
 
 
 class ConfigManager:
-    def __init__(self, strategy: str, master_manager: Optional['ConfigManager'] = None):
+    def __init__(self, strategy: str, master_manager: Optional["ConfigManager"] = None):
         self.strategy = strategy
         self.ROOT_DIR = os.path.abspath(os.curdir)
         self.resource_lock = threading.RLock()
-        self.logger = setup_logging(name="config_manager",
-                                    level=logging.DEBUG, console=True)
+        self.logger = setup_logging(
+            name="config_manager", level=logging.DEBUG, console=True
+        )
         self.error_handler = ErrorHandler(self)
         self.current_module = None
         # Initialize ConfigLoader for loading and validating configs
@@ -32,7 +31,7 @@ class ConfigManager:
             logger=self.logger,
             error_handler=self.error_handler,
             validation_manager=ConfigValidationManager(),
-            validation_enabled=True
+            validation_enabled=True,
         )
 
         if master_manager:
@@ -43,17 +42,22 @@ class ConfigManager:
 
             # Ensure trade logger has file handler for strategy-specific trade log
             if not self.trade_log.handlers:
-                logs_dir = os.path.join(self.ROOT_DIR, 'logs')
+                logs_dir = os.path.join(self.ROOT_DIR, "logs")
                 os.makedirs(logs_dir, exist_ok=True)
                 trade_log_file = os.path.join(logs_dir, f"{strategy}_trade.log")
                 trade_handler = logging.FileHandler(trade_log_file)
                 trade_handler.setFormatter(
-                    logging.Formatter('[%(asctime)s] [%(name)-20s] %(levelname)-8s - %(message)s'))
+                    logging.Formatter(
+                        "[%(asctime)s] [%(name)-20s] %(levelname)-8s - %(message)s"
+                    )
+                )
                 trade_handler.setLevel(logging.INFO)
                 self.trade_log.addHandler(trade_handler)
         else:
             # In standalone or master GUI mode, set up the loggers from scratch.
-            self.general_log, self.trade_log, self.ccxt_log = setup_logger(strategy, self.ROOT_DIR)
+            self.general_log, self.trade_log, self.ccxt_log = setup_logger(
+                strategy, self.ROOT_DIR
+            )
 
         # Update error handler logger
         self.error_handler.logger = self.general_log
@@ -68,12 +72,16 @@ class ConfigManager:
         # Mark role for resource management
         self.is_master = not master_manager
         role = "master" if self.is_master else "slave"
-        self.logger.debug(f"ConfigManager initializing as {role} for '{strategy}' strategy")
+        self.logger.debug(
+            f"ConfigManager initializing as {role} for '{strategy}' strategy"
+        )
 
         if master_manager:
             # GUI Slave Mode: Inherit configs, but create own managers to ensure
             # correct logger context.
-            self.logger.info(f"Attaching to shared resources for strategy: {self.strategy}")
+            self.logger.info(
+                f"Attaching to shared resources for strategy: {self.strategy}"
+            )
             self.config_ccxt = master_manager.config_ccxt
             self.config_coins = master_manager.config_coins
             self.config_pingpong = master_manager.config_pingpong
@@ -89,15 +97,17 @@ class ConfigManager:
             # Share the underlying CCXT connection object from the master to avoid
             # re-initializing it (e.g., re-loading markets).
             if master_manager.ccxt_manager:
-                self.ccxt_manager.my_ccxt = getattr(master_manager.ccxt_manager, 'my_ccxt', None)
+                self.ccxt_manager.my_ccxt = getattr(
+                    master_manager.ccxt_manager, "my_ccxt", None
+                )
         else:
             # Standalone or Master GUI Mode: Create all resources from scratch
             try:
                 self.load_configs()
             except Exception as e:
                 self.error_handler.handle(
-                    ConfigurationError(f"Failed to load configs: {str(e)}"),
-                    context={"stage": "load_configs"}
+                    ConfigurationError(f"Failed to load configs: {e!s}"),
+                    context={"stage": "load_configs"},
                 )
                 raise
             self.xbridge_manager = XBridgeManager(self)
@@ -105,11 +115,13 @@ class ConfigManager:
             # If this is the master GUI manager, initialize shared components now.
             if self.strategy == "gui":
                 self._init_ccxt()
-        self.strategy_config: Dict[str, Any] = {}
+        self.strategy_config: dict[str, Any] = {}
         self.strategy_instance: BaseStrategy = None
         self.tokens = {}  # Token data
         self.pairs = {}  # Pair data
-        self.load_xbridge_conf_on_startup = True  # Default value, will be updated by initialize
+        self.load_xbridge_conf_on_startup = (
+            True  # Default value, will be updated by initialize
+        )
         self.disabled_coins = []  # Centralized disabled coins tracking
         self.controller = None
         self.logger.debug("ConfigManager setup complete")
@@ -118,7 +130,7 @@ class ConfigManager:
     def my_ccxt(self):
         """Provides backward compatibility for accessing the ccxt instance."""
         if self.ccxt_manager:
-            return getattr(self.ccxt_manager, 'my_ccxt', None)
+            return getattr(self.ccxt_manager, "my_ccxt", None)
         return None
 
     @property
@@ -149,13 +161,13 @@ class ConfigManager:
     def load_configs(self):
         """Load all configuration files using ConfigLoader."""
         configs, api_keys = self.config_loader.load_all_configs(self.strategy)
-        
+
         self.config_ccxt = configs.get("ccxt")
         self.config_coins = configs.get("coins")
         self.config_xbridge = configs.get("xbridge")
         self.config_pingpong = configs.get("pingpong")
         self.config_basicseller = configs.get("basic_seller")
-        
+
         return configs, api_keys
 
     def get_validation_report(self) -> str:
@@ -177,11 +189,11 @@ class ConfigManager:
     def get_config_safe(self, config_attr: str, default: Any = None) -> Any:
         """
         Safely get configuration with backward compatibility.
-        
+
         Args:
             config_attr: The configuration attribute name (e.g., 'config_ccxt')
             default: Default value to return if config is invalid or missing
-            
+
         Returns:
             Configuration value or default if validation failed
         """
@@ -190,26 +202,35 @@ class ConfigManager:
             if config is None:
                 return default
             # If validation is enabled and this config was validated, check if it's valid
-            if self.validation_enabled and config_attr.replace('config_', '') in self.validation_results:
-                config_type = config_attr.replace('config_', '')
+            if (
+                self.validation_enabled
+                and config_attr.replace("config_", "") in self.validation_results
+            ):
+                config_type = config_attr.replace("config_", "")
                 validation_result = self.validation_results.get(config_type)
-                if validation_result and not validation_result.is_valid:
-                    # If critical config is invalid, return default
-                    if config_type in ['ccxt', 'xbridge', 'api_keys']:
-                        self.logger.error(f"Returning default for invalid critical config: {config_attr}")
-                        return default
+                if (
+                    validation_result
+                    and not validation_result.is_valid
+                    and config_type in ["ccxt", "xbridge", "api_keys"]
+                ):
+                    self.logger.error(
+                        f"Returning default for invalid critical config: {config_attr}"
+                    )
+                    return default
             return config
         except Exception as e:
-            self.logger.warning(f"Error getting config {config_attr}, returning default: {e}")
+            self.logger.warning(
+                f"Error getting config {config_attr}, returning default: {e}"
+            )
             return default
 
     def is_config_valid(self, config_type: str) -> bool:
         """
         Check if a configuration type is valid.
-        
+
         Args:
             config_type: The configuration type (e.g., 'ccxt', 'pingpong')
-            
+
         Returns:
             True if configuration is valid or not validated
         """
@@ -219,46 +240,59 @@ class ConfigManager:
         validation_result = self.validation_results.get(config_type)
         return validation_result.is_valid if validation_result else True
 
-    def get_validation_summary(self) -> Dict[str, Dict[str, Any]]:
+    def get_validation_summary(self) -> dict[str, dict[str, Any]]:
         """
         Get a summary of all validation results.
-        
+
         Returns:
             Dictionary with validation status for each config type
         """
         summary = {}
-        for config_type in ['ccxt', 'coins', 'pingpong', 'basic_seller', 'xbridge', 'api_keys']:
+        for config_type in [
+            "ccxt",
+            "coins",
+            "pingpong",
+            "basic_seller",
+            "xbridge",
+            "api_keys",
+        ]:
             validation_result = self.validation_results.get(config_type)
             summary[config_type] = {
-                'validated': validation_result is not None,
-                'valid': validation_result.is_valid if validation_result else True,
-                'error_count': len(validation_result.errors) if validation_result else 0,
-                'warning_count': len(validation_result.warnings) if validation_result else 0
+                "validated": validation_result is not None,
+                "valid": validation_result.is_valid if validation_result else True,
+                "error_count": len(validation_result.errors)
+                if validation_result
+                else 0,
+                "warning_count": len(validation_result.warnings)
+                if validation_result
+                else 0,
             }
         return summary
 
     def validate_required_configs(self) -> bool:
         """
         Validate only the configurations required for the current strategy.
-        
+
         Returns:
             True if all required configs are valid
         """
         if not self.validation_enabled:
             return True
 
-        required_configs = ['ccxt', 'xbridge', 'api_keys']
+        required_configs = ["ccxt", "xbridge", "api_keys"]
 
         # Add strategy-specific required configs
         if self.strategy in ["pingpong", "gui"]:
-            required_configs.append('pingpong')
+            required_configs.append("pingpong")
         if self.strategy in ["basic_seller", "gui"]:
-            required_configs.append('basic_seller')
+            required_configs.append("basic_seller")
 
         for config_type in required_configs:
             validation_result = self.validation_results.get(config_type)
             if not validation_result or not validation_result.is_valid:
-                self.logger.error(f"Required configuration {config_type} validation failed")
+                self.logger.error(
+                    f"Required configuration {config_type} validation failed"
+                )
                 return False
 
         return True
@@ -270,15 +304,15 @@ class ConfigManager:
                 exchange=self.config_ccxt.ccxt_exchange,
                 hostname=self.config_ccxt.ccxt_hostname,
                 private_api=False,
-                debug_level=self.config_ccxt.debug_level
+                debug_level=self.config_ccxt.debug_level,
             )
         except Exception as e:
             self.error_handler.handle(
                 e,
                 context={
                     "exchange": self.config_ccxt.ccxt_exchange,
-                    "hostname": self.config_ccxt.ccxt_hostname
-                }
+                    "hostname": self.config_ccxt.ccxt_hostname,
+                },
             )
             raise
 
@@ -293,7 +327,7 @@ class ConfigManager:
         their own isolated environment.  For the GUI, see `initialize_ccxt`.
         """
         try:
-            loadxbridgeconf = kwargs.get('loadxbridgeconf', True)
+            loadxbridgeconf = kwargs.get("loadxbridgeconf", True)
             self.strategy_config.update(kwargs)
 
             self.tokens = {}  # Token data
@@ -313,14 +347,16 @@ class ConfigManager:
 
             # Delegate token and pair initialization to the strategy instance
             self.strategy_instance.initialize_tokens_and_pairs(**kwargs)
-            if self.ccxt_manager and getattr(self.ccxt_manager, 'my_ccxt', None) is None:
+            if (
+                self.ccxt_manager
+                and getattr(self.ccxt_manager, "my_ccxt", None) is None
+            ):
                 self._init_ccxt()
             # dxloadxbridgeconf is now called asynchronously in MainController.main_init_loop
             # self._init_xbridge() # This method is now effectively a no-op if dxloadxbridgeconf is removed
         except Exception as e:
             self.error_handler.handle(
-                e,
-                context={"strategy": self.strategy, "stage": "strategy_initialize"}
+                e, context={"strategy": self.strategy, "stage": "strategy_initialize"}
             )
             raise
 
@@ -330,5 +366,5 @@ class ConfigManager:
         manager in the GUI to ensure that the CCXT instance is available to all
         strategies from the start.
         """
-        if self.ccxt_manager and getattr(self.ccxt_manager, 'my_ccxt', None) is None:
+        if self.ccxt_manager and getattr(self.ccxt_manager, "my_ccxt", None) is None:
             self._init_ccxt()

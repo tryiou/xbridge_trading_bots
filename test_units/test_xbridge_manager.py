@@ -2,7 +2,7 @@ import asyncio
 import os
 import sys
 import time
-from unittest.mock import MagicMock, AsyncMock, patch, mock_open
+from unittest.mock import AsyncMock, MagicMock, mock_open, patch
 
 import pytest
 
@@ -35,10 +35,17 @@ def mock_config_manager():
 @pytest.fixture
 def xbridge_manager(mock_config_manager):
     """Fixture to create an XBridgeManager instance with mocked dependencies."""
-    with patch('definitions.xbridge_manager.detect_rpc', return_value=("user", 1234, "pass", "/tmp")), \
-            patch('definitions.xbridge_manager.is_port_open', return_value=True), \
-            patch('asyncio.run'), \
-            patch('definitions.xbridge_manager.rpc_call', new_callable=AsyncMock) as mock_rpc_call:
+    with (
+        patch(
+            "definitions.xbridge_manager.detect_rpc",
+            return_value=("user", 1234, "pass", "/tmp"),
+        ),
+        patch("definitions.xbridge_manager.is_port_open", return_value=True),
+        patch("asyncio.run"),
+        patch(
+            "definitions.xbridge_manager.rpc_call", new_callable=AsyncMock
+        ) as mock_rpc_call,
+    ):
         manager = XBridgeManager(mock_config_manager)
         manager.mock_rpc_call = mock_rpc_call  # Attach mock for easy access in tests
         yield manager
@@ -55,7 +62,7 @@ async def test_gettokenutxo_caching(xbridge_manager):
     result1 = await xbridge_manager.gettokenutxo(token)
     assert result1 == mock_utxos
     xbridge_manager.mock_rpc_call.assert_called_once()
-    assert xbridge_manager.mock_rpc_call.call_args.kwargs['method'] == 'dxgetutxos'
+    assert xbridge_manager.mock_rpc_call.call_args.kwargs["method"] == "dxgetutxos"
 
     # 2. Second call immediately after (cache hit)
     xbridge_manager.mock_rpc_call.reset_mock()
@@ -66,11 +73,13 @@ async def test_gettokenutxo_caching(xbridge_manager):
     # 3. Third call after cache duration (cache miss)
     xbridge_manager.mock_rpc_call.reset_mock()
     # Manually expire cache for test reliability
-    with patch('time.time', return_value=time.time() + xbridge_manager.UTXO_CACHE_DURATION + 1):
+    with patch(
+            "time.time", return_value=time.time() + xbridge_manager.UTXO_CACHE_DURATION + 1
+    ):
         result3 = await xbridge_manager.gettokenutxo(token)
         assert result3 == mock_utxos
         xbridge_manager.mock_rpc_call.assert_called_once()
-        assert xbridge_manager.mock_rpc_call.call_args.kwargs['method'] == 'dxgetutxos'
+        assert xbridge_manager.mock_rpc_call.call_args.kwargs["method"] == "dxgetutxos"
 
 
 @pytest.mark.asyncio
@@ -113,16 +122,16 @@ async def test_makeorder_dryrun(xbridge_manager):
     await manager.makeorder(*params, dryrun=True)
     manager.mock_rpc_call.assert_called_once()
     call_kwargs = manager.mock_rpc_call.call_args.kwargs
-    assert call_kwargs['method'] == 'dxMakeOrder'
-    assert call_kwargs['params'][-1] == 'dryrun'
+    assert call_kwargs["method"] == "dxMakeOrder"
+    assert call_kwargs["params"][-1] == "dryrun"
 
     # Test with dryrun=False (or None)
     manager.mock_rpc_call.reset_mock()
     await manager.makeorder(*params, dryrun=False)
     manager.mock_rpc_call.assert_called_once()
     call_kwargs = manager.mock_rpc_call.call_args.kwargs
-    assert call_kwargs['method'] == 'dxMakeOrder'
-    assert call_kwargs['params'][-1] != 'dryrun'
+    assert call_kwargs["method"] == "dxMakeOrder"
+    assert call_kwargs["params"][-1] != "dryrun"
 
 
 MOCK_XBRIDGE_CONF = """
@@ -159,8 +168,10 @@ def test_parse_xbridge_conf_success(xbridge_manager):
     # Set a mock datadir path
     manager.blocknet_datadir_path = "/mock/datadir"
 
-    with patch('builtins.open', mock_open(read_data=MOCK_XBRIDGE_CONF)), \
-            patch('os.path.exists', return_value=True):
+    with (
+        patch("builtins.open", mock_open(read_data=MOCK_XBRIDGE_CONF)),
+        patch("os.path.exists", return_value=True),
+    ):
         manager.parse_xbridge_conf()
 
         assert manager.xbridge_conf is not None
@@ -169,9 +180,9 @@ def test_parse_xbridge_conf_success(xbridge_manager):
         assert "Main" not in manager.xbridge_conf  # Should be skipped
 
         # Verify type conversion
-        assert isinstance(manager.xbridge_conf['BLOCK']['feeperbyte'], int)
-        assert manager.xbridge_conf['BLOCK']['feeperbyte'] == 20
-        assert manager.xbridge_conf['LTC']['mintxfee'] == 20000
+        assert isinstance(manager.xbridge_conf["BLOCK"]["feeperbyte"], int)
+        assert manager.xbridge_conf["BLOCK"]["feeperbyte"] == 20
+        assert manager.xbridge_conf["LTC"]["mintxfee"] == 20000
 
 
 def test_parse_xbridge_conf_file_not_found(xbridge_manager):
@@ -181,10 +192,12 @@ def test_parse_xbridge_conf_file_not_found(xbridge_manager):
     # Replace the real logger with a mock to assert calls
     manager.logger = MagicMock()
 
-    with patch('os.path.exists', return_value=False):
+    with patch("os.path.exists", return_value=False):
         manager.parse_xbridge_conf()
         assert manager.xbridge_conf is None
-        manager.logger.error.assert_called_with("xbridge.conf not found at /mock/datadir/xbridge.conf")
+        manager.logger.error.assert_called_with(
+            "xbridge.conf not found at /mock/datadir/xbridge.conf"
+        )
 
 
 def test_calculate_xbridge_fees(xbridge_manager):
@@ -192,8 +205,8 @@ def test_calculate_xbridge_fees(xbridge_manager):
     manager = xbridge_manager
     # Manually set the parsed conf
     manager.xbridge_conf = {
-        'BLOCK': {'feeperbyte': 20, 'mintxfee': 10000, 'coin': 100000000},
-        'LTC': {'feeperbyte': 10, 'mintxfee': 20000, 'coin': 100000000}
+        "BLOCK": {"feeperbyte": 20, "mintxfee": 10000, "coin": 100000000},
+        "LTC": {"feeperbyte": 10, "mintxfee": 20000, "coin": 100000000},
     }
 
     manager.calculate_xbridge_fees()
@@ -202,9 +215,9 @@ def test_calculate_xbridge_fees(xbridge_manager):
     assert "LTC" in manager.xbridge_fees_estimate
 
     # BLOCK fee: feeperbyte * 500 = 10000. This is equal to mintxfee.
-    assert manager.xbridge_fees_estimate['BLOCK']['estimated_fee_satoshis'] == 10000
-    assert manager.xbridge_fees_estimate['BLOCK']['estimated_fee_coin'] == 0.0001
+    assert manager.xbridge_fees_estimate["BLOCK"]["estimated_fee_satoshis"] == 10000
+    assert manager.xbridge_fees_estimate["BLOCK"]["estimated_fee_coin"] == 0.0001
 
     # LTC fee: feeperbyte * 500 = 5000. This is less than mintxfee.
-    assert manager.xbridge_fees_estimate['LTC']['estimated_fee_satoshis'] == 20000
-    assert manager.xbridge_fees_estimate['LTC']['estimated_fee_coin'] == 0.0002
+    assert manager.xbridge_fees_estimate["LTC"]["estimated_fee_satoshis"] == 20000
+    assert manager.xbridge_fees_estimate["LTC"]["estimated_fee_coin"] == 0.0002

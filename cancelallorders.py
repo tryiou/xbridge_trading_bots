@@ -6,7 +6,7 @@ import os
 from definitions.logger import setup_logger
 from definitions.xbridge_manager import XBridgeManager
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     """
     A simple script to cancel all open XBridge orders.
     It initializes the necessary components to communicate with the Blocknet daemon.
@@ -15,6 +15,7 @@ if __name__ == '__main__':
 
     class MinimalXBridgeConfig:
         """A minimal mock for the xbridge config to provide a debug_level."""
+
         debug_level = 3  # Default debug level for this script
 
 

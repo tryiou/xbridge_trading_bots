@@ -1,6 +1,7 @@
 import threading
 from abc import ABC, abstractmethod
-from typing import Optional, Callable, List, Dict, Any
+from collections.abc import Callable
+from typing import Any
 
 from definitions.starter import run_async_main
 
@@ -15,9 +16,9 @@ class BaseStrategy(ABC):
         self.config_manager = config_manager
         self.controller = controller
         self.error_handler = config_manager.error_handler
-        self._bot_thread: Optional[threading.Thread] = None
+        self._bot_thread: threading.Thread | None = None
         self.is_running = False
-        self._critical_error_callback: Optional[Callable] = None
+        self._critical_error_callback: Callable | None = None
 
     @abstractmethod
     def initialize_strategy_specifics(self, **kwargs):
@@ -33,21 +34,29 @@ class BaseStrategy(ABC):
 
     def initialize_tokens_and_pairs(self, **kwargs):
         from definitions.token import Token
+
         tokens_list = self.get_tokens_for_initialization(**kwargs)
 
         self.config_manager.tokens = {}
-        if 'BTC' not in tokens_list:
-            self.config_manager.tokens['BTC'] = Token(
-                'BTC', strategy=self.config_manager.strategy, config_manager=self.config_manager, dex_enabled=False
+        if "BTC" not in tokens_list:
+            self.config_manager.tokens["BTC"] = Token(
+                "BTC",
+                strategy=self.config_manager.strategy,
+                config_manager=self.config_manager,
+                dex_enabled=False,
             )
         for token_symbol in list(set(tokens_list)):
             if token_symbol not in self.config_manager.tokens:
                 self.config_manager.tokens[token_symbol] = Token(
-                    token_symbol, strategy=self.config_manager.strategy, config_manager=self.config_manager,
-                    dex_enabled=True
+                    token_symbol,
+                    strategy=self.config_manager.strategy,
+                    config_manager=self.config_manager,
+                    dex_enabled=True,
                 )
 
-        self.config_manager.pairs = self.get_pairs_for_initialization(self.config_manager.tokens, **kwargs)
+        self.config_manager.pairs = self.get_pairs_for_initialization(
+            self.config_manager.tokens, **kwargs
+        )
 
     def get_dex_history_file_path(self, pair_name: str) -> str:
         unique_id = pair_name.replace("/", "_")
@@ -56,29 +65,40 @@ class BaseStrategy(ABC):
     def get_dex_token_address_file_path(self, token_symbol: str) -> str:
         return f"{self.config_manager.ROOT_DIR}/data/{self.config_manager.strategy}_{token_symbol}_addr.yaml"
 
-    def get_tokens_from_pair_configs(self, pair_configs: List[Dict[str, Any]]) -> List[str]:
+    def get_tokens_from_pair_configs(
+            self, pair_configs: list[dict[str, Any]]
+    ) -> list[str]:
         tokens = set()
         for cfg in pair_configs:
-            if cfg.get('enabled', True):
-                t1, t2 = cfg['pair'].split('/')
+            if cfg.get("enabled", True):
+                t1, t2 = cfg["pair"].split("/")
                 tokens.add(t1)
                 tokens.add(t2)
         return list(tokens)
 
-    def _create_pairs_from_configs(self, configs: List[Dict[str, Any]], tokens_dict: dict, strategy_name: str, **extra_kwargs) -> dict:
+    def _create_pairs_from_configs(
+            self,
+            configs: list[dict[str, Any]],
+            tokens_dict: dict,
+            strategy_name: str,
+            **extra_kwargs,
+    ) -> dict:
         """DRY helper method to generate Pair objects from config arrays."""
         from definitions.pair import Pair
+
         pairs = {}
-        enabled_pairs = [cfg for cfg in configs if cfg.get('enabled', True)]
+        enabled_pairs = [cfg for cfg in configs if cfg.get("enabled", True)]
         for cfg in enabled_pairs:
-            t1, t2 = cfg['pair'].split("/")
-            pair_name = cfg['name']
-            
+            t1, t2 = cfg["pair"].split("/")
+            pair_name = cfg["name"]
+
             # Map specific config keys directly if they exist
-            amount = cfg.get('amount_to_sell', extra_kwargs.get('amount_token_to_sell'))
-            min_price = cfg.get('min_sell_price_usd', extra_kwargs.get('min_sell_price_usd'))
-            offset = cfg.get('sell_price_offset', extra_kwargs.get('sell_price_offset'))
-            partial = cfg.get('partial_percent', extra_kwargs.get('partial_percent'))
+            amount = cfg.get("amount_to_sell", extra_kwargs.get("amount_token_to_sell"))
+            min_price = cfg.get(
+                "min_sell_price_usd", extra_kwargs.get("min_sell_price_usd")
+            )
+            offset = cfg.get("sell_price_offset", extra_kwargs.get("sell_price_offset"))
+            partial = cfg.get("partial_percent", extra_kwargs.get("partial_percent"))
 
             pairs[pair_name] = Pair(
                 token1=tokens_dict[t1],
@@ -90,7 +110,7 @@ class BaseStrategy(ABC):
                 min_sell_price_usd=min_price,
                 sell_price_offset=offset,
                 partial_percent=partial,
-                config_manager=self.config_manager
+                config_manager=self.config_manager,
             )
         return pairs
 
@@ -138,11 +158,15 @@ class BaseStrategy(ABC):
             if self._critical_error_callback:
                 self._critical_error_callback(e)
             else:
-                self.config_manager.general_log.critical("Unhandled exception in bot thread: %s", e, exc_info=True)
+                self.config_manager.general_log.critical(
+                    "Unhandled exception in bot thread: %s", e, exc_info=True
+                )
 
     def start(self):
         if self.is_running:
-            self.config_manager.general_log.warning("Attempted to start an already running strategy.")
+            self.config_manager.general_log.warning(
+                "Attempted to start an already running strategy."
+            )
             return
 
         startup_tasks = self.get_startup_tasks()
@@ -150,35 +174,51 @@ class BaseStrategy(ABC):
             target=self._thread_wrapper,
             args=(run_async_main, self.config_manager, startup_tasks),
             daemon=True,
-            name=f"BotThread-{self.config_manager.strategy}"
+            name=f"BotThread-{self.config_manager.strategy}",
         )
-        self.config_manager.general_log.info("Starting %s bot thread.", self.config_manager.strategy.capitalize())
+        self.config_manager.general_log.info(
+            "Starting %s bot thread.", self.config_manager.strategy.capitalize()
+        )
         self._bot_thread.start()
         self.is_running = True
 
     def stop(self, timeout: float = 45.0):
         if not self.is_running:
-            self.config_manager.general_log.warning("Attempted to stop a non-running strategy.")
+            self.config_manager.general_log.warning(
+                "Attempted to stop a non-running strategy."
+            )
             return
 
-        self.config_manager.general_log.info("Attempting to stop %s bot...", self.config_manager.strategy)
+        self.config_manager.general_log.info(
+            "Attempting to stop %s bot...", self.config_manager.strategy
+        )
 
         if self.config_manager.controller and self.config_manager.controller.loop:
             loop = self.config_manager.controller.loop
             if not loop.is_closed() and loop.is_running():
                 with self.config_manager.resource_lock:
-                    loop.call_soon_threadsafe(self.config_manager.controller.shutdown_event.set)
+                    loop.call_soon_threadsafe(
+                        self.config_manager.controller.shutdown_event.set
+                    )
         else:
-            self.config_manager.general_log.warning("No active controller/loop to signal for shutdown.")
+            self.config_manager.general_log.warning(
+                "No active controller/loop to signal for shutdown."
+            )
 
         if self._bot_thread:
             self._bot_thread.join(timeout=timeout)
 
             if self._bot_thread.is_alive():
                 self.config_manager.general_log.warning(
-                    "Bot thread for %s did not terminate gracefully within %ss.", self.config_manager.strategy, timeout)
+                    "Bot thread for %s did not terminate gracefully within %ss.",
+                    self.config_manager.strategy,
+                    timeout,
+                )
             else:
-                self.config_manager.general_log.info("%s bot stopped successfully.", self.config_manager.strategy.capitalize())
+                self.config_manager.general_log.info(
+                    "%s bot stopped successfully.",
+                    self.config_manager.strategy.capitalize(),
+                )
 
         self.is_running = False
         self._bot_thread = None

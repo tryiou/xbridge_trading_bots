@@ -8,8 +8,8 @@ from gui.config_windows.pingpong_config import GUI_Config_PingPong
 from gui.frames.base_frames import StandardStrategyFrame
 
 if TYPE_CHECKING:
-    from gui.main_app import MainApplication
     from gui.config_windows.base_config_window import BaseConfigWindow
+    from gui.main_app import MainApplication
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +19,9 @@ class PingPongFrame(StandardStrategyFrame):
     Strategy frame for the PingPong bot.
     """
 
-    def __init__(self, parent, main_app: "MainApplication", master_config_manager: ConfigManager):
+    def __init__(
+            self, parent, main_app: "MainApplication", master_config_manager: ConfigManager
+    ):
         super().__init__(parent, main_app, "pingpong", master_config_manager)
 
     def _create_config_gui(self) -> "BaseConfigWindow":
@@ -34,7 +36,9 @@ class BasicSellerFrame(StandardStrategyFrame):
     Strategy frame for the Basic Seller bot.
     """
 
-    def __init__(self, parent, main_app: "MainApplication", master_config_manager: ConfigManager):
+    def __init__(
+            self, parent, main_app: "MainApplication", master_config_manager: ConfigManager
+    ):
         super().__init__(parent, main_app, "basic_seller", master_config_manager)
 
     def _create_config_gui(self) -> "BaseConfigWindow":
@@ -51,7 +55,9 @@ class ArbitrageFrame(StandardStrategyFrame):
     implementation is pending.
     """
 
-    def __init__(self, parent, main_app: "MainApplication", master_config_manager: ConfigManager):
+    def __init__(
+            self, parent, main_app: "MainApplication", master_config_manager: ConfigManager
+    ):
         super().__init__(parent, main_app, "arbitrage", master_config_manager)
 
     def _create_config_gui(self) -> "BaseConfigWindow":
