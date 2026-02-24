@@ -143,7 +143,7 @@ class BasicSellerStrategyTester:
             # Arrange
             self.pair.dex.disabled = False
             self.pair.dex.order = {'id': 'mock_order_id_456', 'status': 'open'}
-            self.pair.dex.current_order = {'maker': self.pair.t1.symbol}
+            self.pair.dex.current_order = {'maker': self.pair.t1.symbol, 'side': 'SELL'}
             mocks['get_status'].return_value = {'id': 'mock_order_id_456', 'status': 'finished'}
 
             # Act

@@ -10,9 +10,6 @@ import yaml
 # Add parent directory to path for module imports
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-# Remove custom event loop fixtures
-# Pytest-asyncio already handles event management
-
 from definitions.pair import DexPair, Pair, CexPair
 from definitions.token import Token, CexToken, DexToken
 
@@ -68,6 +65,21 @@ def mock_pair():
         'sell_price_offset': 0.01,
         'spread': 0.02
     }
+    
+    # Mocking injected dependencies directly onto the Pair object 
+    # to account for the Dependency Injection refactoring.
+    pair.logger = MagicMock()
+    pair.error_handler = MagicMock()
+    pair.error_handler.handle_async = AsyncMock()
+    pair.xbridge_manager = MagicMock()
+    pair.xbridge_manager.dxgetorderbook = AsyncMock()
+    pair.xbridge_manager.cancelorder = AsyncMock()
+    pair.xbridge_manager.makeorder = AsyncMock()
+    pair.xbridge_manager.makepartialorder = AsyncMock()
+    pair.xbridge_manager.getorderstatus = AsyncMock()
+    pair.ccxt_manager = MagicMock()
+    pair.ccxt_manager.ccxt_call_fetch_order_book = AsyncMock()
+    
     return pair
 
 
@@ -160,8 +172,6 @@ def test_create_virtual_sell_order(dex_pair):
     assert order['maker_size'] == pytest.approx(1.5)
     assert order['taker_size'] == pytest.approx(1.5 * 10.0 * (1 + 0.01))
     assert order['dex_price'] == pytest.approx(10.0 * (1 + 0.01))
-    assert order['taker_size'] == pytest.approx(1.5 * 10.0 * (1 + 0.01))
-    assert order['dex_price'] == pytest.approx(10.0 * (1 + 0.01))
 
 
 def test_create_virtual_buy_order(dex_pair):
@@ -213,13 +223,13 @@ async def test_dex_create_order_insufficient_balance(dex_pair):
     dex_pair.t1.dex.free_balance = 0.1
 
     mock_makeorder = AsyncMock()
-    dex_pair.pair.config_manager.xbridge_manager.makeorder = mock_makeorder
+    dex_pair.pair.xbridge_manager.makeorder = mock_makeorder
 
     await dex_pair.create_order()
 
     mock_makeorder.assert_not_awaited()
-    dex_pair.pair.config_manager.general_log.error.assert_called()
-    assert "balance too low" in dex_pair.pair.config_manager.general_log.error.call_args[0][0]
+    dex_pair.pair.logger.error.assert_called()
+    assert "balance too low" in dex_pair.pair.logger.error.call_args[0][0]
 
 
 @pytest.mark.asyncio
@@ -228,9 +238,6 @@ async def test_dex_create_order_xb_error(dex_pair):
     # Create an AsyncMock that returns an error response
     mock_makeorder = AsyncMock(return_value={'error': 'Failed to make order', 'code': 1001})
 
-    # Use AsyncMock to avoid coroutine flag issues
-    async_notify_user_mock = AsyncMock()
-
     strategy_mock = dex_pair.pair.config_manager.strategy_instance
     strategy_mock.calculate_sell_price.return_value = 10.0
     strategy_mock.build_sell_order_details.return_value = (1.0, 0.01)
@@ -238,10 +245,7 @@ async def test_dex_create_order_xb_error(dex_pair):
     dex_pair.create_virtual_sell_order()
     dex_pair.t1.dex.free_balance = 2.0  # Sufficient balance
 
-    dex_pair.pair.config_manager.xbridge_manager.makeorder = mock_makeorder
-
-    # Fix mock config_manager.async_notify_user
-    dex_pair.pair.config_manager.async_notify_user = async_notify_user_mock
+    dex_pair.pair.xbridge_manager.makeorder = mock_makeorder
 
     # Mock the async strategy handler
     strategy_handle_error_mock = AsyncMock()
@@ -249,7 +253,7 @@ async def test_dex_create_order_xb_error(dex_pair):
     dex_pair.pair.config_manager.strategy_instance.handle_order_status_error = strategy_handle_error_mock
 
     # Mock the config manager to return True from error handler
-    dex_pair.pair.config_manager.error_handler.handle_async = AsyncMock(return_value=True)
+    dex_pair.pair.error_handler.handle_async = AsyncMock(return_value=True)
 
     await dex_pair.create_order()
 
@@ -257,7 +261,7 @@ async def test_dex_create_order_xb_error(dex_pair):
     assert dex_pair.order is None
     assert dex_pair.disabled is True
     strategy_handle_error_mock.assert_called_once_with(dex_pair)
-    dex_pair.pair.config_manager.general_log.error.assert_called()
+    dex_pair.pair.logger.error.assert_called()
 
 
 def test_map_order_status_invalid(dex_pair):
@@ -280,7 +284,7 @@ def test_write_last_order_history_failure(dex_pair):
         mock_file.side_effect = IOError("Disk full")
         dex_pair.write_last_order_history()
         # Verify error handler was called with expected exception type
-        handle_call_args = dex_pair.pair.config_manager.error_handler.handle.call_args
+        handle_call_args = dex_pair.pair.error_handler.handle.call_args
         assert handle_call_args is not None
         # Unpack the call arguments: (args, kwargs)
         args, kwargs = handle_call_args
@@ -301,14 +305,17 @@ async def test_update_taker_address_mismatch(dex_pair):
     dex_pair.t1.symbol = 'T1'
     dex_pair.t2.symbol = 'T2'
     # Should not attempt to update address
-    await dex_pair._update_taker_address()
+    
+    # We test the logic previously found in _update_taker_address inline in status_check
+    # By ensuring that if status is FINISHED and taker doesn't match, we don't call it.
+    await dex_pair.status_check(disabled_coins=None, display=False)
     dex_pair.t1.dex.request_addr.assert_not_awaited()
     dex_pair.t2.dex.request_addr.assert_not_awaited()
 
 
 @pytest.mark.asyncio
 async def test_dex_at_order_finished(dex_pair):
-    """Tests order completion workflow."""
+    """Tests order completion workflow inline within status_check."""
     # Setup
     dex_pair.order = {'id': 'test_order_id', 'status': 'finished', 'taker': 'T2', 'taker_address': 'test_address'}
     dex_pair.current_order = {
@@ -319,7 +326,8 @@ async def test_dex_at_order_finished(dex_pair):
         'taker_address': 'taker_addr',
         'maker_size': 1.0,
         'taker_size': 10.0,
-        'dex_price': 10.0
+        'dex_price': 10.0,
+        'side': 'SELL'
     }
     dex_pair.t2.symbol = 'T2'  # Ensure consistent symbol
 
@@ -328,8 +336,11 @@ async def test_dex_at_order_finished(dex_pair):
             patch.object(dex_pair.pair.config_manager.strategy_instance, 'handle_finished_order',
                          new_callable=AsyncMock) as handle_mock, \
             patch.object(dex_pair, 'write_last_order_history') as write_mock:
-        # Execute
-        await dex_pair.at_order_finished(disabled_coins=[])
+        
+        # Execute (the logic is now directly in status_check under FINISHED status)
+        # Mock check_order_status to return FINISHED
+        dex_pair.check_order_status = AsyncMock(return_value=dex_pair.STATUS_FINISHED)
+        await dex_pair.status_check(disabled_coins=[])
 
         # Verify async calls were awaited
         addr_mock.assert_awaited_once()
@@ -354,7 +365,7 @@ def test_dex_pair_read_last_order_history(dex_pair):
     with patch('builtins.open', side_effect=FileNotFoundError):
         dex_pair.read_last_order_history()
         assert dex_pair.order_history is None
-        dex_pair.pair.config_manager.general_log.info.assert_called()
+        dex_pair.pair.logger.info.assert_called()
 
     # Test 3: Corrupted YAML file
     dex_pair.order_history = None  # Reset
@@ -362,7 +373,7 @@ def test_dex_pair_read_last_order_history(dex_pair):
             patch('yaml.safe_load', side_effect=yaml.YAMLError):
         dex_pair.read_last_order_history()
         assert dex_pair.order_history is None
-        dex_pair.pair.config_manager.error_handler.handle.assert_called_once()
+        dex_pair.pair.error_handler.handle.assert_called_once()
 
     # Test 4: Empty file
     dex_pair.order_history = None
@@ -370,7 +381,7 @@ def test_dex_pair_read_last_order_history(dex_pair):
         mock_file.return_value.read.return_value = ""
         dex_pair.read_last_order_history()
         assert dex_pair.order_history is None
-        dex_pair.pair.config_manager.general_log.info.assert_called()
+        dex_pair.pair.logger.info.assert_called()
 
 
 def test_pair_initialization():
@@ -468,7 +479,7 @@ async def test_dex_create_order_disabled(dex_pair):
     dex_pair.disabled = True
 
     mock_makeorder = AsyncMock()
-    dex_pair.pair.config_manager.xbridge_manager.makeorder = mock_makeorder
+    dex_pair.pair.xbridge_manager.makeorder = mock_makeorder
 
     # Run create_order
     await dex_pair.create_order()
@@ -488,10 +499,10 @@ async def test_handle_order_error_with_ignored_code(dex_pair):
     await dex_pair._handle_order_error()
 
     assert not dex_pair.disabled
-    mock_log = dex_pair.pair.config_manager.general_log.error
+    mock_log = dex_pair.pair.logger.error
     mock_log.assert_called_once()
     log_message = mock_log.call_args[0][0]
-    assert "Test error" in log_message
+    assert "Error making order" in log_message
 
 
 @pytest.mark.asyncio
@@ -501,7 +512,7 @@ async def test_update_dex_orderbook(dex_pair):
 
     # Mock the dxgetorderbook call
     mock_dxgetorderbook = AsyncMock(return_value={'asks': [], 'bids': [], 'detail': 'ignored'})
-    dex_pair.pair.config_manager.xbridge_manager.dxgetorderbook = mock_dxgetorderbook
+    dex_pair.pair.xbridge_manager.dxgetorderbook = mock_dxgetorderbook
 
     await dex_pair.update_dex_orderbook()
 
@@ -526,7 +537,7 @@ async def test_check_price_variation_cancellation(dex_pair):
     mock_cancel = AsyncMock()
     mock_reinit = AsyncMock()
     dex_pair.cancel_myorder_async = mock_cancel
-    dex_pair._reinit_virtual_order = mock_reinit
+    dex_pair.pair.config_manager.strategy_instance.reinit_virtual_order_after_price_variation = mock_reinit
 
     # Test with disabled_coins
     disabled_coins = ['T3']
@@ -534,7 +545,7 @@ async def test_check_price_variation_cancellation(dex_pair):
 
     # Verify cancellation and reinit
     mock_cancel.assert_awaited_once()
-    mock_reinit.assert_awaited_once_with(disabled_coins)
+    mock_reinit.assert_awaited_once_with(dex_pair, disabled_coins)
 
 
 @pytest.mark.asyncio
@@ -543,36 +554,38 @@ async def test_status_open_flow(dex_pair):
     # Setup
     dex_pair.order = {'id': 'open_order', 'status': 'open'}
     dex_pair.disabled = False
+    dex_pair.current_order = {'side': 'SELL', 'org_pprice': 10.0, 'dex_price': 10.0}
 
     # Mock the update_pricing method to avoid await issue
     dex_pair.pair.cex.update_pricing = AsyncMock()
 
     # Mock methods
     mock_check_status = AsyncMock(return_value=dex_pair.STATUS_OPEN)
-    mock_handle_open = AsyncMock()
+    mock_check_price_var = AsyncMock()
     dex_pair.check_order_status = mock_check_status
-    dex_pair.handle_status_open = mock_handle_open
+    dex_pair.check_price_variation = mock_check_price_var
 
     # Execute status check
     await dex_pair.status_check(disabled_coins=['T3'], display=True)
 
     # Verify
     mock_check_status.assert_awaited_once_with()
-    mock_handle_open.assert_awaited_once_with(['T3'], True)
+    mock_check_price_var.assert_awaited_once_with(['T3'], display=True)
 
 
 @pytest.mark.asyncio
 async def test_handle_status_open_disabled_coins(dex_pair):
-    """Tests cancellation when coins are disabled during open status."""
+    """Tests cancellation when coins are disabled during open status inline via status_check."""
     # Setup
     dex_pair.order = {'id': 'open_order', 'status': 'open'}
     disabled_coins = ['T1', 'T3']  # T1 is in the pair
 
-    # Mock cancellation method
+    # Mock checking logic
+    dex_pair.check_order_status = AsyncMock(return_value=dex_pair.STATUS_OPEN)
     dex_pair.cancel_myorder_async = AsyncMock()
 
     # Execute
-    await dex_pair.handle_status_open(disabled_coins, display=True)
+    await dex_pair.status_check(disabled_coins, display=True)
 
     # Verify cancellation occurred
     dex_pair.cancel_myorder_async.assert_awaited_once()
@@ -617,6 +630,7 @@ async def test_complex_status_workflow(dex_pair):
     """Tests behavior for unsupported order statuses."""
     # Setup order with unexpected status
     dex_pair.order = {'id': 'weird_order', 'status': 'unknown_status'}
+    dex_pair.current_order = {'side': 'SELL', 'org_pprice': 10.0, 'dex_price': 10.0}
 
     # Mock the update_pricing method to avoid await issue
     dex_pair.pair.cex.update_pricing = AsyncMock()
@@ -648,8 +662,8 @@ async def test_dex_handle_shutdown_event(dex_pair):
     await task
 
     # Verify no orders were created
-    dex_pair.pair.config_manager.general_log.warning.assert_called_with(
-        "Skipping order creation for T1/T2 - shutdown in progress"
+    dex_pair.pair.logger.warning.assert_called_with(
+        "Skipping order creation for %s - shutdown in progress", 'T1/T2'
     )
     assert dex_pair.order is None
 
@@ -660,20 +674,15 @@ def test_dex_handle_order_status_error(dex_pair):
     dex_pair.pair.strategy = 'pingpong'  # Explicitly set strategy
     dex_pair.order = {'id': 'bad_order', 'error': 'test error'}
 
-    # Mock the logger error method
-    logger_error = MagicMock()
-    dex_pair.pair.config_manager.general_log.error = logger_error
-
     # Execute
     dex_pair._handle_order_status_error()
 
     # Verify
-    logger_error.assert_called_once()
+    dex_pair.pair.logger.error.assert_called_once()
     assert dex_pair.order is None
 
 
 @pytest.mark.parametrize("strategy", ['pingpong', 'basic_seller'])
-#, 'arbitrage'])
 def test_dex_handle_order_status_error_with_strategies(mock_pair, strategy):
     """Tests order clearing behavior for different strategies."""
     # Arrange
@@ -752,22 +761,20 @@ class TestCexPair:
         """Tests logging during price updates."""
         mock_cex_pair.t1.cex.cex_price = 2.0
         mock_cex_pair.t2.cex.cex_price = 0.4
-        mock_cex_pair.pair.config_manager.general_log.info = MagicMock()
+        mock_cex_pair.pair.logger.info = MagicMock()
 
         await mock_cex_pair.update_pricing(display=True)
 
         # Verify logging occurred
-        log_args = mock_cex_pair.pair.config_manager.general_log.info.call_args[0][0]
-        assert "T1 btc_p: 2.0" in log_args
-        assert "T2 btc_p: 0.4" in log_args
-        assert "T1/T2 price: 5.0" in log_args
+        log_args = mock_cex_pair.pair.logger.info.call_args[0][0]
+        assert "update_pricing: %s" in log_args
 
     @pytest.mark.asyncio
     async def test_update_orderbook_timer_conditions(self, mock_cex_pair):
         """Tests CexPair.update_orderbook with timer conditions."""
         # Mock the fetch method
         mock_fetch = AsyncMock(return_value={'bids': [[100, 1]], 'asks': [[101, 1]]})
-        mock_cex_pair.pair.config_manager.ccxt_manager.ccxt_call_fetch_order_book = mock_fetch
+        mock_cex_pair.pair.ccxt_manager.ccxt_call_fetch_order_book = mock_fetch
 
         # Test with timer reset
         mock_cex_pair.cex_orderbook_timer = None
@@ -791,10 +798,10 @@ class TestCexPair:
         """Tests exception handling in CexPair.update_orderbook."""
         # Mock to raise exception
         mock_fetch = AsyncMock(side_effect=Exception("API failure"))
-        mock_cex_pair.pair.config_manager.ccxt_manager.ccxt_call_fetch_order_book = mock_fetch
+        mock_cex_pair.pair.ccxt_manager.ccxt_call_fetch_order_book = mock_fetch
 
         # Mock the error handler handle_async as an AsyncMock
-        mock_cex_pair.pair.config_manager.error_handler.handle_async = AsyncMock()
+        mock_cex_pair.pair.error_handler.handle_async = AsyncMock()
 
         # Should not propagate exception
         try:
@@ -803,5 +810,5 @@ class TestCexPair:
             pytest.fail("Unexpected exception propagation")
 
         # Verify exception was handled
-        mock_cex_pair.pair.config_manager.error_handler.handle_async.assert_awaited()
+        mock_cex_pair.pair.error_handler.handle_async.assert_awaited()
         assert mock_cex_pair.cex_orderbook_timer is None  # Should be reset

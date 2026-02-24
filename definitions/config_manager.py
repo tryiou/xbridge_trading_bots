@@ -1,12 +1,10 @@
 import logging
 import os
-import shutil
 import threading
 from typing import Dict, Any, Optional
 
-from ruamel.yaml import YAML
-
 from definitions.ccxt_manager import CCXTManager
+from definitions.config_loader import ConfigLoader
 from definitions.config_validation import ConfigValidationManager, ValidationResult
 from definitions.error_handler import ErrorHandler
 from definitions.errors import ConfigurationError
@@ -28,11 +26,14 @@ class ConfigManager:
                                     level=logging.DEBUG, console=True)
         self.error_handler = ErrorHandler(self)
         self.current_module = None
-        self.secrets_manager = SecretsManager(self.logger)
-        # Initialize validation manager
-        self.validation_manager = ConfigValidationManager()
-        self.validation_enabled = True  # Enable validation by default
-        self.validation_results: Dict[str, ValidationResult] = {}
+        # Initialize ConfigLoader for loading and validating configs
+        self.config_loader = ConfigLoader(
+            root_dir=self.ROOT_DIR,
+            logger=self.logger,
+            error_handler=self.error_handler,
+            validation_manager=ConfigValidationManager(),
+            validation_enabled=True
+        )
 
         if master_manager:
             # In GUI slave mode, get references to strategy-specific loggers
@@ -120,283 +121,54 @@ class ConfigManager:
             return getattr(self.ccxt_manager, 'my_ccxt', None)
         return None
 
-    def create_configs_from_templates(self):
-        config_files = [
-            "config_ccxt.yaml",
-            "config_coins.yaml",
-            "config_pingpong.yaml",
-            "config_basic_seller.yaml",
-            "config_xbridge.yaml",
-        ]
+    @property
+    def validation_manager(self):
+        """Proxy to config_loader's validation_manager for backward compatibility."""
+        return self.config_loader.validation_manager
 
-        for config_file in config_files:
-            target_path = os.path.join(self.ROOT_DIR, "config", config_file)
-            template_path = os.path.join(self.ROOT_DIR, "config", "templates", config_file + ".template")
-            # Check if target file exists
-            if not os.path.exists(target_path):
-                # Check if template file exists
-                if os.path.exists(template_path):
-                    try:
-                        shutil.copy(template_path, target_path)
-                        self.logger.info(f"Created config file: {config_file} from template")
-                    except Exception as e:
-                        self.error_handler.handle(
-                            e,
-                            context={"file": target_path, "template": template_path,
-                                     "operation": f"create_config_{config_file}"}
-                        )
-                else:
-                    self.error_handler.handle(
-                        ConfigurationError(f"Template file {config_file}.template not found in config directory"),
-                        context={"file": template_path}
-                    )
-            else:
-                # Target file exists
-                self.logger.info(f"{config_file}: Already exists")
+    @property
+    def validation_results(self):
+        """Proxy to config_loader's validation_results for backward compatibility."""
+        return self.config_loader.validation_results
 
-    def _load_and_update_config(self, config_name: str) -> YamlToObject:
-        """
-        Loads a YAML config, validates it, compares it to its template, adds missing keys from
-        the template, and saves it back if changed.
-        Returns the config as a YamlToObject instance.
-        """
-        config_path = os.path.join(self.ROOT_DIR, "config", config_name)
-        template_path = os.path.join(self.ROOT_DIR, "config", "templates", config_name + ".template")
+    @property
+    def validation_enabled(self):
+        """Proxy to config_loader's validation_enabled for backward compatibility."""
+        return self.config_loader.validation_enabled
 
-        # Determine config type from filename
-        config_type = self._get_config_type_from_filename(config_name)
+    @validation_enabled.setter
+    def validation_enabled(self, value: bool):
+        """Set validation_enabled on config_loader."""
+        self.config_loader.validation_enabled = value
 
-        # Validate file existence and readability first
-        if self.validation_enabled and config_type:
-            validation_result = self.validation_manager.validate_file_existence_and_readability(config_path)
-            if not validation_result.is_valid:
-                self._handle_validation_error(config_type, config_path, validation_result)
-                return YamlToObject({})
-
-        if not os.path.exists(template_path):
-            self.error_handler.handle(
-                ConfigurationError(f"Template file not found: {template_path}. Cannot check for missing keys."),
-                context={"template_path": template_path}
-            )
-            return YamlToObject(config_path)
-
-        yaml = YAML()
-        yaml.preserve_quotes = True
-        yaml.indent(mapping=2, sequence=4, offset=2)
-
-        try:
-            with open(config_path, 'r') as f:
-                user_config = yaml.load(f) or {}
-        except Exception as e:
-            self.error_handler.handle(
-                e,
-                context={"config_path": config_path, "operation": "load_config"}
-            )
-            return YamlToObject({})
-
-        try:
-            with open(template_path, 'r') as f:
-                template_config = yaml.load(f) or {}
-        except Exception as e:
-            self.error_handler.handle(
-                e,
-                context={"template_path": template_path, "operation": "load_template"}
-            )
-            return YamlToObject(user_config)
-
-        if self._merge_configs(template_config, user_config):
-            try:
-                with open(config_path, 'w') as f:
-                    yaml.dump(user_config, f)
-                self.logger.info(f"Updated {os.path.basename(config_path)} with missing keys from template.")
-            except Exception as e:
-                self.error_handler.handle(
-                    e,
-                    context={"config_path": config_path, "operation": "save_updated_config"}
-                )
-
-        # Validate configuration after loading and merging
-        if self.validation_enabled and config_type:
-            validation_result = self.validation_manager.validate_config_file(
-                config_type, user_config, config_path
-            )
-            self.validation_results[config_type] = validation_result
-            self._log_validation_result(config_type, validation_result)
-
-            # Log warnings but don't fail - only log errors for critical configurations
-            if not validation_result.is_valid and config_type in ['ccxt', 'xbridge']:
-                # These are critical configurations that should not have errors
-                self.logger.error(f"Critical configuration validation failed for {config_type}: {validation_result}")
-            elif validation_result.warnings:
-                self.logger.warning(f"Configuration warnings for {config_type}: {validation_result.warnings}")
-
-        return YamlToObject(user_config)
-
-    def _merge_configs(self, template: dict, user: dict) -> bool:
-        """Recursively merge template config into user config, adding missing keys.
-        
-        Args:
-            template: The template configuration dictionary.
-            user: The user configuration dictionary to merge into.
-            
-        Returns:
-            True if any keys were added, False otherwise.
-        """
-        updated = False
-        if not isinstance(user, dict) or not isinstance(template, dict):
-            return False
-        for key, value in template.items():
-            if key not in user:
-                user[key] = value
-                updated = True
-                self.logger.info(
-                    f"Added missing key '{key}' to config from template.")
-            elif isinstance(value, dict) and isinstance(user.get(key), dict):
-                if self._merge_configs(value, user.get(key, {})):
-                    updated = True
-        return updated
+    @property
+    def secrets_manager(self):
+        """Proxy to config_loader's secrets_manager for backward compatibility."""
+        return self.config_loader.secrets_manager
 
     def load_configs(self):
-        self.create_configs_from_templates()
-        self.config_ccxt = self._load_and_update_config("config_ccxt.yaml")
-        self.config_coins = self._load_and_update_config("config_coins.yaml")
-        self.config_xbridge = self._load_and_update_config("config_xbridge.yaml")
-        # In standalone mode, only load the relevant strategy config.
-        # In GUI mode (strategy='gui'), load all of them.
-        if self.strategy in ["pingpong", "gui"]:
-            self.config_pingpong = self._load_and_update_config("config_pingpong.yaml")
-        if self.strategy in ["basic_seller", "gui"]:
-            self.config_basicseller = self._load_and_update_config("config_basic_seller.yaml")
-
-        # Load and validate API keys
-        self._load_and_validate_api_keys()
-
-    def _get_config_type_from_filename(self, filename: str) -> Optional[str]:
-        """Extract configuration type from filename.
+        """Load all configuration files using ConfigLoader."""
+        configs, api_keys = self.config_loader.load_all_configs(self.strategy)
         
-        Args:
-            filename: The config filename to map to a type.
-            
-        Returns:
-            The configuration type string or None if not recognized.
-        """
-        mapping = {
-            "config_ccxt.yaml": "ccxt",
-            "config_coins.yaml": "coins",
-            "config_pingpong.yaml": "pingpong",
-            "config_basic_seller.yaml": "basic_seller",
-            "config_xbridge.yaml": "xbridge",
-        }
-        return mapping.get(filename)
-
-    def _handle_validation_error(self, config_type: str, file_path: str, validation_result: ValidationResult):
-        """Handle validation errors based on severity.
+        self.config_ccxt = configs.get("ccxt")
+        self.config_coins = configs.get("coins")
+        self.config_xbridge = configs.get("xbridge")
+        self.config_pingpong = configs.get("pingpong")
+        self.config_basicseller = configs.get("basic_seller")
         
-        Args:
-            config_type: The type of configuration being validated.
-            file_path: Path to the config file that failed validation.
-            validation_result: The validation result containing errors.
-        """
-        if config_type in ['ccxt', 'xbridge', 'api_keys']:
-            # Critical configurations - log as error
-            self.logger.error(f"Critical configuration validation failed for {config_type}: {validation_result}")
-            self.error_handler.handle(
-                ConfigurationError(f"Critical configuration validation failed for {config_type}"),
-                context={
-                    "config_type": config_type,
-                    "file_path": file_path,
-                    "errors": validation_result.errors,
-                    "validation_result": str(validation_result)
-                }
-            )
-        else:
-            # Non-critical configurations - log as warning
-            self.logger.warning(f"Configuration validation failed for {config_type}: {validation_result}")
-
-    def _log_validation_result(self, config_type: str, validation_result: ValidationResult):
-        """Log validation result at appropriate level.
-        
-        Args:
-            config_type: The type of configuration being validated.
-            validation_result: The validation result to log.
-        """
-        if not validation_result.is_valid:
-            if config_type in ['ccxt', 'xbridge', 'api_keys']:
-                self.logger.error(f"Validation failed for {config_type}: {validation_result}")
-            else:
-                self.logger.warning(f"Validation warnings for {config_type}: {validation_result}")
-        elif validation_result.warnings:
-            self.logger.info(f"Configuration warnings for {config_type}: {validation_result.warnings}")
-        elif self.validation_enabled:
-            self.logger.debug(f"Configuration validation passed for {config_type}")
-
-    def _load_and_validate_api_keys(self) -> Dict[str, Any]:
-        """Load API keys from secrets manager (environment variables only).
-        
-        Returns:
-            Dictionary containing the API keys data.
-        """
-        api_keys_data = self.secrets_manager.get_api_keys()
-        
-        if not api_keys_data.get("api_info"):
-            self.logger.warning(
-                "No API keys found in environment variables. "
-                "Set XBRIDGE_EXCHANGE_<EXCHANGE>_API_KEY and "
-                "XBRIDGE_EXCHANGE_<EXCHANGE>_API_SECRET for each exchange."
-            )
-        
-        if self.validation_enabled and api_keys_data.get("api_info"):
-            validation_result = self.validation_manager.validate_config_file(
-                'api_keys', api_keys_data, "environment"
-            )
-            self.validation_results['api_keys'] = validation_result
-            self._log_validation_result('api_keys', validation_result)
-
-        return api_keys_data
+        return configs, api_keys
 
     def get_validation_report(self) -> str:
         """Generate a comprehensive validation report."""
-        if not self.validation_enabled:
-            return "Configuration validation is disabled"
-
-        report = ["=== Configuration Validation Report ==="]
-        report.append(f"Total configurations validated: {len(self.validation_results)}")
-        report.append("")
-
-        for config_type, result in self.validation_results.items():
-            report.append(f"{config_type.upper()} Configuration:")
-            report.append(f"  Status: {'✓ VALID' if result.is_valid else '✗ INVALID'}")
-            if result.errors:
-                report.append(f"  Errors ({len(result.errors)}):")
-                for error in result.errors:
-                    report.append(f"    - {error}")
-            if result.warnings:
-                report.append(f"  Warnings ({len(result.warnings)}):")
-                for warning in result.warnings:
-                    report.append(f"    - {warning}")
-            report.append("")
-
-        return "\n".join(report)
+        return self.config_loader.get_validation_report()
 
     def validate_all_configs(self) -> bool:
         """Validate all loaded configurations and return overall status."""
-        if not self.validation_enabled:
-            return True
-
-        all_valid = True
-        for config_type, result in self.validation_results.items():
-            if not result.is_valid:
-                all_valid = False
-                if config_type in ['ccxt', 'xbridge', 'api_keys']:
-                    # For critical configs, raise the error
-                    self.logger.error(f"Critical configuration {config_type} validation failed")
-                    return False
-
-        return all_valid
+        return self.config_loader.validate_all_configs()
 
     def enable_validation(self, enabled: bool = True):
         """Enable or disable configuration validation."""
-        self.validation_enabled = enabled
+        self.config_loader.validation_enabled = enabled
         if enabled:
             self.logger.info("Configuration validation enabled")
         else:
