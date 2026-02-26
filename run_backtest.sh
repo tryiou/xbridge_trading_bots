@@ -10,9 +10,9 @@ RESULTS_DIR="backtest_results"
 mkdir -p $RESULTS_DIR
 
 configs=(
-	"config/backtest_equal.yaml:equal"
+	# "config/backtest_equal.yaml:equal"
 	"config/backtest_growing_outward.yaml:growing_outward"
-	"config/backtest_growing_inward.yaml:growing_inward"
+	# "config/backtest_growing_inward.yaml:growing_inward"
 )
 
 intervals=(

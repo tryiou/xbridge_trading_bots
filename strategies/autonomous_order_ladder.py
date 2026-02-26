@@ -12,20 +12,12 @@ class ManagedOrder:
     price: float
     amount: float
     created_at: datetime = field(default_factory=datetime.utcnow)
-    finished_amount: float = 0.0
     status: str = "open"
-
-    def is_finished(self) -> bool:
-        return self.finished_amount >= self.amount
-
-    def remaining_amount(self) -> float:
-        return self.amount - self.finished_amount
 
 
 class OrderLadder:
-    def __init__(self, max_orders: int = 10, partial_percent: float = 0.1):
+    def __init__(self, max_orders: int = 10):
         self.max_orders = max_orders
-        self.partial_percent = partial_percent
         self.orders: dict[str, ManagedOrder] = {}
 
     def add_order(
@@ -129,13 +121,6 @@ class OrderLadder:
             return True
         return False
 
-    def record_finish(self, order_id: str, finish_amount: float):
-        order = self.get_order(order_id)
-        if order:
-            order.finished_amount += finish_amount
-            if order.is_finished():
-                order.status = "finished"
-
     def clear_all(self):
         self.orders.clear()
 
@@ -149,7 +134,6 @@ class OrderLadder:
                     "price": o.price,
                     "amount": o.amount,
                     "created_at": o.created_at.isoformat(),
-                    "finished_amount": o.finished_amount,
                     "status": o.status,
                 }
                 for o in self.orders.values()
@@ -157,10 +141,8 @@ class OrderLadder:
         }
 
     @classmethod
-    def from_dict(
-        cls, data: dict, max_orders: int = 10, partial_percent: float = 0.1
-    ) -> "OrderLadder":
-        ladder = cls(max_orders=max_orders, partial_percent=partial_percent)
+    def from_dict(cls, data: dict, max_orders: int = 10) -> "OrderLadder":
+        ladder = cls(max_orders=max_orders)
         for order_data in data.get("open_orders", []):
             order = ManagedOrder(
                 id=order_data["id"],
@@ -169,7 +151,6 @@ class OrderLadder:
                 price=order_data["price"],
                 amount=order_data["amount"],
                 created_at=datetime.fromisoformat(order_data["created_at"]),
-                finished_amount=order_data.get("finished_amount", 0.0),
                 status=order_data.get("status", "open"),
             )
             ladder.orders[order.id] = order

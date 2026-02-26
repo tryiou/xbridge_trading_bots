@@ -67,19 +67,19 @@ class AutonomousMakerTester:
             ) as mock_flush,
         ):
             mock_make_partial.return_value = {
-                "result": {"id": "mock_order_id_123", "status": "created"}
+                "id": "mock_order_id_123",
+                "status": "created",
             }
             mock_balances.return_value = {
-                "result": {
-                    self.strategy.token_a: "1.0",
-                    self.strategy.token_b: "100.0",
-                }
+                self.strategy.token_a: "1.0",
+                self.strategy.token_b: "100.0",
             }
             mock_get_status.return_value = {
-                "result": {"id": "mock_order_id_123", "status": "open"}
+                "id": "mock_order_id_123",
+                "status": "open",
             }
             mock_cancel.return_value = {"result": True}
-            mock_cancel_all.return_value = {"result": True}
+            mock_cancel_all.return_value = []
             mock_flush.return_value = {"result": True}
 
             mocks = {

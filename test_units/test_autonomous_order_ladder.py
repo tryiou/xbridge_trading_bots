@@ -19,41 +19,18 @@ class TestManagedOrder:
         assert order.side == "buy"
         assert order.price == 100.0
         assert order.amount == 0.5
-        assert order.finished_amount == 0.0
         assert order.status == "open"
 
-    def test_is_finished_false(self):
+    def test_creation_with_status(self):
         order = ManagedOrder(
             id="test-id",
             level=1,
             side="buy",
             price=100.0,
             amount=0.5,
-            finished_amount=0.3,
+            status="finished",
         )
-        assert order.is_finished() is False
-
-    def test_is_finished_true(self):
-        order = ManagedOrder(
-            id="test-id",
-            level=1,
-            side="buy",
-            price=100.0,
-            amount=0.5,
-            finished_amount=0.5,
-        )
-        assert order.is_finished() is True
-
-    def test_remaining_amount(self):
-        order = ManagedOrder(
-            id="test-id",
-            level=1,
-            side="buy",
-            price=100.0,
-            amount=0.5,
-            finished_amount=0.2,
-        )
-        assert order.remaining_amount() == pytest.approx(0.3)
+        assert order.status == "finished"
 
 
 class TestOrderLadder:
@@ -61,7 +38,7 @@ class TestOrderLadder:
 
     @pytest.fixture
     def ladder(self):
-        return OrderLadder(max_orders=10, partial_percent=0.1)
+        return OrderLadder(max_orders=10)
 
     def test_add_order(self, ladder):
         order = ladder.add_order(
@@ -238,23 +215,6 @@ class TestOrderLadder:
             level=1, side="buy", price=99.0, amount=0.1, order_id="order-1"
         )
         ladder.update_order_status("order-1", "finished")
-        order = ladder.get_order("order-1")
-        assert order.status == "finished"
-
-    def test_record_finish_partial(self, ladder):
-        ladder.add_order(
-            level=1, side="buy", price=99.0, amount=0.1, order_id="order-1"
-        )
-        ladder.record_finish("order-1", 0.05)
-        order = ladder.get_order("order-1")
-        assert order.finished_amount == pytest.approx(0.05)
-        assert order.status == "open"
-
-    def test_record_finish_complete(self, ladder):
-        ladder.add_order(
-            level=1, side="buy", price=99.0, amount=0.1, order_id="order-1"
-        )
-        ladder.record_finish("order-1", 0.1)
         order = ladder.get_order("order-1")
         assert order.status == "finished"
 

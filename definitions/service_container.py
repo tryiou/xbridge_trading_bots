@@ -68,11 +68,11 @@ class IXBridgeManager(Protocol):
     logger: logging.Logger
 
     async def rpc_wrapper(
-            self,
-            method: str,
-            params: list[Any] | None = None,
-            shutdown_event: asyncio.Event | None = None,
-            use_shutdown_event: bool = True,
+        self,
+        method: str,
+        params: list[Any] | None = None,
+        shutdown_event: asyncio.Event | None = None,
+        use_shutdown_event: bool = True,
     ) -> Any: ...
 
     async def gettokenbalances(self) -> Any: ...
@@ -82,18 +82,17 @@ class IXBridgeManager(Protocol):
     async def getlocaltokens(self) -> Any: ...
 
     async def makeorder(
-            self,
-            maker: str,
-            makeramount: float,
-            makeraddress: str,
-            taker: str,
-            takeramount: float,
-            takeraddress: str,
-            dryrun: bool | None = None,
+        self,
+        maker: str,
+        makeramount: float,
+        makeraddress: str,
+        taker: str,
+        takeramount: float,
+        takeraddress: str,
     ) -> Any: ...
 
     async def cancelorder(
-            self, order_id: str, use_shutdown_event: bool = True
+        self, order_id: str, use_shutdown_event: bool = True
     ) -> Any: ...
 
     async def getorderstatus(self, oid: str) -> Any: ...
@@ -108,23 +107,23 @@ class ICCXTManager(Protocol):
     cex_orderbook: dict[str, Any] | None
 
     def init_ccxt_instance(
-            self,
-            exchange: str,
-            hostname: str | None = None,
-            private_api: bool = False,
-            debug_level: int = 1,
+        self,
+        exchange: str,
+        hostname: str | None = None,
+        private_api: bool = False,
+        debug_level: int = 1,
     ) -> Any: ...
 
     async def ccxt_call_fetch_order_book(
-            self, ccxt_o: Any, symbol: str, limit: int = 25, ignore_timer: bool = False
+        self, ccxt_o: Any, symbol: str, limit: int = 25, ignore_timer: bool = False
     ) -> dict[str, Any] | None: ...
 
     async def ccxt_call_fetch_ticker(
-            self, ccxt_o: Any, symbol: str
+        self, ccxt_o: Any, symbol: str
     ) -> dict[str, Any] | None: ...
 
     async def ccxt_call_fetch_free_balance(
-            self, ccxt_o: Any
+        self, ccxt_o: Any
     ) -> dict[str, Any] | None: ...
 
 
@@ -135,11 +134,11 @@ class IErrorHandler(Protocol):
     logger: logging.Logger
 
     def handle(
-            self, error: Exception, context: dict[str, Any] | None = None
+        self, error: Exception, context: dict[str, Any] | None = None
     ) -> bool: ...
 
     async def handle_async(
-            self, error: Exception, context: dict[str, Any] | None = None
+        self, error: Exception, context: dict[str, Any] | None = None
     ) -> bool: ...
 
 
@@ -165,7 +164,7 @@ class ServiceContainer(Generic[T]):
         self._logger = logging.getLogger(f"service_container.{name}")
 
     def register_singleton(
-            self, interface: type[T], implementation: type[T] | T, *args: Any, **kwargs: Any
+        self, interface: type[T], implementation: type[T] | T, *args: Any, **kwargs: Any
     ) -> None:
         """
         Register a singleton service.
@@ -272,7 +271,7 @@ class ServiceContainer(Generic[T]):
         )
 
     def resolve_optional(
-            self, interface: type[T], default: T | None = None
+        self, interface: type[T], default: T | None = None
     ) -> T | None:
         """
         Resolve a service, returning default if not found.

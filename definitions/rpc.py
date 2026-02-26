@@ -102,16 +102,29 @@ async def rpc_call(
                             context={"content": response_text},
                         )
 
-                    if "error" in json_response and json_response["error"] is not None:
-                        error_msg = json_response["error"].get(
-                            "message", "Unknown RPC error"
+                    # XBridge returns errors in result field: {"result": {"error": "...", "code": N}}
+                    result = json_response.get("result", {})
+                    if isinstance(result, dict) and "error" in result:
+                        error = result["error"]
+                        error_msg = (
+                            error.get("message", str(error))
+                            if isinstance(error, dict)
+                            else str(error)
                         )
-                        error_code = json_response["error"].get("code", -1)
+                        error_code = (
+                            error.get("code", -1) if isinstance(error, dict) else -1
+                        )
+                        error_details = {
+                            "method": method,
+                            "params": params,
+                            "error_code": error_code,
+                            "error_msg": error_msg,
+                        }
                         if error_handler:
                             error_handler.handle(
                                 OperationalError(
                                     f"RPC error {error_code}: {error_msg}",
-                                    {"method": method, "params": params},
+                                    error_details,
                                 ),
                                 context={"prefix": prefix, "err_count": err_count},
                             )
@@ -119,7 +132,11 @@ async def rpc_call(
                             logger.warning(
                                 f"{prefix}_rpc_call: RPC error {error_code} - {error_msg}"
                             )
-                        return json_response
+                        raise OperationalError(
+                            f"RPC error {error_code}: {error_msg}",
+                            error_details,
+                            context={"prefix": prefix, "err_count": err_count},
+                        )
 
                     result = json_response.get("result")
                     if result is not None:
@@ -136,6 +153,14 @@ async def rpc_call(
                             )
                         return None
             except Exception as e:
+                # Re-raise API errors that we intentionally raised
+                if (
+                    isinstance(e, OperationalError)
+                    and e.args
+                    and "RPC error" in str(e.args[0])
+                ):
+                    raise
+
                 context = {
                     "method": method,
                     "params": params,

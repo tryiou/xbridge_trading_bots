@@ -392,45 +392,59 @@ class FakeXBridgeRPCServer:
             "order_count": len(self.orders),
         }
 
-    def apply_fill(self, order_id: str, filled_maker: float, filled_taker: float):
+    def execute_trade(self, order_id: str):
         """
-        Apply a fill to an order and update balances accordingly.
+        Execute a trade: transfer tokens and mark order as finished.
 
-        This should be called by the backtest engine when price crosses an order.
+        This is the API logic - handles internal state like the real XBridge server.
+        Called by backtest engine when price crosses an order.
 
         Args:
-            order_id: The order ID that was filled
-            filled_maker: Amount of maker token that was filled
-            filled_taker: Amount of taker token that was filled
+            order_id: The order ID to execute
         """
         order = self.orders.get(order_id)
         if not order:
-            logger.warning("Cannot apply fill: order %s not found", order_id)
+            logger.warning("Cannot execute trade: order %s not found", order_id)
             return
 
         maker = order.get("maker")
         taker = order.get("taker")
+        maker_size = float(order.get("maker_size", 0))
+        taker_size = float(order.get("taker_size", 0))
+
+        if maker_size <= 0 or taker_size <= 0:
+            logger.warning(
+                "Cannot execute trade: invalid amounts for order %s", order_id
+            )
+            return
 
         if maker == self.base_token:
             self.balances[self.base_token] = str(
-                float(self.balances.get(self.base_token, 0)) - filled_maker
+                float(self.balances.get(self.base_token, 0)) - maker_size
             )
             self.balances[self.quote_token] = str(
-                float(self.balances.get(self.quote_token, 0)) + filled_taker
+                float(self.balances.get(self.quote_token, 0)) + taker_size
             )
         else:
             self.balances[self.base_token] = str(
-                float(self.balances.get(self.base_token, 0)) + filled_maker
+                float(self.balances.get(self.base_token, 0)) + taker_size
             )
             self.balances[self.quote_token] = str(
-                float(self.balances.get(self.quote_token, 0)) - filled_taker
+                float(self.balances.get(self.quote_token, 0)) - maker_size
             )
 
+        self.available_balances[maker] = (
+            float(self.available_balances.get(maker, 0)) + maker_size
+        )
+
+        order["status"] = "finished"
+        order["finished"] = maker_size
+
         logger.debug(
-            "Applied fill: order=%s, maker=%s filled=%s, taker=%s filled=%s",
+            "Executed trade: order=%s, maker=%s size=%s, taker=%s size=%s",
             order_id,
             maker,
-            filled_maker,
+            maker_size,
             taker,
-            filled_taker,
+            taker_size,
         )

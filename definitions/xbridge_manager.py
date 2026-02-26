@@ -147,9 +147,13 @@ class XBridgeManager:
                         ),
                     )
                 except Exception as e:
-                    from definitions.errors import convert_exception
+                    from definitions.errors import convert_exception, OperationalError
 
-                    raise convert_exception(e) from e
+                    converted = convert_exception(e)
+                    if hasattr(converted, "context"):
+                        converted.context["xbridge_method"] = method
+                        converted.context["xbridge_params"] = params
+                    raise converted from e
             finally:
                 with XBridgeManager._rpc_counter_lock:
                     XBridgeManager._active_rpc_counter -= 1
@@ -170,14 +174,17 @@ class XBridgeManager:
             final_shutdown_event = None
 
         # Early bailout if shutdown is signaled, with exceptions for cleanup RPCs
-        if final_shutdown_event and final_shutdown_event.is_set() and method not in [
-            "dxCancelOrder",
-            "dxGetMyOrders",
-            "dxflushcancelledorders",
-        ]:
-            self.logger.debug(
-                f"RPC call to {method} cancelled due to shutdown signal."
-            )
+        if (
+            final_shutdown_event
+            and final_shutdown_event.is_set()
+            and method
+            not in [
+                "dxCancelOrder",
+                "dxGetMyOrders",
+                "dxflushcancelledorders",
+            ]
+        ):
+            self.logger.debug(f"RPC call to {method} cancelled due to shutdown signal.")
             return None
 
         # Execute with circuit breaker protection
@@ -309,9 +316,7 @@ class XBridgeManager:
                     "typical_tx_size": typical_tx_size,
                 }
             except Exception as e:
-                self.logger.error(
-                    f"Error calculating fee estimate for {coin}: {e!s}"
-                )
+                self.logger.error(f"Error calculating fee estimate for {coin}: {e!s}")
                 self.xbridge_fees_estimate[coin] = None
 
         self.logger.info(
@@ -417,35 +422,19 @@ class XBridgeManager:
         taker: str,
         takeramount: float,
         takeraddress: str,
-        dryrun: bool | None = None,
     ) -> Any:
-        if dryrun:
-            result = await self.rpc_wrapper(
-                "dxMakeOrder",
-                [
-                    maker,
-                    makeramount,
-                    makeraddress,
-                    taker,
-                    takeramount,
-                    takeraddress,
-                    "exact",
-                    "dryrun",
-                ],
-            )
-        else:
-            result = await self.rpc_wrapper(
-                "dxMakeOrder",
-                [
-                    maker,
-                    makeramount,
-                    makeraddress,
-                    taker,
-                    takeramount,
-                    takeraddress,
-                    "exact",
-                ],
-            )
+        result = await self.rpc_wrapper(
+            "dxMakeOrder",
+            [
+                str(maker),
+                str(makeramount),
+                str(makeraddress),
+                str(taker),
+                str(takeramount),
+                str(takeraddress),
+                "exact",
+            ],
+        )
         return result
 
     async def makepartialorder(
@@ -458,37 +447,20 @@ class XBridgeManager:
         takeraddress: str,
         min_size: float,
         repost: bool = False,
-        dryrun: bool | None = None,
     ) -> Any:
-        if dryrun:
-            result = await self.rpc_wrapper(
-                "dxMakePartialOrder",
-                [
-                    maker,
-                    makeramount,
-                    makeraddress,
-                    taker,
-                    takeramount,
-                    takeraddress,
-                    min_size,
-                    repost,
-                    "dryrun",
-                ],
-            )
-        else:
-            result = await self.rpc_wrapper(
-                "dxMakePartialOrder",
-                [
-                    maker,
-                    makeramount,
-                    makeraddress,
-                    taker,
-                    takeramount,
-                    takeraddress,
-                    min_size,
-                    repost,
-                ],
-            )
+        result = await self.rpc_wrapper(
+            "dxMakePartialOrder",
+            [
+                str(maker),
+                str(makeramount),
+                str(makeraddress),
+                str(taker),
+                str(takeramount),
+                str(takeraddress),
+                str(min_size),
+                repost,
+            ],
+        )
         return result
 
     async def getorderstatus(self, oid: str) -> Any:

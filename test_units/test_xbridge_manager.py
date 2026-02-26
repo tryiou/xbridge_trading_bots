@@ -74,7 +74,7 @@ async def test_gettokenutxo_caching(xbridge_manager):
     xbridge_manager.mock_rpc_call.reset_mock()
     # Manually expire cache for test reliability
     with patch(
-            "time.time", return_value=time.time() + xbridge_manager.UTXO_CACHE_DURATION + 1
+        "time.time", return_value=time.time() + xbridge_manager.UTXO_CACHE_DURATION + 1
     ):
         result3 = await xbridge_manager.gettokenutxo(token)
         assert result3 == mock_utxos
@@ -110,28 +110,6 @@ async def test_rpc_wrapper_concurrency_and_counter(xbridge_manager):
     assert all(r == "success" for r in results)
     assert max_active_calls == concurrency_limit
     assert manager.active_rpc_counter == 0
-
-
-@pytest.mark.asyncio
-async def test_makeorder_dryrun(xbridge_manager):
-    """Tests that makeorder calls rpc_wrapper with the correct 'dryrun' parameter."""
-    manager = xbridge_manager
-    params = ["MAKER", "1.0", "m_addr", "TAKER", "10.0", "t_addr"]
-
-    # Test with dryrun=True
-    await manager.makeorder(*params, dryrun=True)
-    manager.mock_rpc_call.assert_called_once()
-    call_kwargs = manager.mock_rpc_call.call_args.kwargs
-    assert call_kwargs["method"] == "dxMakeOrder"
-    assert call_kwargs["params"][-1] == "dryrun"
-
-    # Test with dryrun=False (or None)
-    manager.mock_rpc_call.reset_mock()
-    await manager.makeorder(*params, dryrun=False)
-    manager.mock_rpc_call.assert_called_once()
-    call_kwargs = manager.mock_rpc_call.call_args.kwargs
-    assert call_kwargs["method"] == "dxMakeOrder"
-    assert call_kwargs["params"][-1] != "dryrun"
 
 
 MOCK_XBRIDGE_CONF = """

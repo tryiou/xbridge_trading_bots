@@ -1,16 +1,19 @@
 import asyncio
 import hashlib
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from definitions.errors import ConfigurationError
 
 from .autonomous_inventory import InventoryManager
-from .autonomous_order_ladder import OrderLadder
+from .autonomous_order_ladder import ManagedOrder, OrderLadder
 from .autonomous_order_sizing import OrderSizingEngine
 from .autonomous_pricing_engine import PricingEngine
 from .autonomous_state import StateManager, TradeRecorder
 from .maker_strategy import MakerStrategy
+
+if TYPE_CHECKING:
+    from .autonomous_order_ladder import ManagedOrder
 
 
 class AutonomousMakerStrategy(MakerStrategy):
@@ -117,7 +120,6 @@ class AutonomousMakerStrategy(MakerStrategy):
 
         self.order_ladder = OrderLadder(
             max_orders=pair_cfg.get("max_open_orders", 10),
-            partial_percent=pair_cfg.get("partial_percent", 0.1),
         )
 
         self.sizing_engine = OrderSizingEngine(
@@ -201,7 +203,6 @@ class AutonomousMakerStrategy(MakerStrategy):
                 self.order_ladder = OrderLadder.from_dict(
                     orders_data,
                     max_orders=pair_cfg.get("max_open_orders", 10),
-                    partial_percent=pair_cfg.get("partial_percent", 0.1),
                 )
 
     async def _fetch_current_balances(self) -> tuple[float, float]:
@@ -233,28 +234,22 @@ class AutonomousMakerStrategy(MakerStrategy):
                             status_data.get("status"),
                         )
 
-                    if status_data.get("status") in ["finished"]:
                         self.order_ladder.update_order_status(order.id, "finished")
-
-                        finished_taker_amount = float(
-                            status_data.get("finished", order.amount)
-                        )
-                        self.order_ladder.record_finish(order.id, finished_taker_amount)
 
                         executed_price = float(status_data.get("price", order.price))
 
                         if order.side == "sell":
                             maker_token = self.token_a
                             taker_token = self.token_b
-                            execution_amount = finished_taker_amount / executed_price
+                            execution_amount = order.amount / executed_price
                             maker_filled = execution_amount
-                            taker_filled = finished_taker_amount
+                            taker_filled = order.amount
                         else:
                             maker_token = self.token_b
                             taker_token = self.token_a
-                            execution_amount = finished_taker_amount
-                            maker_filled = finished_taker_amount * executed_price
-                            taker_filled = finished_taker_amount
+                            execution_amount = order.amount
+                            maker_filled = order.amount * executed_price
+                            taker_filled = order.amount
 
                         self._process_execution(
                             side=order.side,
@@ -312,6 +307,7 @@ class AutonomousMakerStrategy(MakerStrategy):
 
         self.pricing_engine.update_mid_price(self.mid_price)
         self.inventory_manager.update_mid_price(self.mid_price)
+        self.inventory_manager.apply_trade(side, amount, price)
 
         self.trade_count += 1
 
@@ -469,18 +465,14 @@ class AutonomousMakerStrategy(MakerStrategy):
             takeramount = amount / price
             side_desc = f"BUY {self.token_a} (spend {self.token_b})"
 
-        min_size = amount * self.order_ladder.partial_percent
-
         try:
-            result = await self.config_manager.xbridge_manager.makepartialorder(
+            result = await self.config_manager.xbridge_manager.makeorder(
                 maker=maker,
                 makeramount=makeramount,
                 makeraddress=self.pair_config.get("address_a", ""),
                 taker=taker,
                 takeramount=takeramount,
                 takeraddress=self.pair_config.get("address_b", ""),
-                min_size=min_size,
-                repost=False,
             )
 
             if result and "id" in result:
@@ -517,13 +509,6 @@ class AutonomousMakerStrategy(MakerStrategy):
         if not self.order_ladder:
             return
 
-        if self.trade_count > 0:
-            self.config_manager.general_log.info(
-                "Restored from state with %d open orders - preserving orders",
-                self.order_ladder.num_open_orders,
-            )
-            return
-
         orders_to_cancel = self.order_ladder.get_open_orders()
         if not orders_to_cancel:
             return
@@ -539,6 +524,183 @@ class AutonomousMakerStrategy(MakerStrategy):
                 self.config_manager.general_log.warning(
                     "Error canceling order %s: %s", order.id, e
                 )
+
+    def _order_params_changed(
+        self, local_order: "ManagedOrder", api_order: dict
+    ) -> bool:
+        if "taker_size" not in api_order or "maker_size" not in api_order:
+            self.config_manager.general_log.warning(
+                "Missing taker_size or maker_size in api_order for order %s | api_order=%s",
+                local_order.id,
+                api_order,
+            )
+            return True
+
+        local_price = local_order.price
+        local_amount = local_order.amount
+
+        api_price = float(api_order["taker_size"]) / float(api_order["maker_size"])
+        if local_order.side == "sell":
+            api_amount = float(api_order["maker_size"])
+        else:
+            api_amount = float(api_order["taker_size"])
+
+        price_tolerance = 0.0001
+        amount_tolerance = 0.0001
+
+        price_diff = abs(local_price - api_price)
+        amount_diff = abs(local_amount - api_amount)
+
+        if price_diff > price_tolerance or amount_diff > amount_tolerance:
+            self.config_manager.general_log.debug(
+                "Order params changed | order_id=%s side=%s local_price=%.8f api_price=%.8f diff=%.8f "
+                "local_amount=%.8f api_amount=%.8f diff=%.8f",
+                local_order.id,
+                local_order.side,
+                local_price,
+                api_price,
+                price_diff,
+                local_amount,
+                api_amount,
+                amount_diff,
+            )
+
+        return price_diff > price_tolerance or amount_diff > amount_tolerance
+
+    async def _process_finished_order_from_reconciliation(self, order: "ManagedOrder"):
+        try:
+            status_result = await self.config_manager.xbridge_manager.getorderstatus(
+                order.id
+            )
+            if not status_result or "status" not in status_result:
+                self.order_ladder.update_order_status(order.id, "finished")
+                return
+
+            status_data = status_result
+            api_status = status_data.get("status")
+
+            if api_status == "finished":
+                self.order_ladder.update_order_status(order.id, "finished")
+
+                executed_price = float(status_data.get("price", order.price))
+
+                if order.side == "sell":
+                    maker_token = self.token_a
+                    taker_token = self.token_b
+                    execution_amount = order.amount / executed_price
+                    maker_filled = execution_amount
+                    taker_filled = order.amount
+                else:
+                    maker_token = self.token_b
+                    taker_token = self.token_a
+                    execution_amount = order.amount
+                    maker_filled = order.amount * executed_price
+                    taker_filled = order.amount
+
+                self._process_execution(
+                    side=order.side,
+                    amount=execution_amount,
+                    price=executed_price,
+                )
+
+                self.config_manager.general_log.info(
+                    "Reconciled finished order: %s | SOLD %.4f %s → RECEIVED %.4f %s @ %.4f",
+                    order.side.upper(),
+                    maker_filled,
+                    maker_token,
+                    taker_filled,
+                    taker_token,
+                    executed_price,
+                )
+
+                self.config_manager.trade_log.info(
+                    "TRADE: side=%s amount=%.8f price=%.8f",
+                    order.side,
+                    taker_filled,
+                    executed_price,
+                )
+
+            elif api_status in ["canceled", "expired"]:
+                self.order_ladder.update_order_status(order.id, api_status)
+                self.config_manager.general_log.info(
+                    "Reconciled order canceled/expired: %s (%s)",
+                    order.id[:8],
+                    api_status,
+                )
+
+        except Exception as e:
+            self.order_ladder.update_order_status(order.id, "finished")
+            self.config_manager.general_log.warning(
+                "Error getting order status for %s during reconciliation: %s",
+                order.id[:8],
+                e,
+            )
+
+    async def _reconcile_with_api(self):
+        if not self.order_ladder:
+            return
+
+        self.config_manager.general_log.info(
+            "Starting reconciliation with API for %s/%s",
+            self.token_a,
+            self.token_b,
+        )
+
+        api_orders = await self.config_manager.xbridge_manager.getmyordersbymarket(
+            self.token_a, self.token_b
+        )
+
+        api_open_orders = [o for o in api_orders if o.get("status") == "open"]
+        api_order_ids = {o["id"] for o in api_open_orders}
+
+        balance_a, balance_b = await self._fetch_current_balances()
+        if balance_a is not None and balance_b is not None:
+            self.inventory_manager.update_balance_a(balance_a)
+            self.inventory_manager.update_balance_b(balance_b)
+            self.config_manager.general_log.info(
+                "Updated balances from API: %s=%.4f %s=%.4f",
+                self.token_a,
+                balance_a,
+                self.token_b,
+                balance_b,
+            )
+
+        reconciled_count = 0
+        for order in self.order_ladder.get_open_orders():
+            if order.id not in api_order_ids:
+                self.config_manager.general_log.info(
+                    "Order %s not found in API - processing as finished",
+                    order.id[:8],
+                )
+                await self._process_finished_order_from_reconciliation(order)
+                reconciled_count += 1
+            else:
+                api_order = next(o for o in api_open_orders if o["id"] == order.id)
+                if self._order_params_changed(order, api_order):
+                    try:
+                        await self.config_manager.xbridge_manager.cancelorder(order.id)
+                        self.order_ladder.remove_order(order.id)
+                        self.config_manager.general_log.info(
+                            "Order %s params changed - cancelled for recreation",
+                            order.id[:8],
+                        )
+                        reconciled_count += 1
+                    except Exception as e:
+                        self.config_manager.general_log.warning(
+                            "Error canceling modified order %s: %s", order.id[:8], e
+                        )
+
+        if reconciled_count > 0:
+            self._cleanup_finished_orders()
+            self._save_orders()
+            self.config_manager.general_log.info(
+                "Reconciliation complete: processed %d orders", reconciled_count
+            )
+        else:
+            self.config_manager.general_log.info(
+                "Reconciliation complete: all %d orders in sync with API",
+                self.order_ladder.num_open_orders,
+            )
 
     def _get_status_summary(self) -> str:
         if not self.inventory_manager:
@@ -611,6 +773,8 @@ class AutonomousMakerStrategy(MakerStrategy):
         self.config_manager.general_log.info(
             "Autonomous Maker initialized for %s", pair_cfg["pair"]
         )
+
+        await self._reconcile_with_api()
 
         await self._cancel_stale_orders()
 

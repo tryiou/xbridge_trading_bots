@@ -448,7 +448,7 @@ class BacktestEngine:
     def _check_and_fill_orders(
         self, candle_low: float, candle_high: float, candle_idx: int
     ):
-        """Check all orders and mark as finished if price crossed the order level."""
+        """Check all orders and execute trades if price crossed the order level."""
         if not self.fake_rpc_server:
             return
 
@@ -463,29 +463,17 @@ class BacktestEngine:
             maker_size = float(order["maker_size"])
             taker_size = float(order["taker_size"])
 
-            # Calculate price in terms of LTC/DOGE
-            # Buy order: maker=DOGE, taker=LTC -> price = maker_size/taker_size = DOGE/LTC
-            # Sell order: maker=LTC, taker=DOGE -> price = taker_size/maker_size = DOGE/LTC
-            if maker == self.quote_token:  # BUY order (maker=DOGE)
-                # price = maker/taker = DOGE/LTC
+            if maker == self.quote_token:
                 order_price = maker_size / taker_size if taker_size > 0 else 0
-            else:  # SELL order (maker=LTC)
-                # price = taker/maker = DOGE/LTC
+            else:
                 order_price = taker_size / maker_size if maker_size > 0 else 0
 
-            price_crossed = candle_low <= order_price <= candle_high
-
-            if price_crossed:
-                order["status"] = "finished"
-                finished_amount = float(taker_size)
-                order["finished"] = finished_amount
-                order["price"] = order_price
-
-                self.fake_rpc_server.apply_fill(order_id, maker_size, taker_size)
+            if candle_low <= order_price <= candle_high:
+                self.fake_rpc_server.execute_trade(order_id)
 
                 logger.info(
-                    "DEBUG: Order %s finished at price %.2f (candle: %.2f-%.2f)",
-                    order_id,
+                    "Order %s executed at price %.2f (candle: %.2f-%.2f)",
+                    order_id[:8],
                     order_price,
                     candle_low,
                     candle_high,
