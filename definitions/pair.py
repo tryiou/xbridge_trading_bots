@@ -5,7 +5,7 @@ import math
 import time
 from typing import TYPE_CHECKING, Any
 
-import yaml
+from definitions.yaml_utils import load_yaml, save_yaml
 
 if TYPE_CHECKING:
     from definitions.config_manager import ConfigManager
@@ -14,21 +14,21 @@ if TYPE_CHECKING:
 
 class Pair:
     def __init__(
-            self,
-            token1: Token,
-            token2: Token,
-            config_manager: ConfigManager | None,
-            cfg: dict[str, Any],
-            amount_token_to_sell: float | None = None,
-            min_sell_price_usd: float | None = None,
-            sell_price_offset: float | None = None,
-            strategy: str | None = None,
-            dex_enabled: bool = True,
-            partial_percent: float | None = None,
-            xbridge_manager: Any | None = None,
-            ccxt_manager: Any | None = None,
-            error_handler: Any | None = None,
-            logger: logging.Logger | None = None,
+        self,
+        token1: Token,
+        token2: Token,
+        config_manager: ConfigManager | None,
+        cfg: dict[str, Any],
+        amount_token_to_sell: float | None = None,
+        min_sell_price_usd: float | None = None,
+        sell_price_offset: float | None = None,
+        strategy: str | None = None,
+        dex_enabled: bool = True,
+        partial_percent: float | None = None,
+        xbridge_manager: Any | None = None,
+        ccxt_manager: Any | None = None,
+        error_handler: Any | None = None,
+        logger: logging.Logger | None = None,
     ) -> None:
         self.cfg = cfg
         self.name = cfg["name"]
@@ -105,8 +105,7 @@ class DexPair:
             return
         file_path = self._get_history_file_path()
         try:
-            with open(file_path) as fp:
-                self.order_history = yaml.safe_load(fp)
+            self.order_history = load_yaml(file_path)
         except FileNotFoundError:
             self.pair.logger.info("File not found: %s", file_path)
         except Exception as e:
@@ -124,8 +123,8 @@ class DexPair:
     def write_last_order_history(self):
         file_path = self._get_history_file_path()
         try:
-            with open(file_path, "w") as fp:
-                yaml.safe_dump(self.order_history, fp)
+            if self.order_history is not None:
+                save_yaml(file_path, self.order_history)
         except Exception as e:
             # Re-added file_path to context to satisfy the test and improve debugging
             self.pair.error_handler.handle(
@@ -168,24 +167,24 @@ class DexPair:
     def truncate(value: float, digits: int = 8) -> float:
         if not isinstance(value, (int, float)):
             return value
-        stepper = 10.0 ** digits
+        stepper = 10.0**digits
         return math.trunc(stepper * value) / stepper
 
     def _construct_order_dict(
-            self,
-            side,
-            maker_token,
-            taker_token,
-            maker_size,
-            taker_size,
-            original_price,
-            final_price,
+        self,
+        side,
+        maker_token,
+        taker_token,
+        maker_size,
+        taker_size,
+        original_price,
+        final_price,
     ):
         order_type = "exact"
         if (
-                side == "SELL"
-                and isinstance(self.partial_percent, (int, float))
-                and 0 < self.partial_percent < 1
+            side == "SELL"
+            and isinstance(self.partial_percent, (int, float))
+            and 0 < self.partial_percent < 1
         ):
             order_type = "partial"
         order = {
@@ -282,7 +281,7 @@ class DexPair:
 
     def init_virtual_order(self, disabled_coins=None, display=True):
         if disabled_coins and (
-                self.t1.symbol in disabled_coins or self.t2.symbol in disabled_coins
+            self.t1.symbol in disabled_coins or self.t2.symbol in disabled_coins
         ):
             self.disabled = True
             self.pair.logger.info(
@@ -329,9 +328,9 @@ class DexPair:
         )
 
         if (
-                bal is not None
-                and maker_size.replace(".", "").isdigit()
-                and float(bal) >= float(maker_size)
+            bal is not None
+            and maker_size.replace(".", "").isdigit()
+            and float(bal) >= float(maker_size)
         ):
             await self._create_order(dry_mode, maker_size)
         else:
@@ -467,7 +466,7 @@ class DexPair:
 
     async def check_price_variation(self, disabled_coins, display=False):
         if "side" in self.current_order and not self.check_price_in_range(
-                display=display
+            display=display
         ):
             self.pair.logger.warning(
                 "check_price_variation, %s, variation: %s, %s, live_price: %.8f, order_price: %.8f",
@@ -487,7 +486,7 @@ class DexPair:
             )
 
     async def status_check(
-            self, disabled_coins=None, display=False, partial_percent=None
+        self, disabled_coins=None, display=False, partial_percent=None
     ):
         await self.pair.cex.update_pricing(display)
         if self.disabled:
@@ -506,7 +505,7 @@ class DexPair:
 
         if status == self.STATUS_OPEN:
             if disabled_coins and (
-                    self.t1.symbol in disabled_coins or self.t2.symbol in disabled_coins
+                self.t1.symbol in disabled_coins or self.t2.symbol in disabled_coins
             ):
                 if self.order:
                     self.pair.logger.info(
@@ -592,9 +591,9 @@ class CexPair:
 
     async def update_orderbook(self, limit=25, ignore_timer=False):
         if (
-                ignore_timer
-                or not self.cex_orderbook_timer
-                or time.time() - self.cex_orderbook_timer > 2
+            ignore_timer
+            or not self.cex_orderbook_timer
+            or time.time() - self.cex_orderbook_timer > 2
         ):
             try:
                 self.cex_orderbook = (

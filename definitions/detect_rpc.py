@@ -2,9 +2,8 @@ import logging
 import os
 import platform
 
-import yaml
-
 from definitions.errors import RPCConfigError
+from definitions.yaml_utils import load_yaml, save_yaml
 
 debug_level: int = 2
 
@@ -107,7 +106,7 @@ def prompt_user_for_config_path() -> str:
 
 
 def read_config_file(
-        config_path: str,
+    config_path: str,
 ) -> tuple[str | None, str | None, int | None]:
     """
     Reads RPC credentials and port from the blocknet.conf file.
@@ -182,33 +181,15 @@ def read_config_file(
 
 
 def load_config_path_from_yaml(yaml_path: str) -> str | None:
-    """
-    Loads the blocknet.conf path stored in a YAML file.
-
-    Args:
-        yaml_path (str): The path to the YAML configuration file.
-
-    Returns:
-        Optional[str]: The stored path, or None if not found.
-    """
     if os.path.exists(yaml_path):
-        with open(yaml_path) as file:
-            config = yaml.safe_load(file)
-            return config.get("blocknet_path")
+        config = load_yaml(yaml_path)
+        return config.get("blocknet_path")
     return None
 
 
 def save_config_path_to_yaml(yaml_path: str, config_path: str) -> None:
-    """
-    Saves a given blocknet.conf path to a YAML file.
-
-    Args:
-        yaml_path (str): The path to the YAML file where the path will be stored.
-        config_path (str): The blocknet.conf path to store.
-    """
     config = {"blocknet_path": config_path}
-    with open(yaml_path, "w") as file:
-        yaml.safe_dump(config, file)
+    save_yaml(yaml_path, config)
 
 
 def detect_rpc() -> tuple[str, int, str, str]:

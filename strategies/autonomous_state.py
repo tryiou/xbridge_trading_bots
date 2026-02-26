@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
-from ruamel.yaml import YAML
+from definitions.yaml_utils import load_config, save_config
 
 
 @dataclass
@@ -32,12 +32,8 @@ class TradeRecorder:
         if not os.path.exists(self.history_file):
             return
 
-        yaml = YAML()
-        yaml.preserve_quotes = True
-
         try:
-            with open(self.history_file, "r") as f:
-                data = yaml.load(f)
+            data = load_config(self.history_file)
 
             if data and "trades" in data:
                 for trade_data in data["trades"]:
@@ -80,10 +76,6 @@ class TradeRecorder:
         return trade
 
     def _save_history(self):
-        yaml = YAML()
-        yaml.preserve_quotes = True
-        yaml.default_flow_style = False
-
         data = {
             "trades": [
                 {
@@ -100,8 +92,7 @@ class TradeRecorder:
         }
 
         os.makedirs(os.path.dirname(self.history_file), exist_ok=True)
-        with open(self.history_file, "w") as f:
-            yaml.dump(data, f)
+        save_config(self.history_file, data)
 
     def get_trades(self) -> list[TradeRecord]:
         return self.trades
@@ -132,12 +123,8 @@ class StateManager:
         if not os.path.exists(self.state_file):
             return None
 
-        yaml = YAML()
-        yaml.preserve_quotes = True
-
         try:
-            with open(self.state_file, "r") as f:
-                data = yaml.load(f)
+            data = load_config(self.state_file)
 
             if data:
                 self.state = StrategyState(
@@ -168,10 +155,6 @@ class StateManager:
             config_hash=config_hash,
         )
 
-        yaml = YAML()
-        yaml.preserve_quotes = True
-        yaml.default_flow_style = False
-
         data = {
             "mid_price": self.state.mid_price,
             "trade_count": self.state.trade_count,
@@ -181,28 +164,18 @@ class StateManager:
         }
 
         os.makedirs(os.path.dirname(self.state_file), exist_ok=True)
-        with open(self.state_file, "w") as f:
-            yaml.dump(data, f)
+        save_config(self.state_file, data)
 
     def save_orders(self, orders_data: dict[str, Any]):
-        yaml = YAML()
-        yaml.preserve_quotes = True
-        yaml.default_flow_style = False
-
         os.makedirs(os.path.dirname(self.orders_file), exist_ok=True)
-        with open(self.orders_file, "w") as f:
-            yaml.dump(orders_data, f)
+        save_config(self.orders_file, orders_data)
 
     def load_orders(self) -> dict[str, Any]:
         if not os.path.exists(self.orders_file):
             return {"open_orders": []}
 
-        yaml = YAML()
-        yaml.preserve_quotes = True
-
         try:
-            with open(self.orders_file, "r") as f:
-                return yaml.load(f) or {"open_orders": []}
+            return load_config(self.orders_file) or {"open_orders": []}
         except Exception as e:
             raise RuntimeError(f"Failed to load orders from {self.orders_file}: {e}")
 

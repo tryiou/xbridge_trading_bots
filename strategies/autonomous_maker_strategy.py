@@ -63,34 +63,12 @@ class AutonomousMakerStrategy(MakerStrategy):
         )
 
     def get_tokens_for_initialization(self, **kwargs) -> list:
-        tokens = set()
-        for cfg in self.pair_configs:
-            if cfg.get("enabled", True):
-                t1, t2 = cfg["pair"].split("/")
-                tokens.add(t1)
-                tokens.add(t2)
-        return list(tokens)
+        return self.get_tokens_from_pair_configs(self.pair_configs)
 
     def get_pairs_for_initialization(self, tokens_dict, **kwargs) -> dict:
-        from definitions.pair import Pair
-
-        pairs = {}
-        enabled_configs = [c for c in self.pair_configs if c.get("enabled", True)]
-
-        for cfg in enabled_configs:
-            t1, t2 = cfg["pair"].split("/")
-            pair_name = cfg["name"]
-
-            pairs[pair_name] = Pair(
-                token1=tokens_dict[t1],
-                token2=tokens_dict[t2],
-                cfg=cfg,
-                strategy="autonomous_maker",
-                dex_enabled=True,
-                config_manager=self.config_manager,
-            )
-
-        return pairs
+        return self._create_pairs_from_configs(
+            self.pair_configs, tokens_dict, "autonomous_maker", **kwargs
+        )
 
     def _initialize_for_pair(self, pair_cfg: dict[str, Any]):
         self.pair_config = pair_cfg

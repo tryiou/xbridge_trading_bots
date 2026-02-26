@@ -3,12 +3,11 @@ import os
 import shutil
 from typing import Any
 
-from ruamel.yaml import YAML
-
 from definitions.config_validation import ConfigValidationManager, ValidationResult
 from definitions.errors import ConfigurationError
 from definitions.secrets_manager import SecretsManager
 from definitions.yaml_mix import YamlToObject
+from definitions.yaml_utils import load_config, save_config
 
 
 class ConfigLoader:
@@ -48,12 +47,12 @@ class ConfigLoader:
     CRITICAL_CONFIGS = {"ccxt", "xbridge", "api_keys"}
 
     def __init__(
-            self,
-            root_dir: str,
-            logger: logging.Logger,
-            error_handler: Any,
-            validation_manager: ConfigValidationManager | None = None,
-            validation_enabled: bool = True,
+        self,
+        root_dir: str,
+        logger: logging.Logger,
+        error_handler: Any,
+        validation_manager: ConfigValidationManager | None = None,
+        validation_enabled: bool = True,
     ) -> None:
         self.root_dir = root_dir
         self.logger = logger
@@ -98,7 +97,7 @@ class ConfigLoader:
                 self.logger.info(f"{config_file}: Already exists")
 
     def load_all_configs(
-            self, strategy: str
+        self, strategy: str
     ) -> tuple[dict[str, YamlToObject], dict[str, Any]]:
         """Load all configuration files for a given strategy.
 
@@ -161,36 +160,28 @@ class ConfigLoader:
             )
             return YamlToObject(config_path)
 
-        yaml = self._create_yaml_parser()
-
-        user_config = self._load_yaml_file(config_path, yaml)
+        user_config = load_config(config_path)
         if user_config is None:
             return YamlToObject({})
 
-        template_config = self._load_yaml_file(template_path, yaml)
+        template_config = load_config(template_path)
         if template_config is None:
             return YamlToObject(user_config)
 
         if self._merge_configs(template_config, user_config):
-            self._save_updated_config(config_path, yaml, user_config, config_name)
+            save_config(config_path, user_config)
+            self.logger.info(
+                f"Updated {os.path.basename(config_path)} with missing keys from template."
+            )
 
         if self.validation_enabled and config_type:
             self._validate_config(config_type, user_config, config_path)
 
         return YamlToObject(user_config)
 
-    def _create_yaml_parser(self) -> YAML:
-        """Create a configured YAML parser."""
-        yaml = YAML()
-        yaml.preserve_quotes = True
-        yaml.indent(mapping=2, sequence=4, offset=2)
-        return yaml
-
-    def _load_yaml_file(self, file_path: str, yaml: YAML) -> dict[str, Any] | None:
-        """Load a YAML file and return its contents as a dict."""
+    def _load_yaml_file(self, file_path: str) -> dict[str, Any] | None:
         try:
-            with open(file_path) as f:
-                return yaml.load(f) or {}
+            return load_config(file_path)
         except Exception as e:
             self.error_handler.handle(
                 e, context={"file_path": file_path, "operation": "load_yaml"}
@@ -198,19 +189,12 @@ class ConfigLoader:
             return None
 
     def _save_updated_config(
-            self,
-            config_path: str,
-            yaml: YAML,
-            user_config: dict[str, Any],
-            config_name: str,
+        self,
+        config_path: str,
+        user_config: dict[str, Any],
     ) -> None:
-        """Save the updated config back to the file."""
         try:
-            with open(config_path, "w") as f:
-                yaml.dump(user_config, f)
-            self.logger.info(
-                f"Updated {os.path.basename(config_path)} with missing keys from template."
-            )
+            save_config(config_path, user_config)
         except Exception as e:
             self.error_handler.handle(
                 e,
@@ -244,7 +228,7 @@ class ConfigLoader:
         return updated
 
     def _validate_config(
-            self, config_type: str, user_config: dict[str, Any], config_path: str
+        self, config_type: str, user_config: dict[str, Any], config_path: str
     ) -> None:
         """Validate a configuration file."""
         validation_result = self.validation_manager.validate_config_file(
@@ -254,7 +238,7 @@ class ConfigLoader:
         self._log_validation_result(config_type, validation_result)
 
     def _handle_validation_error(
-            self, config_type: str, file_path: str, validation_result: ValidationResult
+        self, config_type: str, file_path: str, validation_result: ValidationResult
     ) -> None:
         """Handle validation errors based on severity."""
         if config_type in self.CRITICAL_CONFIGS:
@@ -278,7 +262,7 @@ class ConfigLoader:
             )
 
     def _log_validation_result(
-            self, config_type: str, validation_result: ValidationResult
+        self, config_type: str, validation_result: ValidationResult
     ) -> None:
         """Log validation result at appropriate level."""
         if not validation_result.is_valid:

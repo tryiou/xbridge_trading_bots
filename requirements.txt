@@ -5,7 +5,6 @@ Pillow
 python-dateutil
 tabulate
 aiohttp
-pyyaml
 ruamel.yaml
 numpy
 async_timeout

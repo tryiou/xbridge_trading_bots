@@ -199,7 +199,7 @@ class PingPongConfigValidator(ConfigValidator):
                     result.add_error(f"{prefix}: {field_name} must be a number")
                 elif not (min_val <= value <= max_val):
                     result.add_error(
-                        f"{prefix}: {field} must be between {min_val} and {max_val}"
+                        f"{prefix}: {field_name} must be between {min_val} and {max_val}"
                     )
 
         if "spread" in pair_config:

@@ -8,9 +8,8 @@ import warnings
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from ruamel.yaml import YAML
-
 from definitions.logger import set_backtest_mode
+from definitions.yaml_utils import load_config
 from backtesting.engine import BacktestEngine
 from backtesting.reporter import Reporter
 
@@ -31,9 +30,7 @@ def configure_backtest_logging(log_file: str):
 
 def load_config_from_yaml(config_path: str):
     """Load configuration from YAML file."""
-    yaml = YAML()
-    with open(config_path) as f:
-        config_data = yaml.load(f)
+    config_data = load_config(config_path)
 
     pair_configs = config_data.get("pair_configs", [])
 

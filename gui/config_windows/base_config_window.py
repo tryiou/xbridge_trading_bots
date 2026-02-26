@@ -5,7 +5,7 @@ import tkinter as tk
 from tkinter import ttk
 from typing import TYPE_CHECKING, Any
 
-from ruamel.yaml import YAML
+from definitions.yaml_utils import save_config
 
 if TYPE_CHECKING:
     from gui.frames.base_frames import BaseStrategyFrame
@@ -107,14 +107,9 @@ class BaseConfigWindow:
         """
         Performs a safe configuration save using a temporary file and atomic replace.
         """
-        yaml_writer = YAML()
-        yaml_writer.default_flow_style = False
-        yaml_writer.indent(mapping=2, sequence=4, offset=2)
-
         temp_path = f"{self.config_file_path}.tmp"
         try:
-            with open(temp_path, "w") as f:
-                yaml_writer.dump(new_config, f)
+            save_config(temp_path, new_config)
             os.replace(temp_path, self.config_file_path)
             return True
         except Exception:

@@ -5,11 +5,11 @@ import time
 from typing import TYPE_CHECKING, Any
 
 import aiohttp
-import yaml
 
 from definitions.constants import CCXT_PRICE_REFRESH_INTERVAL, DEFAULT_PROXY_PORT
 from definitions.errors import OperationalError
 from definitions.rpc import is_port_open, rpc_call
+from definitions.yaml_utils import load_yaml, save_yaml
 
 if TYPE_CHECKING:
     from definitions.config_manager import ConfigManager
@@ -17,15 +17,15 @@ if TYPE_CHECKING:
 
 class Token:
     def __init__(
-            self,
-            symbol: str,
-            strategy: Any,
-            dex_enabled: bool = True,
-            config_manager: ConfigManager | None = None,
-            xbridge_manager: Any | None = None,
-            ccxt_manager: Any | None = None,
-            error_handler: Any | None = None,
-            logger: logging.Logger | None = None,
+        self,
+        symbol: str,
+        strategy: Any,
+        dex_enabled: bool = True,
+        config_manager: ConfigManager | None = None,
+        xbridge_manager: Any | None = None,
+        ccxt_manager: Any | None = None,
+        error_handler: Any | None = None,
+        logger: logging.Logger | None = None,
     ) -> None:
         self.symbol = symbol
         self.strategy = strategy
@@ -89,9 +89,8 @@ class DexToken:
 
         file_path = self._get_address_file_path()
         try:
-            with open(file_path) as fp:
-                data = yaml.safe_load(fp)
-                self.address = data.get("address") if isinstance(data, dict) else None
+            data = load_yaml(file_path)
+            self.address = data.get("address") if isinstance(data, dict) else None
         except FileNotFoundError:
             self.token.logger.info("File not found: %s", file_path)
             await self.request_addr()
@@ -112,8 +111,7 @@ class DexToken:
 
         file_path = self._get_address_file_path()
         try:
-            with open(file_path, "w") as fp:
-                yaml.safe_dump({"address": self.address}, fp)
+            save_yaml(file_path, {"address": self.address})
         except Exception as e:
             await self.token.error_handler.handle_async(
                 OperationalError(f"Error writing token address file: {e!s}"),
@@ -152,8 +150,8 @@ class CexToken:
 
     async def update_price(self, display: bool = False) -> None:
         if (
-                self.cex_price_timer is not None
-                and time.time() - self.cex_price_timer <= CCXT_PRICE_REFRESH_INTERVAL
+            self.cex_price_timer is not None
+            and time.time() - self.cex_price_timer <= CCXT_PRICE_REFRESH_INTERVAL
         ):
             if display:
                 self.token.logger.debug(
@@ -278,7 +276,7 @@ class CexToken:
                     used_proxy = True
                 else:
                     async with session.get(
-                            "https://min-api.cryptocompare.com/data/price?fsym=BLOCK&tsyms=BTC"
+                        "https://min-api.cryptocompare.com/data/price?fsym=BLOCK&tsyms=BTC"
                     ) as response:
                         response.raise_for_status()
                         data = await response.json()
