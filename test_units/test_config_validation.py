@@ -445,17 +445,6 @@ taker_fee_block: 0.015
 debug_level: 3
 max_concurrent_tasks: 5
 """,
-            "api_keys.local.json.template": """
-{
-  "api_info": [
-    {
-      "exchange": "binance",
-      "api_key": "test_key",
-      "api_secret": "test_secret"
-    }
-  ]
-}
-""",
         }
 
         for filename, content in templates.items():
@@ -467,7 +456,7 @@ max_concurrent_tasks: 5
     @patch("definitions.config_manager.setup_logger")
     @patch("definitions.error_handler.ErrorHandler")
     def test_config_manager_with_validation(
-            self, mock_error_handler, mock_setup_logger, mock_setup_logging
+        self, mock_error_handler, mock_setup_logger, mock_setup_logging
     ):
         """Test ConfigManager with validation enabled."""
         # Mock the logging setup
@@ -482,7 +471,6 @@ max_concurrent_tasks: 5
             "config_pingpong.yaml": "debug_level: 2\npair_configs: []\n",
             "config_basic_seller.yaml": "seller_configs: []\n",
             "config_xbridge.yaml": "taker_fee_block: 0.015\ndebug_level: 3\n",
-            "api_keys.local.json": '{"api_info": []}',
         }
 
         for filename, content in config_files.items():

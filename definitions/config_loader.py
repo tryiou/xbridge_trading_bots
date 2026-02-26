@@ -122,6 +122,10 @@ class ConfigLoader:
             configs["basic_seller"] = self._load_and_update_config(
                 "config_basic_seller.yaml"
             )
+        if strategy in ["autonomous_maker", "gui"]:
+            configs["autonomous_maker"] = self._load_and_update_config(
+                "config_autonomous_maker.yaml"
+            )
 
         api_keys = self._load_and_validate_api_keys()
 

@@ -81,13 +81,16 @@ async def rpc_call(
         for err_count in range(max_err_count):
             response_text = None
             try:
-                async with async_timeout.timeout(timeout), s.post(
+                async with (
+                    async_timeout.timeout(timeout),
+                    s.post(
                         url,
                         json=payload,
                         headers=headers,
                         auth=auth,
                         timeout=client_timeout,
-                ) as response:
+                    ) as response,
+                ):
                     response_text = await response.text()
                     response.raise_for_status()
 
@@ -99,10 +102,7 @@ async def rpc_call(
                             context={"content": response_text},
                         )
 
-                    if (
-                        "error" in json_response
-                        and json_response["error"] is not None
-                    ):
+                    if "error" in json_response and json_response["error"] is not None:
                         error_msg = json_response["error"].get(
                             "message", "Unknown RPC error"
                         )
@@ -125,9 +125,7 @@ async def rpc_call(
                     if result is not None:
                         if logger and debug >= 2:
                             if debug >= 3:
-                                logger.info(
-                                    f"{prefix}_rpc_call({method}, {params})"
-                                )
+                                logger.info(f"{prefix}_rpc_call({method}, {params})")
                             else:
                                 logger.info(f"{prefix}_rpc_call({method})")
                         return result

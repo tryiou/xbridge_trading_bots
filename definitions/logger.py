@@ -21,12 +21,19 @@ formatter = logging.Formatter(
 )
 
 _GUI_MODE_ACTIVE = False
+_BACKTEST_MODE_ACTIVE = False
 
 
 def set_gui_mode(active: bool = True) -> None:
     """Sets a global flag to indicate if the application is running in GUI mode."""
     global _GUI_MODE_ACTIVE
     _GUI_MODE_ACTIVE = active
+
+
+def set_backtest_mode(active: bool = True) -> None:
+    """Sets a global flag to disable console logging for backtesting."""
+    global _BACKTEST_MODE_ACTIVE
+    _BACKTEST_MODE_ACTIVE = active
 
 
 class ColoredFormatter(logging.Formatter):
@@ -55,11 +62,11 @@ class FlushStreamHandler(logging.StreamHandler):
 
 
 def setup_logging(
-        name: str,
-        log_file: str | None = None,
-        level: int = logging.INFO,
-        console: bool = False,
-        force: bool = False,
+    name: str,
+    log_file: str | None = None,
+    level: int = logging.INFO,
+    console: bool = False,
+    force: bool = False,
 ) -> logging.Logger:
     """To set up as many loggers as you want, with console flushing"""
     log_handle = logging.getLogger(name)
@@ -79,7 +86,7 @@ def setup_logging(
         handler.addFilter(CorrelationIdFilter())
         log_handle.addHandler(handler)
 
-    if console:
+    if console and not _BACKTEST_MODE_ACTIVE:
         ch = FlushStreamHandler()
         ch.setFormatter(
             ColoredFormatter(
@@ -101,7 +108,7 @@ def silence_noisy_loggers() -> None:
 
 
 def setup_logger(
-        strategy: str, ROOT_DIR: str
+    strategy: str, ROOT_DIR: str
 ) -> tuple[logging.Logger, logging.Logger, logging.Logger]:
     """Setup logging for a trading strategy."""
     logs_dir = os.path.join(ROOT_DIR, "logs")

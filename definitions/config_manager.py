@@ -13,6 +13,7 @@ from definitions.xbridge_manager import XBridgeManager
 from strategies.base_strategy import BaseStrategy
 from strategies.basicseller_strategy import BasicSellerStrategy
 from strategies.pingpong_strategy import PingPongStrategy
+from strategies.autonomous_maker_strategy import AutonomousMakerStrategy
 
 
 class ConfigManager:
@@ -67,6 +68,7 @@ class ConfigManager:
         self.config_coins = None
         self.config_pingpong = None
         self.config_basicseller = None
+        self.config_autonomous_maker = None
         self.config_xbridge = None
 
         # Mark role for resource management
@@ -167,6 +169,7 @@ class ConfigManager:
         self.config_xbridge = configs.get("xbridge")
         self.config_pingpong = configs.get("pingpong")
         self.config_basicseller = configs.get("basic_seller")
+        self.config_autonomous_maker = configs.get("autonomous_maker")
 
         return configs, api_keys
 
@@ -337,7 +340,8 @@ class ConfigManager:
             strategy_map = {
                 "pingpong": PingPongStrategy,
                 "basic_seller": BasicSellerStrategy,
-                "gui": None,  # 'gui' strategy doesn't have a strategy instance
+                "autonomous_maker": AutonomousMakerStrategy,
+                "gui": None,
             }
             strategy_class = strategy_map.get(self.strategy)
             if not strategy_class:

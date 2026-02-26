@@ -1,0 +1,130 @@
+# =============================================================================
+# AUTONOMOUS MAKER STRATEGY CONFIGURATION TEMPLATE
+# =============================================================================
+# Source of truth - copy to config/config_autonomous_maker.yaml and customize.
+#
+# PRESETS - Copy values from your chosen preset below:
+# -----------------------------------------------------------------------------
+# CONSERVATIVE: Low risk, lower returns, tight limits
+#   inventory.min_reserve_percent: 0.20
+#   inventory.concentration_sensitivity: 1.5
+#   risk.stop_loss_percent: 0.03
+#   risk.consecutive_failure_limit: 3
+#   position.skew_intensity: 0.3
+#   position.price_skew: 0.001
+#   spread.base_percent: 1.5
+#   spread.volatility_multiplier: 1.5
+#
+# MODERATE (DEFAULT): Balanced risk/reward
+#   inventory.min_reserve_percent: 0.10
+#   inventory.concentration_sensitivity: 2.0
+#   risk.stop_loss_percent: 0.05
+#   risk.consecutive_failure_limit: 5
+#   position.skew_intensity: 0.5
+#   position.price_skew: 0.002
+#   spread.base_percent: 1.0
+#   spread.volatility_multiplier: 1.0
+#
+# AGGRESSIVE: Higher risk, higher potential returns
+#   inventory.min_reserve_percent: 0.05
+#   inventory.concentration_sensitivity: 3.0
+#   risk.stop_loss_percent: 0.10
+#   risk.consecutive_failure_limit: 10
+#   position.skew_intensity: 0.7
+#   position.price_skew: 0.003
+#   spread.base_percent: 0.8
+#   spread.volatility_multiplier: 0.8
+# =============================================================================
+
+debug_level: 2
+ttk_theme: darkly
+
+pair_configs:
+  - name: LTC_DOGE_01
+    enabled: true
+    pair: LTC/DOGE
+
+    # INITIAL BALANCES
+    initial_balance_a: 5.0          # Starting amount of first token (e.g., LTC)
+    initial_balance_b: 2700.0       # Starting amount of second token (e.g., DOGE)
+    initial_mid_price: 454.54      # Starting midprice for calculations
+
+    # ORDER LIMITS
+    max_open_orders: 10              # Total open orders (buy + sell)
+    partial_percent: 0.1             # % of order that triggers partial fill
+    check_interval: 15               # Seconds between order checks
+
+    # ORDER SIZING
+    order_sizing_mode: "equal"       # equal | growing_outward | growing_inward | manual
+    base_percent: 0.05               # % of balance per order level (0.05 = 5%)
+
+    # MANUAL SIZING (used when order_sizing_mode: manual)
+    buy_order_amounts: []           # [108.0, 162.0, 216.0] - explicit DOGE amounts
+    sell_order_amounts: []          # [0.20, 0.30, 0.40] - explicit LTC amounts
+
+    # PRICING
+    spread_mode: "exponential"       # exponential | linear
+    base_spread_percent: 1.0         # Base spread % (1.0 = 1%)
+    spread_multiplier: 2.0           # Exponential multiplier per level
+    spread_increment: 0.5            # Linear increment per level (%)
+    max_price_range_percent: 50.0   # Max distance from midprice (%)
+
+    # ADDRESSES (for real trading)
+    address_a: "LtcAddress123456789"
+    address_b: "DogeAddress123456789"
+
+    # =========================================================================
+    # INVENTORY MANAGEMENT - DYNAMIC RESERVE & CONCENTRATION
+    # =========================================================================
+    inventory:
+      # MINIMUM RESERVE - Always keep this % of each token
+      # Higher = more conservative, survives extreme moves
+      # Lower = more aggressive, better returns but risk of depletion
+      #   0.05 = aggressive (5% reserve)
+      #   0.10 = normal (10% reserve) - DEFAULT
+      #   0.20 = conservative (20% reserve)
+      min_reserve_percent: 0.10
+
+      # CONCENTRATION SENSITIVITY - How fast to reduce trading when imbalanced
+      # Uses formula: available = balance * max(reserve, 1 - (deviation^sensitivity))
+      # Higher = more aggressive reduction at extremes
+      # Lower = slower reduction, more trading even when imbalanced
+      #   1.5 = slow reduction (stable pairs like USDT/USDC)
+      #   2.0 = normal (default, good for most crypto pairs)
+      #   3.0 = fast reduction (volatile/shitcoins)
+      concentration_sensitivity: 2.0
+
+    # =========================================================================
+    # RISK MANAGEMENT
+    # =========================================================================
+    risk:
+      # STOP-LOSS & CIRCUIT BREAKERS
+      stop_loss_percent: 0.05       # Halt if portfolio value drops X% from peak (0.05 = 5%)
+      consecutive_failure_limit: 5   # Pause after X consecutive failed trades
+
+    # =========================================================================
+    # POSITION MANAGEMENT - CONTINUOUS REBALANCING
+    # =========================================================================
+    position:
+      # TARGET ALLOCATION (50/50 default)
+      target_ratio_a: 0.50          # Target % for token A (0.50 = 50%)
+                                    # Token B will be 1 - target_ratio_a
+
+      # CONTINUOUS REBALANCING MATHEMATICS
+      # Uses tanh() for smooth, bounded adjustment:
+      #   skew = tanh((current_ratio - target_ratio) / sensitivity)
+      #   - Returns 0 when balanced, ±1 at extremes
+      #   - Bounded: can't over-adjust regardless of deviation
+      skew_sensitivity: 0.15         # Lower = smoother/gentler, Higher = more responsive
+      skew_intensity: 0.5            # How much to adjust order sizes (0.5 = ±50% max)
+      price_skew: 0.002              # How much to adjust prices (±0.2% per unit of skew)
+
+    # =========================================================================
+    # DYNAMIC SPREADS - volatility-responsive pricing
+    # =========================================================================
+    spread:
+      base_percent: 1.0               # Base spread (1.0 = 1%)
+      volatility_adjustment: true     # Scale spread based on market volatility
+      volatility_lookback: 24        # Hours of data for ATR calculation
+      volatility_multiplier: 1.0     # Scale factor: >1 = wider spreads in volatility
+      min_spread: 0.5                # Minimum spread floor (%)

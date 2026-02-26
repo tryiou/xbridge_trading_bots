@@ -1,14 +1,17 @@
 .idea/
-config/api_keys.local.json
-config/config_ccxt.yaml
-config/config_coins.yaml
-config/config_pingpong.yaml
-config/config_blocknet.yaml
-config/config_xbridge.yaml
-config/config_thorchain.yaml
-config/config_arbitrage.yaml
-config/config_basic_seller.yaml
-config/config_thorchain_continuous.yaml
+# config/api_keys.local.json
+# config/config_ccxt.yaml
+# config/config_coins.yaml
+# config/config_pingpong.yaml
+# config/config_blocknet.yaml
+# config/config_xbridge.yaml
+# config/config_thorchain.yaml
+# config/config_arbitrage.yaml
+# config/config_basic_seller.yaml
+# config/config_thorchain_continuous.yaml
+
+config/*.yaml
+config/*.json
 data/
 logs/
 .history
@@ -20,12 +23,11 @@ venv/
 .aider.chat.history.md
 __pycache__
 *.pyc
-
-
+backtesting/cache
+backtest_results/
 doc/
 deprecated_frames.py
 *.csv
 *.txt
-*.sh
 *.mp4
 AGENTS.md
