@@ -17,6 +17,9 @@ def reset_xbridge_manager_class_vars():
     XBridgeManager._active_rpc_counter = 0
     XBridgeManager._rpc_semaphore = None
     XBridgeManager._rpc_config = None
+    XBridgeManager._utxo_cache = {}
+    XBridgeManager._xbridge_conf_cache = None
+    XBridgeManager._xbridge_fees_cache = {}
     yield
 
 
@@ -29,6 +32,7 @@ def mock_config_manager():
     cm.config_xbridge.max_concurrent_tasks = 2  # Lower for testing
     cm.general_log = MagicMock()
     cm.controller = None
+    cm.error_handler = AsyncMock()
     return cm
 
 
@@ -36,17 +40,16 @@ def mock_config_manager():
 def xbridge_manager(mock_config_manager):
     """Fixture to create an XBridgeManager instance with mocked dependencies."""
     with (
-        patch(
-            "definitions.xbridge_manager.detect_rpc",
-            return_value=("user", 1234, "pass", "/tmp"),
-        ),
         patch("definitions.xbridge_manager.is_port_open", return_value=True),
         patch("asyncio.run"),
         patch(
             "definitions.xbridge_manager.rpc_call", new_callable=AsyncMock
         ) as mock_rpc_call,
     ):
-        manager = XBridgeManager(mock_config_manager)
+        manager = XBridgeManager(
+            mock_config_manager,
+            rpc_config=("test_user", 1234, "test_pass", "/tmp"),
+        )
         manager.mock_rpc_call = mock_rpc_call  # Attach mock for easy access in tests
         yield manager
 

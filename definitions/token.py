@@ -96,7 +96,7 @@ class DexToken:
             await self.request_addr()
         except Exception as e:
             await self.token.error_handler.handle_async(
-                OperationalError(f"Error reading token address file: {e!s}"),
+                e,
                 context={
                     "token": self.token.symbol,
                     "stage": "read_address",
@@ -114,7 +114,7 @@ class DexToken:
             save_yaml(file_path, {"address": self.address})
         except Exception as e:
             await self.token.error_handler.handle_async(
-                OperationalError(f"Error writing token address file: {e!s}"),
+                e,
                 context={
                     "token": self.token.symbol,
                     "stage": "write_address",
@@ -134,7 +134,7 @@ class DexToken:
             await self.write_address()
         except Exception as e:
             await self.token.error_handler.handle_async(
-                OperationalError(f"Error requesting token address: {e!s}"),
+                e,
                 context={"token": self.token.symbol, "stage": "request_addr"},
             )
 
@@ -179,7 +179,7 @@ class CexToken:
                 )
             except Exception as e:
                 await self.token.error_handler.handle_async(
-                    OperationalError(f"Error fetching ticker: {e!s}"),
+                    e,
                     context={
                         "token": self.token.symbol,
                         "cex_symbol": symbol,
@@ -194,7 +194,7 @@ class CexToken:
                 return float(ticker["info"][lastprice_string])
             except (KeyError, TypeError, ValueError) as e:
                 await self.token.error_handler.handle_async(
-                    OperationalError(f"Malformed ticker response: {e!s}"),
+                    e,
                     context={
                         "token": self.token.symbol,
                         "cex_symbol": symbol,
@@ -227,11 +227,9 @@ class CexToken:
                 custom_price = getattr(custom_tickers, self.token.symbol)
                 try:
                     result = float(custom_price) / btc_price
-                except (TypeError, ValueError):
+                except (TypeError, ValueError) as e:
                     await self.token.error_handler.handle_async(
-                        OperationalError(
-                            f"Invalid custom price value for {self.token.symbol}: {custom_price}"
-                        ),
+                        e,
                         context={
                             "token": self.token.symbol,
                             "stage": "update_price",
@@ -283,19 +281,16 @@ class CexToken:
                         result = data.get("BTC")
             except Exception as e:
                 await self.token.error_handler.handle_async(
-                    OperationalError(f"Error updating BLOCK ticker: {e!s}"),
+                    e,
                     context={"token": "BLOCK", "stage": "update_block_ticker"},
                 )
             else:
                 if result is not None:
                     try:
                         result = float(result)
-                    except (TypeError, ValueError):
-                        source = "proxy" if used_proxy else "cryptocompare"
+                    except (TypeError, ValueError) as e:
                         await self.token.error_handler.handle_async(
-                            OperationalError(
-                                f"Invalid BLOCK ticker price from {source}: {result}"
-                            ),
+                            e,
                             context={"token": "BLOCK", "stage": "update_block_ticker"},
                         )
                         return None

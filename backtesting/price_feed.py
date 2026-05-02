@@ -2,7 +2,6 @@
 
 import logging
 import os
-from typing import Optional
 
 import pandas as pd
 
@@ -23,7 +22,7 @@ class PriceFeed:
         filename = f"{safe_symbol}_{start}_{end}_{interval}.parquet"
         return os.path.join(self.CACHE_DIR, filename)
 
-    def _load_from_disk(self, cache_path: str) -> Optional[pd.DataFrame]:
+    def _load_from_disk(self, cache_path: str) -> pd.DataFrame | None:
         if os.path.exists(cache_path):
             logger.info("Loading from cache: %s", cache_path)
             return pd.read_parquet(cache_path)
@@ -43,13 +42,13 @@ class PriceFeed:
     ) -> pd.DataFrame:
         """
         Fetch historical price data.
-        
+
         Args:
             symbol: The ticker symbol (e.g., "BTC-USD", "LTC-USD")
             start: Start date in YYYY-MM-DD format
             end: End date in YYYY-MM-DD format
             interval: Data interval (default: "1h")
-        
+
         Returns:
             DataFrame with columns: Open, High, Low, Close, Volume, Adj Close
         """

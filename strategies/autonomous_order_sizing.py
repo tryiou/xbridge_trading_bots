@@ -1,5 +1,4 @@
 from enum import Enum
-import math
 
 
 class OrderSizingMode(Enum):
@@ -14,8 +13,8 @@ class OrderSizingEngine:
         self,
         mode: str = "equal",
         base_percent: float = 0.05,
-        buy_amounts: list[float] = None,
-        sell_amounts: list[float] = None,
+        buy_amounts: list[float] | None = None,
+        sell_amounts: list[float] | None = None,
     ):
         self.mode = OrderSizingMode(mode)
         self.base_percent = base_percent

@@ -2,15 +2,15 @@
 
 from .engine import BacktestEngine, BacktestResults
 from .fake_xbridge_rpc import FakeXBridgeRPCServer
-from .price_feed import PriceFeed
 from .price_aggregator import PriceAggregator
+from .price_feed import PriceFeed
 from .reporter import Reporter
 
 __all__ = [
     "BacktestEngine",
     "BacktestResults",
     "FakeXBridgeRPCServer",
-    "PriceFeed",
     "PriceAggregator",
+    "PriceFeed",
     "Reporter",
 ]

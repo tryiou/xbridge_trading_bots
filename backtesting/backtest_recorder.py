@@ -5,7 +5,6 @@ import json
 import os
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional
 
 
 @dataclass
@@ -56,10 +55,10 @@ class EventRecord:
 class ActionRecord:
     candle_idx: int
     action_type: str
-    side: Optional[str]
-    level: Optional[int]
-    price: Optional[float]
-    amount: Optional[float]
+    side: str | None
+    level: int | None
+    price: float | None
+    amount: float | None
     skew_before: float
     ratio_a: float
     concentration: bool
@@ -176,10 +175,10 @@ class BacktestRecorder:
         self,
         candle_idx: int,
         action_type: str,
-        side: Optional[str],
-        level: Optional[int],
-        price: Optional[float],
-        amount: Optional[float],
+        side: str | None,
+        level: int | None,
+        price: float | None,
+        amount: float | None,
         skew_before: float,
         ratio_a: float,
         concentration: bool,

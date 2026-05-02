@@ -15,11 +15,11 @@ class SecretsManager:
     Centralized secrets management.
 
     Loads sensitive data from environment variables with fallback to
-    encrypted file storage. All secrets should ideally come from
+    file storage. All secrets should ideally come from
     environment variables in production.
     """
 
-    ENV_PREFIX = "XBRIDGE_"
+    ENV_PREFIX = "CCXT_"
 
     def __init__(self, logger: logging.Logger | None = None):
         self.logger = logger or logging.getLogger("secrets_manager")
@@ -39,12 +39,12 @@ class SecretsManager:
         """Load API keys from environment variables.
 
         Expected format:
-            XBRIDGE_EXCHANGE_{exchange}_API_KEY
-            XBRIDGE_EXCHANGE_{exchange}_API_SECRET
+            CCXT_EXCHANGE_{exchange}_API_KEY
+            CCXT_EXCHANGE_{exchange}_API_SECRET
 
         Example:
-            XBRIDGE_EXCHANGE_BINANCE_API_KEY=abc123
-            XBRIDGE_EXCHANGE_BINANCE_API_SECRET=xyz789
+            CCXT_EXCHANGE_BINANCE_API_KEY=abc123
+            CCXT_EXCHANGE_BINANCE_API_SECRET=xyz789
         """
         api_info = []
         processed_exchanges = set()
@@ -53,7 +53,7 @@ class SecretsManager:
             if not key.startswith(f"{self.ENV_PREFIX}EXCHANGE_"):
                 continue
 
-            parts = key[len(self.ENV_PREFIX):].split("_", 3)
+            parts = key[len(self.ENV_PREFIX) :].split("_", 3)
             if len(parts) < 4 or parts[2] != "EXCHANGE":
                 continue
 

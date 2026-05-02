@@ -31,3 +31,6 @@ deprecated_frames.py
 *.txt
 *.mp4
 AGENTS.md
+.agents
+skills-lock.json
+docs/agents

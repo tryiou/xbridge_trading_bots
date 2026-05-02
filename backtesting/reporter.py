@@ -2,8 +2,7 @@
 
 import csv
 from dataclasses import dataclass
-from datetime import datetime
-from typing import Any, List
+from typing import Any
 
 from .engine import BacktestResults
 
@@ -148,7 +147,6 @@ class Reporter:
             import matplotlib
 
             matplotlib.use("Agg")
-            import matplotlib.pyplot as plt
         except ImportError:
             raise ImportError(
                 "matplotlib is required for chart generation. "

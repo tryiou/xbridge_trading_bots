@@ -6,14 +6,15 @@ from typing import Any, Optional
 from definitions.ccxt_manager import CCXTManager
 from definitions.config_loader import ConfigLoader
 from definitions.config_validation import ConfigValidationManager
+from definitions.detect_rpc import detect_rpc
 from definitions.error_handler import ErrorHandler
 from definitions.errors import ConfigurationError
 from definitions.logger import setup_logger, setup_logging
 from definitions.xbridge_manager import XBridgeManager
+from strategies.autonomous_maker_strategy import AutonomousMakerStrategy
 from strategies.base_strategy import BaseStrategy
 from strategies.basicseller_strategy import BasicSellerStrategy
 from strategies.pingpong_strategy import PingPongStrategy
-from strategies.autonomous_maker_strategy import AutonomousMakerStrategy
 
 
 class ConfigManager:
@@ -78,6 +79,11 @@ class ConfigManager:
             f"ConfigManager initializing as {role} for '{strategy}' strategy"
         )
 
+        if XBridgeManager._rpc_config is None:
+            with XBridgeManager._rpc_config_lock:
+                if XBridgeManager._rpc_config is None:
+                    XBridgeManager._rpc_config = detect_rpc()
+
         if master_manager:
             # GUI Slave Mode: Inherit configs, but create own managers to ensure
             # correct logger context.
@@ -93,7 +99,7 @@ class ConfigManager:
             # Create new manager instances. They will be initialized with this
             # slave ConfigManager instance, giving them the correct logger.
 
-            self.xbridge_manager = XBridgeManager(self)
+            self.xbridge_manager = XBridgeManager(self, rpc_config=XBridgeManager._rpc_config)
 
             self.ccxt_manager = CCXTManager(self)
             # Share the underlying CCXT connection object from the master to avoid
@@ -112,7 +118,7 @@ class ConfigManager:
                     context={"stage": "load_configs"},
                 )
                 raise
-            self.xbridge_manager = XBridgeManager(self)
+            self.xbridge_manager = XBridgeManager(self, rpc_config=XBridgeManager._rpc_config)
             self.ccxt_manager = CCXTManager(self)
             # If this is the master GUI manager, initialize shared components now.
             if self.strategy == "gui":

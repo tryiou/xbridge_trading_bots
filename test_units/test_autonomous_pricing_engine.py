@@ -1,8 +1,8 @@
 import pytest
 
 from strategies.autonomous_pricing_engine import (
-    PricingEngine,
     PriceLevel,
+    PricingEngine,
     SpreadMode,
 )
 
@@ -104,8 +104,8 @@ class TestPricingEngine:
 
     def test_get_price_levels(self, engine):
         levels = engine.get_price_levels(3)
-        buy_levels = [l for l in levels if l.side == "buy"]
-        sell_levels = [l for l in levels if l.side == "sell"]
+        buy_levels = [level for level in levels if level.side == "buy"]
+        sell_levels = [level for level in levels if level.side == "sell"]
         assert len(buy_levels) == 3
         assert len(sell_levels) == 3
         assert buy_levels[0].price > buy_levels[1].price > buy_levels[2].price

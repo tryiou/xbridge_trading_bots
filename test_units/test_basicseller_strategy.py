@@ -2,7 +2,7 @@ import os
 import sys
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -58,9 +58,8 @@ class BasicSellerStrategyTester:
                 "getorderstatus",
                 new_callable=AsyncMock,
             ) as mock_get_status,
-            patch("builtins.open", new_callable=MagicMock) as mock_open,
-            patch("yaml.safe_load") as mock_yaml_load,
-            patch("yaml.safe_dump") as mock_yaml_dump,
+            patch("definitions.pair.load_yaml") as mock_load_yaml,
+            patch("definitions.pair.save_yaml") as mock_save_yaml,
             patch("asyncio.sleep", return_value=None),
             patch.object(self.pair.t1.dex, "free_balance", 1000.0),
             patch.object(self.pair.t2.dex, "free_balance", 1000.0),
@@ -76,9 +75,8 @@ class BasicSellerStrategyTester:
                 "make_order": mock_make_order,
                 "cancel_order": mock_cancel_order,
                 "get_status": mock_get_status,
-                "open": mock_open,
-                "yaml_load": mock_yaml_load,
-                "yaml_dump": mock_yaml_dump,
+                "load_yaml": mock_load_yaml,
+                "save_yaml": mock_save_yaml,
             }
             yield mocks
 
@@ -104,7 +102,7 @@ class BasicSellerStrategyTester:
 
         with self._patch_dependencies() as mocks:
             # Arrange
-            mocks["yaml_load"].return_value = None  # No history
+            mocks["load_yaml"].return_value = None  # No history
             self.pair.dex.read_last_order_history()
             self._set_mock_prices(t1_usd_price=1.0, t2_usd_price=0.1)
 
@@ -323,7 +321,7 @@ def mock_strategy_cli():
     from unittest.mock import patch
 
     with patch(
-            "definitions.xbridge_manager.detect_rpc",
+            "definitions.config_manager.detect_rpc",
             return_value=("user", 1234, "pass", "/tmp"),
     ), patch("definitions.xbridge_manager.is_port_open", return_value=True), patch("definitions.ccxt_manager.CCXTManager"), patch("asyncio.run"), patch("definitions.xbridge_manager.rpc_call"):
         from definitions.config_manager import ConfigManager

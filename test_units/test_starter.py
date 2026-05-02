@@ -57,6 +57,7 @@ def mock_config_manager():
     cm.strategy_instance.dry_mode = False  # Set to False to allow updates
     cm.strategy_instance.should_update_cex_prices.return_value = True
     cm.error_handler = MagicMock()
+    cm.error_handler.handle_async = AsyncMock()
     cm.general_log = MagicMock()
     cm.xbridge_manager = AsyncMock()
     cm.ccxt_manager = AsyncMock()

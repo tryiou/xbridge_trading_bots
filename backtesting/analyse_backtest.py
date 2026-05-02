@@ -6,7 +6,6 @@ import json
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 import pandas as pd
 from tabulate import tabulate
@@ -27,7 +26,7 @@ class BacktestAnalyzer:
 
     def __init__(self, result_dir: str):
         self.result_dir = Path(result_dir)
-        self.data: Optional[BacktestData] = None
+        self.data: BacktestData | None = None
 
     def load_data(self) -> BacktestData:
         """Load all backtest data files."""
@@ -223,10 +222,7 @@ class BacktestAnalyzer:
 
         created = len(orders[orders["status"] == "open"])
 
-        if self.data.trades.empty:
-            filled = 0
-        else:
-            filled = len(self.data.trades)
+        filled = 0 if self.data.trades.empty else len(self.data.trades)
 
         canceled = 0
 
@@ -346,15 +342,15 @@ class BacktestAnalyzer:
         ret_b = pf["return_b_percent"]
 
         print()
-        print(f"══════════════════════════════════════════════════════════════════")
-        print(f"                    BACKTEST RESULTS")
-        print(f"══════════════════════════════════════════════════════════════════")
+        print("══════════════════════════════════════════════════════════════════")
+        print("                    BACKTEST RESULTS")
+        print("══════════════════════════════════════════════════════════════════")
         print(f" {pair} | {h['start_date']} → {h['end_date']} | {h['mode']}")
         print()
 
-        print(f"──────────────────────────────────────────────────────────────────")
-        print(f" VERDICT")
-        print(f"──────────────────────────────────────────────────────────────────")
+        print("──────────────────────────────────────────────────────────────────")
+        print(" VERDICT")
+        print("──────────────────────────────────────────────────────────────────")
         v_a = "✓ OUTPERFORM" if bh["outperformed_a"] else "✗ UNDERPERFORM"
         v_b = "✓ OUTPERFORM" if bh["outperformed_b"] else "✗ UNDERPERFORM"
         verdict_table = [
@@ -380,9 +376,9 @@ class BacktestAnalyzer:
         )
         print()
 
-        print(f"──────────────────────────────────────────────────────────────────")
-        print(f" PRICE")
-        print(f"──────────────────────────────────────────────────────────────────")
+        print("──────────────────────────────────────────────────────────────────")
+        print(" PRICE")
+        print("──────────────────────────────────────────────────────────────────")
         price_table = [
             ["Start", "End", "Change", "High", "Low", "Volatility"],
             [
@@ -403,10 +399,10 @@ class BacktestAnalyzer:
         )
         print()
 
-        print(f"──────────────────────────────────────────────────────────────────")
-        print(f" PORTFOLIO")
-        print(f"──────────────────────────────────────────────────────────────────")
-        print(f" REAL BALANCE:")
+        print("──────────────────────────────────────────────────────────────────")
+        print(" PORTFOLIO")
+        print("──────────────────────────────────────────────────────────────────")
+        print(" REAL BALANCE:")
         balance_table = [
             ["", base_token, quote_token],
             ["Initial", f"{pf['initial_a']:.4f}", f"{pf['initial_b']:.2f}"],
@@ -423,9 +419,9 @@ class BacktestAnalyzer:
         print(tabulate(projected_table, tablefmt="simple", headers="firstrow"))
         print()
 
-        print(f"──────────────────────────────────────────────────────────────────")
-        print(f" VS BUY & HOLD")
-        print(f"──────────────────────────────────────────────────────────────────")
+        print("──────────────────────────────────────────────────────────────────")
+        print(" VS BUY & HOLD")
+        print("──────────────────────────────────────────────────────────────────")
         v_a = "✓" if bh["outperformed_a"] else "✗"
         v_b = "✓" if bh["outperformed_b"] else "✗"
         bh_table = [
@@ -454,9 +450,9 @@ class BacktestAnalyzer:
         print(tabulate(bh_table, tablefmt="simple", headers="firstrow"))
         print()
 
-        print(f"──────────────────────────────────────────────────────────────────")
-        print(f" TRADING")
-        print(f"──────────────────────────────────────────────────────────────────")
+        print("──────────────────────────────────────────────────────────────────")
+        print(" TRADING")
+        print("──────────────────────────────────────────────────────────────────")
         trading_table = [
             ["Metric", "Value"],
             ["Total Trades", f"{t['total']}"],
@@ -471,9 +467,9 @@ class BacktestAnalyzer:
         print(tabulate(trading_table, tablefmt="simple", headers="firstrow"))
         print()
 
-        print(f"──────────────────────────────────────────────────────────────────")
-        print(f" RISK")
-        print(f"──────────────────────────────────────────────────────────────────")
+        print("──────────────────────────────────────────────────────────────────")
+        print(" RISK")
+        print("──────────────────────────────────────────────────────────────────")
         risk_table = [
             ["Metric", "Value"],
             ["Max Drawdown", f"{r['max_drawdown_percent']:.2f}%"],
@@ -494,7 +490,7 @@ class BacktestAnalyzer:
         ]
         print(tabulate(conc_table, tablefmt="simple", headers="firstrow"))
 
-        print(f"\n RESERVE:")
+        print("\n RESERVE:")
         reserve_table = [
             ["Metric", base_token, quote_token],
             [

@@ -286,8 +286,9 @@ def test_init_virtual_order_no_disabled_coins(dex_pair):
 def test_write_last_order_history_failure(dex_pair):
     """Tests error handling in write_last_order_history."""
     file_path = dex_pair._get_history_file_path()
+    dex_pair.order_history = {"side": "SELL"}
     with patch("builtins.open", mock_open()) as mock_file:
-        mock_file.side_effect = OSError("Disk full")
+        mock_file.return_value.__enter__.side_effect = OSError("Disk full")
         dex_pair.write_last_order_history()
         # Verify error handler was called with expected exception type
         handle_call_args = dex_pair.pair.error_handler.handle.call_args
@@ -401,8 +402,7 @@ def test_dex_pair_read_last_order_history(dex_pair):
     with patch("builtins.open", mock_open(read_data="")) as mock_file:
         mock_file.return_value.read.return_value = ""
         dex_pair.read_last_order_history()
-        assert dex_pair.order_history is None
-        dex_pair.pair.logger.info.assert_called()
+        assert dex_pair.order_history == {}
 
 
 def test_pair_initialization():

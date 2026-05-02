@@ -49,7 +49,7 @@ async def test_dex_token_read_address_file_not_found(token):
 @pytest.mark.asyncio
 async def test_dex_token_read_address_malformed_yaml(token):
     """Test DexToken.read_address when address file is malformed."""
-    with patch("builtins.open"), patch("yaml.safe_load", side_effect=yaml.YAMLError):
+    with patch("definitions.token.load_yaml", side_effect=yaml.YAMLError("malformed")):
         token.dex.request_addr = AsyncMock()
         await token.dex.read_address()
         token.dex.request_addr.assert_awaited_once()
@@ -74,7 +74,7 @@ async def test_dex_token_request_addr_failure(token):
 async def test_dex_token_write_address_success(token):
     """Test DexToken.write_address success case."""
     token.dex.address = "new_address"
-    with patch("builtins.open", create=True), patch("yaml.safe_dump") as mock_dump:
+    with patch("builtins.open", create=True), patch("definitions.token.save_yaml") as mock_dump:
         await token.dex.write_address()
         mock_dump.assert_called_once()
         token.config_manager.error_handler.handle_async.assert_not_awaited()

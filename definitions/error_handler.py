@@ -8,6 +8,7 @@ import time
 from typing import TYPE_CHECKING, Any
 
 from definitions.errors import (
+    BlockingError,
     CriticalError,
     OperationalError,
     TransientError,
@@ -94,7 +95,7 @@ class ErrorHandler:
 
     def _classify_error(self, error: "AppError") -> str:
         """Classifies AppError instances into handling categories."""
-        if isinstance(error, CriticalError):
+        if isinstance(error, (CriticalError, BlockingError)):
             return "critical"
         if isinstance(error, TransientError):
             return "transient"
@@ -144,13 +145,13 @@ class ErrorHandler:
         attempt = context.get("err_count", 1)
         if attempt >= self.max_retries:
             self.logger.error(
-                f"Transient error max retries exceeded after {attempt} attempts: {error} | Context: {context}"
+                f"Transient error max retries exceeded after {attempt} attempts: {error}"
             )
             return False
 
         # Implement actual retry logic with exponential backoff
         self.logger.warning(
-            f"Transient error (attempt {attempt}/{self.max_retries}): {error} | Context: {context}"
+            f"Transient error (attempt {attempt}/{self.max_retries}): {error}"
         )
         delay_index = attempt - 1
         delay = (
@@ -167,7 +168,7 @@ class ErrorHandler:
     ) -> dict[str, str]:
         """Shared logic for handling operational errors."""
         self.logger.error(
-            f"Operational error: {error} | Context: {context}", exc_info=True
+            f"Operational error: {error}", exc_info=True
         )
         return {
             "level": "warning",
@@ -186,7 +187,7 @@ class ErrorHandler:
     ) -> dict[str, str]:
         """Shared logic for handling critical errors."""
         self.logger.critical(
-            f"Critical error: {error} | Context: {context}", exc_info=True
+            f"Critical error: {error}", exc_info=True
         )
         return {
             "level": "critical",
@@ -216,13 +217,13 @@ class ErrorHandler:
         attempt = context.get("err_count", 1)
         if attempt >= self.max_retries:
             self.logger.error(
-                f"Transient error max retries exceeded after {attempt} attempts: {error} | Context: {context}"
+                f"Transient error max retries exceeded after {attempt} attempts: {error}"
             )
             return False
 
         # Implement actual retry logic with exponential backoff
         self.logger.warning(
-            f"Transient error (attempt {attempt}/{self.max_retries}): {error} | Context: {context}"
+            f"Transient error (attempt {attempt}/{self.max_retries}): {error}"
         )
         delay_index = attempt - 1
         delay = (

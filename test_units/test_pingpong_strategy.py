@@ -58,9 +58,8 @@ class PingPongStrategyTester:
                 "getorderstatus",
                 new_callable=AsyncMock,
             ) as mock_get_status,
-            patch("builtins.open", new_callable=MagicMock) as mock_open,
-            patch("yaml.safe_load") as mock_yaml_load,
-            patch("yaml.safe_dump") as mock_yaml_dump,
+            patch("definitions.pair.load_yaml") as mock_load_yaml,
+            patch("definitions.pair.save_yaml") as mock_save_yaml,
             patch("asyncio.sleep", return_value=None),
             patch.object(self.pair.t1.dex, "free_balance", 1000.0),
             patch.object(self.pair.t2.dex, "free_balance", 1000.0),
@@ -76,9 +75,8 @@ class PingPongStrategyTester:
                 "make_order": mock_make_order,
                 "cancel_order": mock_cancel_order,
                 "get_status": mock_get_status,
-                "open": mock_open,
-                "yaml_load": mock_yaml_load,
-                "yaml_dump": mock_yaml_dump,
+                "load_yaml": mock_load_yaml,
+                "save_yaml": mock_save_yaml,
             }
             yield mocks
 
@@ -103,7 +101,7 @@ class PingPongStrategyTester:
 
         with self._patch_dependencies() as mocks:
             # Arrange: No order history
-            mocks["yaml_load"].return_value = None
+            mocks["load_yaml"].return_value = None
             self.pair.dex.read_last_order_history()  # Reread with mock
             self._set_mock_cex_price(0.3)
 
@@ -133,7 +131,7 @@ class PingPongStrategyTester:
 
         with self._patch_dependencies() as mocks:
             # Arrange: History of a finished SELL order
-            mocks["yaml_load"].return_value = {
+            mocks["load_yaml"].return_value = {
                 "side": "SELL",
                 "maker_size": "1.0",
                 "dex_price": 0.3,
@@ -167,7 +165,7 @@ class PingPongStrategyTester:
 
         with self._patch_dependencies() as mocks:
             # Arrange: History of a finished BUY order
-            mocks["yaml_load"].return_value = {"side": "BUY"}
+            mocks["load_yaml"].return_value = {"side": "BUY"}
             self.pair.dex.read_last_order_history()
             self._set_mock_cex_price(0.3)
 
@@ -196,7 +194,7 @@ class PingPongStrategyTester:
 
         with self._patch_dependencies() as mocks:
             # Arrange: No history, so we are in a SELL state.
-            mocks["yaml_load"].return_value = None
+            mocks["load_yaml"].return_value = None
             self.pair.dex.read_last_order_history()
             self._set_mock_cex_price(0.3)
             self.pair.dex.init_virtual_order()
@@ -228,7 +226,7 @@ class PingPongStrategyTester:
 
         with self._patch_dependencies() as mocks:
             # Arrange: History of a finished SELL order, so we are in a BUY state.
-            mocks["yaml_load"].return_value = {
+            mocks["load_yaml"].return_value = {
                 "side": "SELL",
                 "maker_size": "1.0",
                 "dex_price": 0.3,
@@ -261,7 +259,7 @@ class PingPongStrategyTester:
 
         with self._patch_dependencies() as mocks:
             # Arrange: An open SELL order exists
-            mocks["yaml_load"].return_value = None
+            mocks["load_yaml"].return_value = None
             self.pair.dex.read_last_order_history()
             self._set_mock_cex_price(0.3)
             self.pair.dex.init_virtual_order()
@@ -275,7 +273,7 @@ class PingPongStrategyTester:
             await self.pair.dex.status_check()
 
             # Assert
-            mocks["yaml_dump"].assert_called_once()  # History was written
+            mocks["save_yaml"].assert_called_once()  # History was written
             # A new order should have been created
             mocks["make_order"].assert_called_once()
             call_args = mocks["make_order"].call_args[0]
@@ -299,7 +297,7 @@ class PingPongStrategyTester:
 
         with self._patch_dependencies() as mocks:
             # Arrange: An open SELL order exists (no history).
-            mocks["yaml_load"].return_value = None
+            mocks["load_yaml"].return_value = None
             self.pair.dex.read_last_order_history()
             self._set_mock_cex_price(0.3)
             self.pair.dex.init_virtual_order()
@@ -314,7 +312,7 @@ class PingPongStrategyTester:
 
             # Assert:
             # 1. The bot should not have written a new history file, as the trade didn't finish.
-            mocks["yaml_dump"].assert_not_called()
+            mocks["save_yaml"].assert_not_called()
 
             # 2. The bot should have tried to create a new order, and it should be another SELL.
             mocks["make_order"].assert_called_once()
@@ -346,7 +344,7 @@ class PingPongStrategyTester:
 
             # Arrange: History of a finished SELL order at 0.3
             last_sell_price = 0.3
-            mocks["yaml_load"].return_value = {
+            mocks["load_yaml"].return_value = {
                 "side": "SELL",
                 "maker_size": "1.0",
                 "dex_price": last_sell_price,
@@ -396,7 +394,7 @@ class PingPongStrategyTester:
 
         with self._patch_dependencies() as mocks:
             # Arrange: No order history, attempting to create a SELL order.
-            mocks["yaml_load"].return_value = None
+            mocks["load_yaml"].return_value = None
             self.pair.dex.read_last_order_history()
             self._set_mock_cex_price(0.3)
             self.pair.dex.init_virtual_order()
@@ -581,7 +579,7 @@ def mock_strategy():
     from unittest.mock import patch
 
     with patch(
-            "definitions.xbridge_manager.detect_rpc",
+            "definitions.config_manager.detect_rpc",
             return_value=("user", 1234, "pass", "/tmp"),
     ), patch("definitions.xbridge_manager.is_port_open", return_value=True), patch("definitions.ccxt_manager.CCXTManager"), patch("asyncio.run"), patch("definitions.xbridge_manager.rpc_call"):
         from definitions.config_manager import ConfigManager

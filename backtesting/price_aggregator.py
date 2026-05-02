@@ -1,6 +1,5 @@
 """Price aggregation for cross-pair calculation."""
 
-from typing import Optional
 
 import pandas as pd
 
@@ -20,7 +19,7 @@ class PriceAggregator:
 
     def __init__(
         self,
-        price_feed: Optional[PriceFeed] = None,
+        price_feed: PriceFeed | None = None,
         interval: str = "1h",
         start_date: str = "",
         end_date: str = "",
@@ -102,7 +101,7 @@ class PriceAggregator:
         common_quote: str,
         start: str,
         end: str,
-    ) -> Optional[pd.DataFrame]:
+    ) -> pd.DataFrame | None:
         base_symbol = f"{base}-{common_quote}"
         quote_symbol = f"{quote}-{common_quote}"
 

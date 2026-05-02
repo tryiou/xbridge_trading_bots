@@ -1,6 +1,5 @@
 from dataclasses import dataclass
 from enum import Enum
-from typing import List
 
 
 class SpreadMode(Enum):
@@ -41,7 +40,7 @@ class PricingEngine:
         self.volatility_multiplier = volatility_multiplier
         self.min_spread = min_spread / 100.0
         self.price_skew: float = 0.002
-        self.price_history: List[float] = []
+        self.price_history: list[float] = []
         self.atr_percent: float = 0.0
 
     def configure_spread(self, config: dict):
@@ -96,15 +95,14 @@ class PricingEngine:
         return self.mid_price * (1 + adjusted_spread)
 
     def _calculate_spread(self, level: int) -> float:
-        if level < 1:
-            level = 1
+        level = max(level, 1)
 
         if self.spread_mode == SpreadMode.EXPONENTIAL:
             return self.base_spread_percent * (self.spread_multiplier ** (level - 1))
         else:
             return self.base_spread_percent + (self.spread_increment * (level - 1))
 
-    def get_price_levels(self, num_levels: int = None) -> list[PriceLevel]:
+    def get_price_levels(self, num_levels: int | None = None) -> list[PriceLevel]:
         if num_levels is None:
             num_levels = self.max_open_orders // 2
 
@@ -119,8 +117,7 @@ class PricingEngine:
                 spread = self._calculate_spread(level)
 
             max_spread = self.max_price_range_percent
-            if spread > max_spread:
-                spread = max_spread
+            spread = min(spread, max_spread)
 
             price = self.mid_price * (1 - spread)
             levels.append(PriceLevel(level=level, side="buy", price=price, amount=0.0))
@@ -132,8 +129,7 @@ class PricingEngine:
                 spread = self._calculate_spread(level)
 
             max_spread = self.max_price_range_percent
-            if spread > max_spread:
-                spread = max_spread
+            spread = min(spread, max_spread)
 
             price = self.mid_price * (1 + spread)
             levels.append(PriceLevel(level=level, side="sell", price=price, amount=0.0))

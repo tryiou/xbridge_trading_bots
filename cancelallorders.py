@@ -3,6 +3,7 @@
 import asyncio
 import os
 
+from definitions.detect_rpc import detect_rpc
 from definitions.logger import setup_logger
 from definitions.xbridge_manager import XBridgeManager
 
@@ -31,7 +32,8 @@ if __name__ == "__main__":
     general_log, _, _ = setup_logger(strategy="cancel_script", ROOT_DIR=ROOT_DIR)
 
     general_log.info("Initializing to cancel all orders...")
-    xbridge_manager = XBridgeManager(MinimalConfig(general_log))
+    rpc_config = detect_rpc()
+    xbridge_manager = XBridgeManager(MinimalConfig(general_log), rpc_config=rpc_config)
     general_log.info("Sending cancel all orders command...")
     successful = asyncio.run(xbridge_manager.cancelallorders())
     if successful:

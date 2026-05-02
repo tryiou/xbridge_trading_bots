@@ -1,6 +1,4 @@
-import asyncio
 import hashlib
-import logging
 from typing import TYPE_CHECKING, Any
 
 from definitions.errors import ConfigurationError
@@ -327,9 +325,6 @@ class AutonomousMakerStrategy(MakerStrategy):
         ):
             return
 
-        risk_config = getattr(self, "risk_config", {})
-        position_config = getattr(self, "position_config", {})
-
         skew = self.inventory_manager.calculate_skew()
 
         balance_a = self.inventory_manager.current_balance_a
@@ -366,17 +361,11 @@ class AutonomousMakerStrategy(MakerStrategy):
         occupied_buy_levels = {o.level for o in open_buy_orders}
         occupied_sell_levels = {o.level for o in open_sell_orders}
 
-        missing_buy_levels = {
-            lvl for lvl in range(1, max_buy_levels + 1)
-        } - occupied_buy_levels
-        missing_sell_levels = {
-            lvl for lvl in range(1, max_sell_levels + 1)
-        } - occupied_sell_levels
+        missing_buy_levels = set(range(1, max_buy_levels + 1)) - occupied_buy_levels
+        missing_sell_levels = set(range(1, max_sell_levels + 1)) - occupied_sell_levels
 
         buy_levels_needed = len(missing_buy_levels)
         sell_levels_needed = len(missing_sell_levels)
-
-        current_ratio_a = self.inventory_manager.get_ratio_a()
 
         if buy_levels_needed > 0 and available_b > 0:
             remaining_b = available_b

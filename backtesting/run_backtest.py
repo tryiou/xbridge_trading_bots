@@ -8,10 +8,10 @@ import warnings
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from definitions.logger import set_backtest_mode
-from definitions.yaml_utils import load_config
 from backtesting.engine import BacktestEngine
 from backtesting.reporter import Reporter
+from definitions.logger import set_backtest_mode
+from definitions.yaml_utils import load_config
 
 
 def configure_backtest_logging(log_file: str):

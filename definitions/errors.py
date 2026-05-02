@@ -22,13 +22,17 @@ class AppError(Exception):
         )
 
     def __str__(self) -> str:
-        return (
-            f"{self.__class__.__name__}: {super().__str__()} | Context: {self.context}"
-        )
+        return f"{self.__class__.__name__}: {super().__str__()}"
 
 
 class TransientError(AppError):
     """Temporary errors (network issues, timeouts) that might resolve with retries"""
+
+    pass
+
+
+class BlockingError(AppError):
+    """Non-recoverable errors (bad addresses, invalid config) - fail immediately, no retries"""
 
     pass
 

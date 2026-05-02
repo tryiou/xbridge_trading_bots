@@ -55,6 +55,16 @@ def async_retry(max_retries=5, delay=1, backoff=2, exceptions_to_retry=(Exceptio
     return decorator
 
 
+_NETWORK_EXCEPTIONS = (
+    ccxt.NetworkError,
+    TimeoutError,
+    asyncio.TimeoutError,
+    asyncio.CancelledError,
+    aiohttp.ClientError,
+    aiohttp.ServerDisconnectedError,
+)
+
+
 # --- Price Fetcher (Same Logic) ---
 class PriceFetcher:
     def __init__(self, config, session: ClientSession):
@@ -93,7 +103,7 @@ class PriceFetcher:
 
         await self._load_markets_with_retry()
 
-    @async_retry(exceptions_to_retry=(ccxt.NetworkError,))
+    @async_retry(exceptions_to_retry=_NETWORK_EXCEPTIONS)
     async def _load_markets_with_retry(self):
         logger.info(f"Loading markets for exchange: {self.ccxt_i.id}")
         await self.ccxt_i.load_markets()
@@ -110,7 +120,7 @@ class PriceFetcher:
             symbols = self.symbols_list
         return any(s not in self.tickers for s in symbols)
 
-    @async_retry(max_retries=3, delay=2, exceptions_to_retry=(ccxt.NetworkError,))
+    @async_retry(max_retries=3, delay=2, exceptions_to_retry=_NETWORK_EXCEPTIONS)
     async def refresh_ccxt_tickers(self):
         """Refreshes tickers from CCXT for all registered symbols."""
         if not self.symbols_list:
@@ -127,7 +137,7 @@ class PriceFetcher:
                 if market:
                     grouped.setdefault(market["type"], []).append(symbol)
 
-            self.tickers = {}
+            new_tickers = {}
             for _market_type, symbols in grouped.items():
                 if len(symbols) > 0:
                     self.ccxt_call_count += 1
@@ -141,9 +151,10 @@ class PriceFetcher:
                         logger.error(f"Invalid tickers response type: {type(tickers)}")
                     else:
                         try:
-                            self.tickers.update(tickers)
+                            new_tickers.update(tickers)
                         except (TypeError, ValueError) as e:
                             logger.error(f"Error updating tickers: {e}")
+            self.tickers = new_tickers
             logger.info("Successfully refreshed CCXT tickers.")
 
         except ccxt.BadRequest as e:
@@ -153,7 +164,7 @@ class PriceFetcher:
             logger.error(f"Error refreshing tickers: {e}")
             raise
 
-    @async_retry(max_retries=3, delay=2, exceptions_to_retry=(aiohttp.ClientError,))
+    @async_retry(max_retries=3, delay=2, exceptions_to_retry=_NETWORK_EXCEPTIONS)
     async def update_custom_ticker_block(self):
         """Updates the BLOCK ticker from CryptoCompare."""
         logger.info("Fetching BLOCK ticker from external API...")
@@ -315,9 +326,11 @@ class WebServer:
                 502, f"Exchange error: {e}", data.get("id") if data else None, 502
             )
         except Exception as e:
-            logger.error(f"Error handling request: {e}", exc_info=True)
+            error_type = type(e).__name__
+            error_msg = f"{error_type}: {e}" if str(e) else error_type
+            logger.error(f"Error handling request ({error_type}): {e}", exc_info=True)
             return self._error_response(
-                500, str(e), data.get("id") if data else None, 500
+                500, error_msg, data.get("id") if data else None, 500
             )
 
     async def _run_periodically(self):

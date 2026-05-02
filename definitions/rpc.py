@@ -8,7 +8,7 @@ import aiohttp
 import async_timeout
 from aiohttp import BasicAuth, ClientSession
 
-from definitions.error_handler import OperationalError
+from definitions.errors import BlockingError, OperationalError
 
 
 class AsyncThreadingSemaphore:
@@ -40,7 +40,7 @@ async def rpc_call(
     rpc_password: str | None = None,
     rpc_port: int | None = None,
     debug: int = 2,
-    timeout: int = 30,
+    timeout: int = 120,
     prefix: str = "xbridge",
     max_err_count: int = 5,
     logger: logging.Logger | None = None,
@@ -120,23 +120,20 @@ async def rpc_call(
                             "error_code": error_code,
                             "error_msg": error_msg,
                         }
-                        if error_handler:
-                            error_handler.handle(
-                                OperationalError(
-                                    f"RPC error {error_code}: {error_msg}",
-                                    error_details,
-                                ),
-                                context={"prefix": prefix, "err_count": err_count},
-                            )
-                        elif logger:
-                            logger.warning(
-                                f"{prefix}_rpc_call: RPC error {error_code} - {error_msg}"
-                            )
-                        raise OperationalError(
+                    blocking_codes = {-1, -2, 1018, 1026}  # Bad address, invalid amount
+                    if error_code in blocking_codes:
+                        raise BlockingError(
                             f"RPC error {error_code}: {error_msg}",
-                            error_details,
-                            context={"prefix": prefix, "err_count": err_count},
+                            {**error_details, "prefix": prefix},
                         )
+                    if logger:
+                        logger.warning(
+                            f"{prefix}_rpc_call: RPC error {error_code} - {error_msg}"
+                        )
+                    raise OperationalError(
+                        f"RPC error {error_code}: {error_msg}",
+                        {**error_details, "prefix": prefix, "err_count": err_count},
+                    )
 
                     result = json_response.get("result")
                     if result is not None:
@@ -155,7 +152,7 @@ async def rpc_call(
             except Exception as e:
                 # Re-raise API errors that we intentionally raised
                 if (
-                    isinstance(e, OperationalError)
+                    isinstance(e, (OperationalError, BlockingError))
                     and e.args
                     and "RPC error" in str(e.args[0])
                 ):
@@ -168,7 +165,7 @@ async def rpc_call(
                     "err_count": err_count,
                     "response_text": response_text,
                 }
-                if error_handler:
+                if error_handler is not None:
                     if not await error_handler.handle_async(e, context=context):
                         return None  # Abort if handler says so (e.g., max retries)
                 elif logger:

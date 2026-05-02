@@ -57,7 +57,7 @@ class BacktestEngine:
         pair_config: dict,
         rpc_host: str = FAKE_RPC_HOST,
         rpc_port: int = FAKE_RPC_PORT,
-        output_dir: str = None,
+        output_dir: str | None = None,
         backtest_name: str = "",
     ):
         self.pair = pair
@@ -305,12 +305,7 @@ class BacktestEngine:
 
         mock_pair = MockPair(self.pair_config)
 
-        original_save_orders = self.strategy._save_orders
         self.strategy._save_orders = lambda: None
-
-        initial_balance_a = self.pair_config.get("initial_balance_a", 5.0)
-        initial_balance_b = self.pair_config.get("initial_balance_b", 2700.0)
-        initial_mid_price = self.pair_config.get("initial_mid_price", price_first)
 
         def get_total_value(balance_a, balance_b):
             total_base = balance_a + (balance_b / self.current_price)
@@ -321,25 +316,23 @@ class BacktestEngine:
 
         async def run_loop():
             logger.info("Starting simulation loop with %d price rows", len(prices))
-            for i, (idx, row) in enumerate(prices.iterrows()):
+            for i, (_idx, row) in enumerate(prices.iterrows()):
                 self.current_price = float(row["Close"])
                 candle_low = float(row["Low"])
                 candle_high = float(row["High"])
 
                 self._check_and_fill_orders(candle_low, candle_high, i)
 
-                prev_order_count = len(self.strategy.order_ladder.orders)
                 prev_order_ids = set(self.strategy.order_ladder.orders.keys())
 
                 await self.strategy.process_pair_async(mock_pair)
 
-                new_order_count = len(self.strategy.order_ladder.orders)
                 new_order_ids = set(self.strategy.order_ladder.orders.keys())
                 newly_created_ids = new_order_ids - prev_order_ids
 
                 balance_a = self.strategy.inventory_manager.current_balance_a
                 balance_b = self.strategy.inventory_manager.current_balance_b
-                total_value = get_total_value(balance_a, balance_b)
+
                 ratio_a = self.strategy.inventory_manager.get_ratio_a()
                 skew = self.strategy.inventory_manager.calculate_skew()
                 concentration = ratio_a > 0.75 or ratio_a < 0.25

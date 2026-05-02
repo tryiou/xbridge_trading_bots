@@ -13,7 +13,6 @@ from definitions.circuit_breaker import (
     CircuitBreakerConfig,
     CircuitBreakerError,
 )
-from definitions.detect_rpc import detect_rpc
 from definitions.errors import RPCConfigError
 from definitions.logger import setup_logging
 from definitions.rpc import AsyncThreadingSemaphore, is_port_open, rpc_call
@@ -40,6 +39,7 @@ class XBridgeManager:
     def __init__(
         self,
         config_manager: Any,
+        rpc_config: tuple[str, int, str, str],
         logger: logging.Logger | None = None,
         circuit_breaker: CircuitBreaker | None = None,
         rpc_semaphore: AsyncThreadingSemaphore | None = None,
@@ -63,18 +63,12 @@ class XBridgeManager:
         self.xbridge_fees_estimate: dict[str, dict[str, Any] | None] = {}
 
         try:
-            if XBridgeManager._rpc_config is None:
-                with XBridgeManager._rpc_config_lock:
-                    if XBridgeManager._rpc_config is None:
-                        self.logger.info("Detecting RPC configuration.")
-                        XBridgeManager._rpc_config = detect_rpc()
-
             (
                 self.blocknet_user_rpc,
                 self.blocknet_port_rpc,
                 self.blocknet_password_rpc,
                 self.blocknet_datadir_path,
-            ) = XBridgeManager._rpc_config
+            ) = rpc_config
         except RPCConfigError as e:
             self.logger.critical(f"Failed to initialize RPC: {e!s}")
             raise
@@ -147,12 +141,15 @@ class XBridgeManager:
                         ),
                     )
                 except Exception as e:
-                    from definitions.errors import convert_exception, OperationalError
+                    from definitions.errors import convert_exception
 
                     converted = convert_exception(e)
                     if hasattr(converted, "context"):
-                        converted.context["xbridge_method"] = method
-                        converted.context["xbridge_params"] = params
+                        converted.context = {
+                            **converted.context,
+                            "xbridge_method": method,
+                            "xbridge_params": params,
+                        }
                     raise converted from e
             finally:
                 with XBridgeManager._rpc_counter_lock:

@@ -97,6 +97,12 @@ class ErrorHandlingVisitor(ast.NodeVisitor):
                 if keyword.arg == "context":
                     has_context = True
                     break
+            if not has_context and len(node.exc.args) > 1:
+                second_arg = node.exc.args[1]
+                if isinstance(second_arg, ast.Dict):
+                    has_context = True
+                elif isinstance(second_arg, ast.Call) and hasattr(second_arg.func, "id") and second_arg.func.id == "dict":
+                    has_context = True
 
             if not has_context:
                 self.violations.append(
@@ -228,7 +234,7 @@ def test_operational_error_notification(error_handler):
         error_handler.handle(OperationalError("Config error"), {"file": "config.yaml"})
         mock_notify.assert_called_once_with(
             level="warning",
-            message="Operational Error: OperationalError: Config error | Context: {}",
+            message="Operational Error: OperationalError: Config error",
             details={
                 "file": "config.yaml",
                 "error_type": "OperationalError",
@@ -277,15 +283,12 @@ def test_rpc_error_propagates_to_shutdown():
             with pytest.raises(RPCConfigError):
                 run_async_main(mock_config)
 
-            # Verify RPC port details in context
-            assert "/bad/path" in mock_critical.call_args[0][0]  # From error context
-            assert "2233" in mock_critical.call_args[0][0]  # CCXT proxy port
-            assert "44552" in mock_critical.call_args[0][0]  # Default RPC port
+            # Verify RPC error is logged and re-raised
+            assert "RPCConfigError" in mock_critical.call_args[0][0]
+            assert "Invalid RPC config" in mock_critical.call_args[0][0]
 
             # Unified shutdown only called for SystemExit/KeyboardInterrupt
             # RPC errors are handled separately in finally block
-
-            assert "RPCConfigError" in mock_critical.call_args[0][0]
 
 
 # Error classification tests

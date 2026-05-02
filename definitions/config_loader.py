@@ -288,8 +288,8 @@ class ConfigLoader:
         if not api_keys_data.get("api_info"):
             self.logger.warning(
                 "No API keys found in environment variables. "
-                "Set XBRIDGE_EXCHANGE_<EXCHANGE>_API_KEY and "
-                "XBRIDGE_EXCHANGE_<EXCHANGE>_API_SECRET for each exchange."
+                "Set CCXT_EXCHANGE_<EXCHANGE>_API_KEY and "
+                "CCXT_EXCHANGE_<EXCHANGE>_API_SECRET for each exchange."
             )
 
         if self.validation_enabled and api_keys_data.get("api_info"):

@@ -2,7 +2,7 @@ import os
 import sys
 import tempfile
 from typing import TYPE_CHECKING
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -163,7 +163,7 @@ class AutonomousMakerTester:
                 "check_interval": 15,
             }
 
-            with self._patch_dependencies(temp_dir) as mocks:
+            with self._patch_dependencies(temp_dir):
                 self._initialize_strategy(pair_config, temp_dir)
 
                 self.strategy.inventory_manager.update_balance_a(5.0)
@@ -205,7 +205,6 @@ class AutonomousMakerTester:
 
             initial_balance_a = self.strategy.inventory_manager.initial_balance_a
             initial_balance_b = self.strategy.inventory_manager.initial_balance_b
-            initial_mid_price = self.strategy.mid_price
 
             self.strategy._process_execution(
                 side="sell",
@@ -407,7 +406,7 @@ def mock_strategy():
     """Fixture to create a mock strategy instance for testing."""
     with (
         patch(
-            "definitions.xbridge_manager.detect_rpc",
+            "definitions.config_manager.detect_rpc",
             return_value=("user", 1234, "pass", "/tmp"),
         ),
         patch("definitions.xbridge_manager.is_port_open", return_value=True),
