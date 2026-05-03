@@ -1,12 +1,10 @@
 from definitions.errors import ConfigurationError
-from strategies.autonomous_maker_strategy import AutonomousMakerStrategy
 from strategies.basicseller_strategy import BasicSellerStrategy
 from strategies.pingpong_strategy import PingPongStrategy
 
 STRATEGY_MAP = {
     "pingpong": PingPongStrategy,
     "basic_seller": BasicSellerStrategy,
-    "autonomous_maker": AutonomousMakerStrategy,
 }
 
 
