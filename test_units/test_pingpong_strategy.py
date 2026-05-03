@@ -13,6 +13,8 @@ if TYPE_CHECKING:
 
 from contextlib import contextmanager
 
+from definitions.order_status_processor import OrderStatusProcessor
+
 
 class PingPongStrategyTester:
     """
@@ -89,6 +91,19 @@ class PingPongStrategyTester:
         self.config_manager.tokens["BTC"].cex.usd_price = 100000.0
         self.pair.t1.cex.cex_price = self.pair.t1.cex.usd_price / 100000.0
         self.pair.t2.cex.cex_price = self.pair.t2.cex.usd_price / 100000.0
+
+    async def _process_status(self, disabled_coins=None, display=False):
+        """Helper to process order status using OrderStatusProcessor."""
+        from asyncio import Event
+
+        processor = OrderStatusProcessor(
+            self.pair.config_manager,
+            self.pair.xbridge_manager,
+            self.pair.error_handler,
+            self.strategy,
+            Event(),
+        )
+        await processor.process(self.pair.dex, disabled_coins, display)
 
     async def _test_initial_sell_order_creation(self):
         """
@@ -203,7 +218,7 @@ class PingPongStrategyTester:
 
             # Act: Price drops significantly (tolerance is 0.02, or 2%)
             self._set_mock_cex_price(0.2)  # >2% drop from 0.3
-            await self.pair.dex.status_check()
+            await self._process_status()
 
             # Assert
             mocks["cancel_order"].assert_called_once_with("mock_order_id_123")
@@ -240,7 +255,7 @@ class PingPongStrategyTester:
 
             # Act: Price moves slightly, but within the 2% tolerance
             self._set_mock_cex_price(0.305)
-            await self.pair.dex.status_check()
+            await self._process_status()
 
             # Assert
             mocks["cancel_order"].assert_not_called()
@@ -270,7 +285,7 @@ class PingPongStrategyTester:
                 "id": "mock_order_id_123",
                 "status": "finished",
             }
-            await self.pair.dex.status_check()
+            await self._process_status()
 
             # Assert
             mocks["save_yaml"].assert_called_once()  # History was written
@@ -308,7 +323,7 @@ class PingPongStrategyTester:
                 "id": "mock_order_id_123",
                 "status": "expired",
             }
-            await self.pair.dex.status_check()
+            await self._process_status()
 
             # Assert:
             # 1. The bot should not have written a new history file, as the trade didn't finish.
@@ -438,7 +453,7 @@ class PingPongStrategyTester:
                 "id": "mock_order_id_123",
                 "status": "offline",
             }
-            await self.pair.dex.status_check()
+            await self._process_status()
 
             # Assert
             assert self.pair.dex.disabled is True, (
@@ -576,16 +591,20 @@ class PingPongStrategyTester:
 @pytest.fixture(scope="session")
 def mock_strategy():
     """Fixture to create a mock strategy instance for testing."""
-    from unittest.mock import patch
-
-    with patch(
+    with (
+        patch(
             "definitions.config_manager.detect_rpc",
             return_value=("user", 1234, "pass", "/tmp"),
-    ), patch("definitions.xbridge_manager.is_port_open", return_value=True), patch("definitions.ccxt_manager.CCXTManager"), patch("asyncio.run"), patch("definitions.xbridge_manager.rpc_call"):
+        ),
+        patch("definitions.xbridge_manager.is_port_open", return_value=True),
+        patch("definitions.ccxt_manager.CCXTManager"),
+        patch("asyncio.run"),
+    ):
         from definitions.config_manager import ConfigManager
 
         config_manager = ConfigManager(strategy="pingpong")
         config_manager.initialize()
+        config_manager.xbridge_manager._rpc_call = AsyncMock(return_value={"result": {}})
         return config_manager.strategy_instance
 
 

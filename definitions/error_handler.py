@@ -27,9 +27,9 @@ class ErrorHandler:
     _is_testing: bool
 
     def __init__(
-            self,
-            config_manager: Any | None = None,
-            logger: logging.Logger | None = None,
+        self,
+        config_manager: Any | None = None,
+        logger: logging.Logger | None = None,
     ) -> None:
         self.config_manager = config_manager
         self.logger = logger or logging.getLogger("error_handler")
@@ -39,7 +39,7 @@ class ErrorHandler:
         self._is_testing = False
 
     async def _async_notify_user(
-            self, level: str, message: str, details: dict[str, Any]
+        self, level: str, message: str, details: dict[str, Any]
     ) -> None:
         """Async version of notify_user"""
         if self.config_manager:
@@ -58,7 +58,7 @@ class ErrorHandler:
                 self.logger.warning(f"Notification failed: {e}")
 
     def _notify_user_sync(
-            self, level: str, message: str, details: dict[str, Any]
+        self, level: str, message: str, details: dict[str, Any]
     ) -> None:
         """Sync version of notify_user with fallback and error logging."""
         if self.config_manager:
@@ -71,7 +71,7 @@ class ErrorHandler:
                 self.logger.warning(f"Notification failed: {e}")
 
     def _get_full_context(
-            self, error: Exception, context: dict[str, Any] | None = None
+        self, error: Exception, context: dict[str, Any] | None = None
     ) -> dict[str, Any]:
         """Merges error context with provided context"""
         # Start with error's own context if present
@@ -105,9 +105,7 @@ class ErrorHandler:
         # as it wraps unknown exceptions. But as a safeguard:
         return "critical"
 
-    def handle(
-            self, error: Exception, context: dict[str, Any] | None = None
-    ) -> bool:
+    def handle(self, error: Exception, context: dict[str, Any] | None = None) -> bool:
         """Main sync error handler. Converts non-AppErrors and delegates."""
         app_error = convert_exception(error)
         full_context = self._get_full_context(app_error, context)
@@ -121,7 +119,7 @@ class ErrorHandler:
         return handler_map[classification](app_error, full_context)
 
     async def handle_async(
-            self, error: Exception, context: dict[str, Any] | None = None
+        self, error: Exception, context: dict[str, Any] | None = None
     ) -> bool:
         """Main async error handler. Converts non-AppErrors and delegates."""
         app_error = convert_exception(error)
@@ -164,12 +162,10 @@ class ErrorHandler:
         return True  # Signal to retry operation
 
     def _handle_operational_logic(
-            self, error: "AppError", context: dict[str, Any]
+        self, error: "AppError", context: dict[str, Any]
     ) -> dict[str, str]:
         """Shared logic for handling operational errors."""
-        self.logger.error(
-            f"Operational error: {error}", exc_info=True
-        )
+        self.logger.error(f"Operational error: {error}", exc_info=True)
         return {
             "level": "warning",
             "message": f"Operational Error: {error}",
@@ -183,12 +179,10 @@ class ErrorHandler:
         return True  # Continue operation
 
     def _handle_critical_logic(
-            self, error: "AppError", context: dict[str, Any]
+        self, error: "AppError", context: dict[str, Any]
     ) -> dict[str, str]:
         """Shared logic for handling critical errors."""
-        self.logger.critical(
-            f"Critical error: {error}", exc_info=True
-        )
+        self.logger.critical(f"Critical error: {error}", exc_info=True)
         return {
             "level": "critical",
             "message": f"Critical Error: {error}",
@@ -199,14 +193,20 @@ class ErrorHandler:
         """Handle critical errors with shutdown procedure"""
         notification_details = self._handle_critical_logic(error, context)
         self._notify_user_sync(**notification_details)
-        # Initiate shutdown sequence
+        # Per-pair errors should not shut down the entire bot
+        if "pair" in context:
+            self.logger.warning(
+                f"Per-pair critical error for {context['pair']}: disabling pair"
+            )
+            return False  # Abort operation, no shutdown
+        # Initiate shutdown sequence (global errors only)
         if self.config_manager and self.config_manager.controller:
             self.logger.info(f"Signaling shutdown due to critical error: {error}")
             self.config_manager.controller.shutdown_event.set()
         return False  # Abort operation
 
     async def _handle_transient_async(
-            self, error: "AppError", context: dict[str, Any]
+        self, error: "AppError", context: dict[str, Any]
     ) -> bool:
         """Async version of handling transient errors with retry logic"""
         # For testing purposes, simulate retry logic
@@ -236,7 +236,7 @@ class ErrorHandler:
         return True  # Signal to retry operation
 
     async def _handle_operational_async(
-            self, error: "AppError", context: dict[str, Any]
+        self, error: "AppError", context: dict[str, Any]
     ) -> bool:
         """Async version of handling operational errors with logging and continuation"""
         notification_details = self._handle_operational_logic(error, context)
@@ -245,7 +245,7 @@ class ErrorHandler:
         return True  # Continue operation
 
     async def _handle_critical_async(
-            self, error: "AppError", context: dict[str, Any]
+        self, error: "AppError", context: dict[str, Any]
     ) -> bool:
         """Handle critical errors with shutdown procedure - async version"""
         notification_details = self._handle_critical_logic(error, context)
@@ -254,7 +254,13 @@ class ErrorHandler:
                 await self._async_notify_user(**notification_details)
             except Exception as e:
                 self.logger.warning(f"Async notification failed: {e}")
-        # Initiate shutdown sequence
+        # Per-pair errors should not shut down the entire bot
+        if "pair" in context:
+            self.logger.warning(
+                f"Per-pair critical error for {context['pair']}: disabling pair"
+            )
+            return False  # Abort operation, no shutdown
+        # Initiate shutdown sequence (global errors only)
         if self.config_manager and self.config_manager.controller:
             self.logger.info(f"Signaling shutdown due to critical error: {error}")
             self.config_manager.controller.shutdown_event.set()

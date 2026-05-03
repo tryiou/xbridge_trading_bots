@@ -495,8 +495,8 @@ max_concurrent_tasks: 5
                 from definitions.config_manager import ConfigManager
 
                 config_manager = ConfigManager("pingpong")
-                self.assertTrue(config_manager.validation_enabled)
-                self.assertIsNotNone(config_manager.validation_manager)
+                self.assertTrue(config_manager.config_loader.validation_enabled)
+                self.assertIsNotNone(config_manager.config_loader.validation_manager)
             except Exception:
                 # Expected since we're mocking many dependencies - that's fine for this test
                 pass

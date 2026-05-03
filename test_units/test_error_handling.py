@@ -99,9 +99,7 @@ class ErrorHandlingVisitor(ast.NodeVisitor):
                     break
             if not has_context and len(node.exc.args) > 1:
                 second_arg = node.exc.args[1]
-                if isinstance(second_arg, ast.Dict):
-                    has_context = True
-                elif isinstance(second_arg, ast.Call) and hasattr(second_arg.func, "id") and second_arg.func.id == "dict":
+                if isinstance(second_arg, ast.Dict) or (isinstance(second_arg, ast.Call) and hasattr(second_arg.func, "id") and second_arg.func.id == "dict"):
                     has_context = True
 
             if not has_context:
@@ -256,9 +254,20 @@ def test_critical_error_shutdown(error_handler):
     error_handler.config_manager.controller.shutdown_event.set.assert_called_once()
 
 
+def test_critical_error_per_pair_no_shutdown(error_handler):
+    """Test per-pair critical error does NOT shut down the bot"""
+    error = CriticalError("Bad address")
+    context = {"pair": "BLOCK_PIVX_1", "stage": "order_creation"}
+    result = error_handler.handle(error, context)
+
+    assert result is False
+    # Verify shutdown was NOT triggered for per-pair error
+    error_handler.config_manager.controller.shutdown_event.set.assert_not_called()
+
+
 def test_rpc_error_propagates_to_shutdown():
     """Test RPCConfigError propagates to clean shutdown"""
-    from definitions.starter import run_async_main
+    from definitions.run import run_async_main
 
     mock_config = MagicMock()
 
@@ -266,8 +275,8 @@ def test_rpc_error_propagates_to_shutdown():
         patch(
             "definitions.shutdown.ShutdownCoordinator.unified_shutdown"
         ) as _mock_shutdown,
-        patch("definitions.starter.MainController") as MockController,
-        patch("definitions.ccxt_manager.CCXTManager._cleanup_proxy") as _mock_cleanup,
+        patch("definitions.run.MainController") as MockController,
+        patch("definitions.proxy_manager.ProxyManager.unregister") as _mock_cleanup,
     ):
         # Simulate RPCConfigError during initialization with port details
         MockController.side_effect = RPCConfigError(
@@ -278,6 +287,8 @@ def test_rpc_error_propagates_to_shutdown():
                 "blocknet_port": 44552,  # Default RPC port
             },
         )
+
+        mock_config.error_handler = AsyncMock()
 
         with patch.object(mock_config.general_log, "critical") as mock_critical:
             with pytest.raises(RPCConfigError):
@@ -534,7 +545,11 @@ def test_error_scenarios(error_cls, context, action, error_handler):
             assert result is True
         else:  # Critical errors
             if action == "shutdown":
-                error_handler.config_manager.controller.shutdown_event.set.assert_called()
+                # Per-pair critical errors should NOT trigger shutdown
+                if "pair" not in context:
+                    error_handler.config_manager.controller.shutdown_event.set.assert_called()
+                else:
+                    error_handler.config_manager.controller.shutdown_event.set.assert_not_called()
             assert result is False
 
 

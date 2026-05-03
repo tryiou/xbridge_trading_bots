@@ -2,7 +2,7 @@ import argparse
 
 from definitions.cli_runner import add_custom_help, run_cli
 from definitions.config_manager import ConfigManager
-from definitions.starter import run_async_main  # Import run_async_main
+from definitions.run import run_async_main  # Import run_async_main
 
 
 def start():

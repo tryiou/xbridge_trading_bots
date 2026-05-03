@@ -229,7 +229,7 @@ class BacktestEngine:
         logger.debug("Setting up strategy with real ConfigManager")
 
         from definitions.config_manager import ConfigManager
-        from definitions.starter import MainController
+        from definitions.main_controller import MainController
         from definitions.xbridge_manager import XBridgeManager
 
         # Inject fake RPC config BEFORE creating ConfigManager
@@ -251,7 +251,7 @@ class BacktestEngine:
         self.config_manager.config_loader.root_dir = self.sandbox_dir
 
         # Disable validation to skip template check
-        self.config_manager.validation_enabled = False
+        self.config_manager.config_loader.validation_enabled = False
 
         # Override pair config BEFORE initialization so strategy uses our backtest values
         self.config_manager.config_autonomous_maker.pair_configs = [self.pair_config]

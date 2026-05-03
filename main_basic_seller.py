@@ -3,7 +3,7 @@ import logging
 
 from definitions.cli_runner import run_cli
 from definitions.config_manager import ConfigManager
-from definitions.starter import run_async_main
+from definitions.run import run_async_main
 
 
 class ValidatePercentArg(argparse.Action):

@@ -373,13 +373,14 @@ class WebServer:
 class AsyncPriceService:
     """Main service class that orchestrates everything."""
 
-    def __init__(self, config_path: str = "./config/config_ccxt.yaml"):
+    def __init__(self, config_path: str = "./config/config_ccxt.yaml", port: int = 2233):
         self.config = YamlToObject(config_path)
         self.session = None
         self.fetcher = None
         self.server = None
         self.stop_event = asyncio.Event()
         self._loop = None
+        self._port = port
 
     def stop(self):
         """Thread-safe method to stop the service."""
@@ -395,7 +396,7 @@ class AsyncPriceService:
         self.session = aiohttp.ClientSession()
         self.fetcher = PriceFetcher(self.config, self.session)
         await self.fetcher.initialize()
-        self.server = WebServer(self.fetcher, "localhost", 2233)
+        self.server = WebServer(self.fetcher, "localhost", self._port)
 
     def _setup_signal_handlers(self):
         """Setup signal handlers for graceful shutdown."""

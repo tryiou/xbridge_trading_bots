@@ -5,6 +5,8 @@ import math
 import time
 from typing import TYPE_CHECKING, Any
 
+from definitions.constants import IGNORABLE_XBRIDGE_ERROR_CODES
+from definitions.price_update_handler import PriceUpdateHandler
 from definitions.yaml_utils import load_yaml, save_yaml
 
 if TYPE_CHECKING:
@@ -82,6 +84,7 @@ class DexPair:
         self.order_history: dict[str, Any] | None = None
         self.current_order: dict[str, Any] | None = None
         self.disabled = False
+        self.disable_reason: str | None = None
         self.variation: float | list | None = None
         self.partial_percent = partial_percent
         self.orderbook: dict[str, Any] | None = None
@@ -393,11 +396,13 @@ class DexPair:
             retry_or_continue = await self.pair.error_handler.handle_async(e, context)
             if not retry_or_continue:
                 self.disabled = True
+                self.disable_reason = str(e)
 
     async def _handle_order_error(self):
         original_error = self.order
-        if original_error.get("code") not in {1019, 1018, 1026, 1032}:
+        if original_error.get("code") not in IGNORABLE_XBRIDGE_ERROR_CODES:
             self.disabled = True
+            self.disable_reason = str(original_error)
 
         strategy_handler = getattr(
             self.pair.config_manager.strategy_instance,
@@ -485,71 +490,6 @@ class DexPair:
                 self, disabled_coins
             )
 
-    async def status_check(
-        self, disabled_coins=None, display=False, partial_percent=None
-    ):
-        await self.pair.cex.update_pricing(display)
-        if self.disabled:
-            self.pair.logger.info(
-                "Pair %s Disabled, error: %s", self.symbol, self.order
-            )
-            return
-
-        status = None
-        if self.order and self.order.get("id"):
-            status = await self.check_order_status()
-        elif not self.disabled and self.current_order:
-            self.init_virtual_order(disabled_coins, display=False)
-            if self.order and "id" in self.order:
-                status = await self.check_order_status()
-
-        if status == self.STATUS_OPEN:
-            if disabled_coins and (
-                self.t1.symbol in disabled_coins or self.t2.symbol in disabled_coins
-            ):
-                if self.order:
-                    self.pair.logger.info(
-                        "Disabled pairs due to cc_height_check %s", self.symbol
-                    )
-                    await self.cancel_myorder_async()
-            else:
-                await self.check_price_variation(disabled_coins, display=display)
-        elif status == self.STATUS_FINISHED:
-            self.pair.logger.info(
-                "order FINISHED: {'name': '%s', 'pair': '%s', 'side': '%s', 'orderid': '%s'}",
-                self.pair.cfg["name"],
-                self.symbol,
-                self.current_order["side"],
-                self.order["id"],
-            )
-            self.order_history = self.current_order
-            self.write_last_order_history()
-            if not self._is_shutting_down():
-                taker_sym = self.order.get("taker")
-                if taker_sym == self.t1.symbol:
-                    await self.t1.dex.request_addr()
-                elif taker_sym == self.t2.symbol:
-                    await self.t2.dex.request_addr()
-            await self.pair.config_manager.strategy_instance.handle_finished_order(
-                self, disabled_coins
-            )
-        elif status == self.STATUS_OTHERS:
-            self.check_price_in_range(display=display)
-        elif status == self.STATUS_ERROR_SWAP:
-            await self.pair.config_manager.strategy_instance.handle_error_swap_status(
-                self
-            )
-        elif status is not None and not self.disabled:
-            self.pair.logger.info(
-                "Order %s is %s. Re-initializing order for %s.",
-                self.order.get("id"),
-                self.order.get("status"),
-                self.symbol,
-            )
-            self.order = None
-            self.init_virtual_order(disabled_coins, display=False)
-            await self.create_order()
-
     def _is_shutting_down(self) -> bool:
         try:
             return bool(
@@ -570,10 +510,15 @@ class CexPair:
         self.cex_orderbook_timer: float | None = None
 
     async def update_pricing(self, display=False):
+        if not hasattr(self.pair, '_price_update_handler'):
+            self.pair._price_update_handler = PriceUpdateHandler(
+                self.pair.ccxt_manager, self.pair.config_manager
+            )
+        price_handler = self.pair._price_update_handler
         if self.t1.cex.cex_price is None:
-            await self.t1.cex.update_price()
+            await price_handler.update(self.t1.cex)
         if self.t2.cex.cex_price is None:
-            await self.t2.cex.update_price()
+            await price_handler.update(self.t2.cex)
         if self.t1.cex.cex_price is not None and self.t2.cex.cex_price:
             self.price = self.t1.cex.cex_price / self.t2.cex.cex_price
         else:
@@ -598,7 +543,7 @@ class CexPair:
             try:
                 self.cex_orderbook = (
                     await self.pair.ccxt_manager.ccxt_call_fetch_order_book(
-                        self.pair.config_manager.my_ccxt, self.symbol, limit
+                        self.pair.config_manager.ccxt_manager.my_ccxt, self.symbol, limit
                     )
                 )
                 self.cex_orderbook_timer = time.time()

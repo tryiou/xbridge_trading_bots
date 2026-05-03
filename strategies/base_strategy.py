@@ -3,7 +3,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable
 from typing import Any
 
-from definitions.starter import run_async_main
+from definitions.run import run_async_main
 
 
 class BaseStrategy(ABC):

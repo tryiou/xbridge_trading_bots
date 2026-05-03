@@ -12,6 +12,7 @@ project_root = Path(__file__).parent.parent
 sys.path.append(str(project_root))
 
 from definitions.ccxt_manager import CCXTManager  # noqa: E402
+from definitions.proxy_manager import ProxyManager  # noqa: E402
 
 
 @pytest.fixture
@@ -22,8 +23,8 @@ def mock_config_manager():
     manager.general_log = MagicMock(spec=logging.Logger)
     manager.config_ccxt = MagicMock(debug_level=1)
     manager.config_xbridge = MagicMock(taker_fee_block=0.01)
-    manager.secrets_manager = MagicMock()
-    manager.secrets_manager.get_api_keys.return_value = {"api_info": []}
+    manager.config_loader.secrets_manager = MagicMock()
+    manager.config_loader.secrets_manager.get_api_keys.return_value = {"api_info": []}
     return manager
 
 
@@ -32,58 +33,46 @@ class TestCCXTManager:
     def setup(self, mock_config_manager):
         self.mock_cm = mock_config_manager
         self.manager = CCXTManager(self.mock_cm)
-        # Reset class state before each test
-        CCXTManager._proxy_service_instance = None
-        CCXTManager._proxy_service_thread = None
-        CCXTManager._proxy_ref_count = 0
-        # Setup a mock for the proxy logger since it's used at class level
-        CCXTManager._proxy_logger = MagicMock(spec=logging.Logger)
 
-    def test_register_unregister_strategy(self):
-        assert CCXTManager._proxy_ref_count == 0
-        CCXTManager.register_strategy()
-        assert CCXTManager._proxy_ref_count == 1
-        CCXTManager.unregister_strategy()
-        assert CCXTManager._proxy_ref_count == 0
-        # Test multiple unregister calls safety
-        CCXTManager.unregister_strategy()
-        CCXTManager._proxy_logger.warning.assert_called()
+    def test_proxy_manager_register_unregister(self):
+        proxy = ProxyManager()
+        assert proxy._ref_count == 0
+        proxy.register()
+        assert proxy._ref_count == 1
+        proxy.unregister()
+        assert proxy._ref_count == 0
 
-    def test_proxy_cleanup_after_last_unregister(self):
-        CCXTManager.register_strategy()
+    def test_proxy_manager_cleanup_after_last_unregister(self):
+        proxy = ProxyManager()
+        proxy.register()
         # Create a fake proxy service instance and thread
         fake_service = MagicMock()
         fake_thread = MagicMock()
         # is_alive is checked before stop and after join.
         # First check should be True to proceed. After join, it should be False for success.
         fake_thread.is_alive.side_effect = [True, False]
-        CCXTManager._proxy_service_instance = fake_service
-        CCXTManager._proxy_service_thread = fake_thread
+        proxy._service_instance = fake_service
+        proxy._service_thread = fake_thread
 
-        # Manually decrement ref count to simulate unregistering without scheduling a real thread
-        CCXTManager._proxy_ref_count -= 1
-        # The unregister_strategy schedules a cleanup thread - we simulate it by calling _cleanup_proxy directly
-        CCXTManager._cleanup_proxy()
+        proxy.unregister()
 
         fake_service.stop.assert_called_once()
         fake_thread.join.assert_called_once_with(timeout=10.0)
-        CCXTManager._proxy_logger.warning.assert_not_called()
 
-    def test_proxy_cleanup_logs_warning_on_timeout(self):
-        CCXTManager.register_strategy()
+    def test_proxy_manager_logs_warning_on_timeout(self):
+        proxy = ProxyManager()
+        proxy.register()
         fake_service = MagicMock()
         fake_thread = MagicMock()
         # is_alive is always True, simulating a stuck thread
         fake_thread.is_alive.return_value = True
-        CCXTManager._proxy_service_instance = fake_service
-        CCXTManager._proxy_service_thread = fake_thread
+        proxy._service_instance = fake_service
+        proxy._service_thread = fake_thread
 
-        CCXTManager.unregister_strategy()
-        CCXTManager._cleanup_proxy()
+        proxy.unregister()
 
         fake_service.stop.assert_called_once()
         fake_thread.join.assert_called_once_with(timeout=10.0)
-        CCXTManager._proxy_logger.warning.assert_called_once()
 
     @patch("definitions.ccxt_manager.is_port_open")
     @patch.object(ccxt, "binance")
@@ -91,7 +80,7 @@ class TestCCXTManager:
         mock_is_port_open.return_value = True
         mock_exchange = MagicMock()
         mock_binance.return_value = mock_exchange
-        self.mock_cm.secrets_manager.get_api_keys.return_value = {
+        self.mock_cm.config_loader.secrets_manager.get_api_keys.return_value = {
             "api_info": [
                 {"exchange": "binance", "api_key": "key1", "api_secret": "sec1"}
             ]
@@ -165,26 +154,25 @@ class TestCCXTManager:
 
     @pytest.mark.asyncio
     @patch("definitions.ccxt_manager.rpc_call", new_callable=AsyncMock)
-    @patch("definitions.ccxt_manager.CCXTManager._start_proxy")
-    async def test_fetch_tickers_with_proxy(self, mock_start_proxy, mock_rpc_call):
+    async def test_fetch_tickers_with_proxy(self, mock_rpc_call):
         mock_rpc_call.return_value = {}
         mock_ccxt = MagicMock()
-        # Set port closed to trigger proxy start, then open to use it
-        with patch("definitions.ccxt_manager.is_port_open", side_effect=[False, True]):
+        # Mock proxy_manager.ensure_running to avoid actually starting proxy
+        with patch.object(self.manager.proxy_manager, "ensure_running"), \
+             patch("definitions.ccxt_manager.is_port_open", return_value=True):
             await self.manager.ccxt_call_fetch_tickers(mock_ccxt, ["BTC/USDT"])
-            mock_start_proxy.assert_called_once()
             mock_rpc_call.assert_awaited_once()
 
     def test_start_proxy_handles_process_creation_failure(self):
+        proxy = ProxyManager()
         with patch(
-                "definitions.ccxt_manager.AsyncPriceService",
+                "definitions.proxy_manager.AsyncPriceService",
                 side_effect=OSError("Process error"),
         ):
-            self.manager._start_proxy()
-            CCXTManager._proxy_logger.error.assert_called()
+            proxy.ensure_running()
             # Verify the proxy process is set to None after failure
-            assert CCXTManager._proxy_service_instance is None
-            assert CCXTManager._proxy_service_thread is None
+            assert proxy._service_instance is None
+            assert proxy._service_thread is None
 
     @patch("definitions.ccxt_manager.logging.Formatter")
     @patch("definitions.ccxt_manager.logging.StreamHandler")

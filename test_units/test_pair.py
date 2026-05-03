@@ -10,6 +10,7 @@ import yaml
 # Add parent directory to path for module imports
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
+from definitions.order_status_processor import OrderStatusProcessor
 from definitions.pair import CexPair, DexPair, Pair
 from definitions.token import CexToken, DexToken, Token
 
@@ -19,9 +20,12 @@ def mock_pair():
     """Fixture to create a mock Pair instance for DexPair testing."""
     token1 = MagicMock(spec=Token)
     token1.symbol = "T1"
+    token1.logger = MagicMock()
     token1.cex = MagicMock(spec=CexToken)
     token1.cex.update_price = AsyncMock()
     token1.cex.update_block_ticker = AsyncMock()
+    token1.cex.cex_price_timer = None
+    token1.cex.token = token1  # Point back to parent token
     token1.dex = MagicMock(spec=DexToken)
     token1.dex.request_addr = AsyncMock()
     token1.dex.read_address = AsyncMock()
@@ -31,9 +35,12 @@ def mock_pair():
 
     token2 = MagicMock(spec=Token)
     token2.symbol = "T2"
+    token2.logger = MagicMock()
     token2.cex = MagicMock(spec=CexToken)
     token2.cex.update_price = AsyncMock()
     token2.cex.update_block_ticker = AsyncMock()
+    token2.cex.cex_price_timer = None
+    token2.cex.token = token2  # Point back to parent token
     token2.dex = MagicMock(spec=DexToken)
     token2.dex.request_addr = AsyncMock()
     token2.dex.read_address = AsyncMock()
@@ -50,6 +57,7 @@ def mock_pair():
     config_manager.error_handler = MagicMock()
     config_manager.error_handler.handle_async = AsyncMock()
     config_manager.controller = None
+    config_manager.shutdown_event = asyncio.Event()
 
     pair = MagicMock(spec=Pair)
     pair.t1 = token1
@@ -315,7 +323,14 @@ async def test_update_taker_address_mismatch(dex_pair):
 
     # We test the logic previously found in _update_taker_address inline in status_check
     # By ensuring that if status is FINISHED and taker doesn't match, we don't call it.
-    await dex_pair.status_check(disabled_coins=None, display=False)
+    processor = OrderStatusProcessor(
+        dex_pair.pair.config_manager,
+        dex_pair.pair.xbridge_manager,
+        dex_pair.pair.error_handler,
+        dex_pair.pair.config_manager.strategy_instance,
+        dex_pair.pair.config_manager.shutdown_event,
+    )
+    await processor.process(dex_pair, disabled_coins=None, display=False)
     dex_pair.t1.dex.request_addr.assert_not_awaited()
     dex_pair.t2.dex.request_addr.assert_not_awaited()
 
@@ -358,7 +373,14 @@ async def test_dex_at_order_finished(dex_pair):
         # Execute (the logic is now directly in status_check under FINISHED status)
         # Mock check_order_status to return FINISHED
         dex_pair.check_order_status = AsyncMock(return_value=dex_pair.STATUS_FINISHED)
-        await dex_pair.status_check(disabled_coins=[])
+        processor = OrderStatusProcessor(
+            dex_pair.pair.config_manager,
+            dex_pair.pair.xbridge_manager,
+            dex_pair.pair.error_handler,
+            dex_pair.pair.config_manager.strategy_instance,
+            dex_pair.pair.config_manager.shutdown_event,
+        )
+        await processor.process(dex_pair, disabled_coins=[])
 
         # Verify async calls were awaited
         addr_mock.assert_awaited_once()
@@ -592,7 +614,14 @@ async def test_status_open_flow(dex_pair):
     dex_pair.check_price_variation = mock_check_price_var
 
     # Execute status check
-    await dex_pair.status_check(disabled_coins=["T3"], display=True)
+    processor = OrderStatusProcessor(
+        dex_pair.pair.config_manager,
+        dex_pair.pair.xbridge_manager,
+        dex_pair.pair.error_handler,
+        dex_pair.pair.config_manager.strategy_instance,
+        dex_pair.pair.config_manager.shutdown_event,
+    )
+    await processor.process(dex_pair, disabled_coins=["T3"], display=True)
 
     # Verify
     mock_check_status.assert_awaited_once_with()
@@ -611,7 +640,14 @@ async def test_handle_status_open_disabled_coins(dex_pair):
     dex_pair.cancel_myorder_async = AsyncMock()
 
     # Execute
-    await dex_pair.status_check(disabled_coins, display=True)
+    processor = OrderStatusProcessor(
+        dex_pair.pair.config_manager,
+        dex_pair.pair.xbridge_manager,
+        dex_pair.pair.error_handler,
+        dex_pair.pair.config_manager.strategy_instance,
+        dex_pair.pair.config_manager.shutdown_event,
+    )
+    await processor.process(dex_pair, disabled_coins, display=True)
 
     # Verify cancellation occurred
     dex_pair.cancel_myorder_async.assert_awaited_once()
@@ -668,7 +704,14 @@ async def test_complex_status_workflow(dex_pair):
     dex_pair.check_price_in_range = mock_cvar
 
     # Test
-    await dex_pair.status_check(disabled_coins=None, display=False)
+    processor = OrderStatusProcessor(
+        dex_pair.pair.config_manager,
+        dex_pair.pair.xbridge_manager,
+        dex_pair.pair.error_handler,
+        dex_pair.pair.config_manager.strategy_instance,
+        dex_pair.pair.config_manager.shutdown_event,
+    )
+    await processor.process(dex_pair, disabled_coins=None, display=False)
 
     # Verify status check and price validation
     mock_check_status.assert_called_once()
@@ -761,12 +804,22 @@ class TestCexPair:
         # Arrange
         mock_cex_pair.t1.cex.cex_price = 1.5
         mock_cex_pair.t2.cex.cex_price = None
+        # Set cex_price_timer to None to force price update
+        mock_cex_pair.t1.cex.cex_price_timer = None
+        mock_cex_pair.t2.cex.cex_price_timer = None
 
-        # Act
-        await mock_cex_pair.update_pricing()
+        # Mock PriceUpdateHandler.update to be a no-op
+        with patch("definitions.pair.PriceUpdateHandler") as mock_handler_class:
+            mock_handler_instance = MagicMock()
+            mock_handler_class.return_value = mock_handler_instance
+            mock_handler_instance.update = AsyncMock()
 
-        # Assert
-        assert mock_cex_pair.price is None
+            # Act
+            await mock_cex_pair.update_pricing()
+
+            # Assert: update should have been called for t2 (missing price)
+            mock_handler_instance.update.assert_called()
+            assert mock_cex_pair.price is None
 
     @pytest.mark.asyncio
     async def test_update_pricing_division_by_zero(self, mock_cex_pair):

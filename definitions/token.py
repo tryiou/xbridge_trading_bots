@@ -1,13 +1,11 @@
 from __future__ import annotations
 
 import logging
-import time
 from typing import TYPE_CHECKING, Any
 
 import aiohttp
 
-from definitions.constants import CCXT_PRICE_REFRESH_INTERVAL, DEFAULT_PROXY_PORT
-from definitions.errors import OperationalError
+from definitions.constants import DEFAULT_PROXY_PORT
 from definitions.rpc import is_port_open, rpc_call
 from definitions.yaml_utils import load_yaml, save_yaml
 
@@ -147,117 +145,6 @@ class CexToken:
         self.cex_price_timer: float | None = None
         self.cex_total_balance: float | None = None
         self.cex_free_balance: float | None = None
-
-    async def update_price(self, display: bool = False) -> None:
-        if (
-            self.cex_price_timer is not None
-            and time.time() - self.cex_price_timer <= CCXT_PRICE_REFRESH_INTERVAL
-        ):
-            if display:
-                self.token.logger.debug(
-                    "Token.update_ccxt_price() too fast call? %s", self.token.symbol
-                )
-            return
-
-        cex_symbol = (
-            "BTC/USDT" if self.token.symbol == "BTC" else f"{self.token.symbol}/BTC"
-        )
-        my_ccxt = (
-            getattr(self.token.config_manager, "my_ccxt", None)
-            if self.token.config_manager
-            else None
-        )
-        exchange_id = getattr(my_ccxt, "id", "default") if my_ccxt else "default"
-        lastprice_string = {"kucoin": "last", "binance": "lastPrice"}.get(
-            exchange_id, "lastTradeRate"
-        )
-
-        async def fetch_ticker_async(symbol: str) -> float | None:
-            try:
-                ticker = await self.token.ccxt_manager.ccxt_call_fetch_ticker(
-                    my_ccxt, symbol
-                )
-            except Exception as e:
-                await self.token.error_handler.handle_async(
-                    e,
-                    context={
-                        "token": self.token.symbol,
-                        "cex_symbol": symbol,
-                        "stage": "fetch_ticker",
-                    },
-                )
-                return None
-
-            if not ticker:
-                return None
-            try:
-                return float(ticker["info"][lastprice_string])
-            except (KeyError, TypeError, ValueError) as e:
-                await self.token.error_handler.handle_async(
-                    e,
-                    context={
-                        "token": self.token.symbol,
-                        "cex_symbol": symbol,
-                        "ticker_response": ticker,
-                    },
-                )
-                return None
-
-        btc_price = self.token.config_manager.tokens["BTC"].cex.usd_price
-        if btc_price is None or btc_price == 0:
-            if self.token.error_handler:
-                await self.token.error_handler.handle_async(
-                    OperationalError(
-                        f"BTC price unavailable for {self.token.symbol} price calculation"
-                    ),
-                    context={"token": self.token.symbol},
-                )
-            self.usd_price, self.cex_price = None, None
-            return
-
-        if self.token.symbol == "BTC":
-            self.cex_price, self.usd_price = 1.0, btc_price
-            self.cex_price_timer = time.time()
-            return
-
-        result = None
-        if hasattr(self.token.config_manager.config_coins, "usd_ticker_custom"):
-            custom_tickers = self.token.config_manager.config_coins.usd_ticker_custom
-            if hasattr(custom_tickers, self.token.symbol):
-                custom_price = getattr(custom_tickers, self.token.symbol)
-                try:
-                    result = float(custom_price) / btc_price
-                except (TypeError, ValueError) as e:
-                    await self.token.error_handler.handle_async(
-                        e,
-                        context={
-                            "token": self.token.symbol,
-                            "stage": "update_price",
-                            "custom_price": custom_price,
-                        },
-                    )
-
-        if result is None:
-            if hasattr(my_ccxt, "symbols") and cex_symbol in my_ccxt.symbols:
-                result = await fetch_ticker_async(cex_symbol)
-            else:
-                self.usd_price, self.cex_price = None, None
-                return
-
-        if result is not None:
-            self.cex_price = result
-            self.usd_price = result * btc_price
-            self.cex_price_timer = time.time()
-            btc_price_fmt = format(float(btc_price), ".8f").rstrip("0").rstrip(".")
-            self.token.logger.debug(
-                "fetch_ticker %s, BTC_PRICE: %s, USD_PRICE: %s, BTC_USD_PRICE: %s",
-                self.token.symbol,
-                format(float(self.cex_price), ".8f").rstrip("0").rstrip("."),
-                format(float(self.usd_price), ".8f").rstrip("0").rstrip("."),
-                btc_price_fmt,
-            )
-        else:
-            self.usd_price, self.cex_price = None, None
 
     async def update_block_ticker(self) -> float | None:
         result = None

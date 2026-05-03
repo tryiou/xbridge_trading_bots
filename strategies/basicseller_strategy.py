@@ -167,15 +167,4 @@ class BasicSellerStrategy(MakerStrategy):
         )
         dex_pair.disabled = True
 
-    async def thread_init_async_action(self, pair_instance):
-        pair_instance.dex.init_virtual_order(self.controller.disabled_coins)
-        await pair_instance.dex.create_order()
 
-    async def process_pair_async(self, pair_instance):
-        await pair_instance.dex.status_check(self.controller.disabled_coins)
-
-    def should_update_cex_prices(self) -> bool:
-        return True
-
-    def get_operation_interval(self) -> int:
-        return 15

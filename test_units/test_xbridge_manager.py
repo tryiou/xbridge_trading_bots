@@ -42,15 +42,13 @@ def xbridge_manager(mock_config_manager):
     with (
         patch("definitions.xbridge_manager.is_port_open", return_value=True),
         patch("asyncio.run"),
-        patch(
-            "definitions.xbridge_manager.rpc_call", new_callable=AsyncMock
-        ) as mock_rpc_call,
     ):
         manager = XBridgeManager(
             mock_config_manager,
             rpc_config=("test_user", 1234, "test_pass", "/tmp"),
         )
-        manager.mock_rpc_call = mock_rpc_call  # Attach mock for easy access in tests
+        manager.mock_rpc_call = AsyncMock(return_value=[{"txid": "123", "amount": 100}])
+        manager._rpc_call = manager.mock_rpc_call
         yield manager
 
 
@@ -104,7 +102,10 @@ async def test_rpc_wrapper_concurrency_and_counter(xbridge_manager):
         active_calls -= 1
         return "success"
 
-    manager.mock_rpc_call.side_effect = delayed_rpc
+    async def mock_rpc(*args, **kwargs):
+        return await delayed_rpc(*args, **kwargs)
+
+    manager._rpc_call = mock_rpc
 
     # Start more tasks than the concurrency limit
     tasks = [manager.rpc_wrapper(method, params) for _ in range(concurrency_limit * 2)]

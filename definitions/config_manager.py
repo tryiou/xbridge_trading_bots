@@ -3,6 +3,7 @@ import os
 import threading
 from typing import Any, Optional
 
+from definitions.application_context import ApplicationContext
 from definitions.ccxt_manager import CCXTManager
 from definitions.config_loader import ConfigLoader
 from definitions.config_validation import ConfigValidationManager
@@ -10,11 +11,9 @@ from definitions.detect_rpc import detect_rpc
 from definitions.error_handler import ErrorHandler
 from definitions.errors import ConfigurationError
 from definitions.logger import setup_logger, setup_logging
+from definitions.proxy_manager import ProxyManager
+from definitions.strategy_factory import create_strategy
 from definitions.xbridge_manager import XBridgeManager
-from strategies.autonomous_maker_strategy import AutonomousMakerStrategy
-from strategies.base_strategy import BaseStrategy
-from strategies.basicseller_strategy import BasicSellerStrategy
-from strategies.pingpong_strategy import PingPongStrategy
 
 
 class ConfigManager:
@@ -27,6 +26,9 @@ class ConfigManager:
         )
         self.error_handler = ErrorHandler(self)
         self.current_module = None
+        # Initialize ApplicationContext for dependency management
+        self.context = ApplicationContext()
+        self.context.set("proxy_manager", ProxyManager())
         # Initialize ConfigLoader for loading and validating configs
         self.config_loader = ConfigLoader(
             root_dir=self.ROOT_DIR,
@@ -101,7 +103,7 @@ class ConfigManager:
 
             self.xbridge_manager = XBridgeManager(self, rpc_config=XBridgeManager._rpc_config)
 
-            self.ccxt_manager = CCXTManager(self)
+            self.ccxt_manager = CCXTManager(self, proxy_manager=self.context.get("proxy_manager"))
             # Share the underlying CCXT connection object from the master to avoid
             # re-initializing it (e.g., re-loading markets).
             if master_manager.ccxt_manager:
@@ -119,12 +121,12 @@ class ConfigManager:
                 )
                 raise
             self.xbridge_manager = XBridgeManager(self, rpc_config=XBridgeManager._rpc_config)
-            self.ccxt_manager = CCXTManager(self)
+            self.ccxt_manager = CCXTManager(self, proxy_manager=self.context.get("proxy_manager"))
             # If this is the master GUI manager, initialize shared components now.
             if self.strategy == "gui":
                 self._init_ccxt()
         self.strategy_config: dict[str, Any] = {}
-        self.strategy_instance: BaseStrategy = None
+        self.strategy_instance = None
         self.tokens = {}  # Token data
         self.pairs = {}  # Pair data
         self.load_xbridge_conf_on_startup = (
@@ -133,38 +135,6 @@ class ConfigManager:
         self.disabled_coins = []  # Centralized disabled coins tracking
         self.controller = None
         self.logger.debug("ConfigManager setup complete")
-
-    @property
-    def my_ccxt(self):
-        """Provides backward compatibility for accessing the ccxt instance."""
-        if self.ccxt_manager:
-            return getattr(self.ccxt_manager, "my_ccxt", None)
-        return None
-
-    @property
-    def validation_manager(self):
-        """Proxy to config_loader's validation_manager for backward compatibility."""
-        return self.config_loader.validation_manager
-
-    @property
-    def validation_results(self):
-        """Proxy to config_loader's validation_results for backward compatibility."""
-        return self.config_loader.validation_results
-
-    @property
-    def validation_enabled(self):
-        """Proxy to config_loader's validation_enabled for backward compatibility."""
-        return self.config_loader.validation_enabled
-
-    @validation_enabled.setter
-    def validation_enabled(self, value: bool):
-        """Set validation_enabled on config_loader."""
-        self.config_loader.validation_enabled = value
-
-    @property
-    def secrets_manager(self):
-        """Proxy to config_loader's secrets_manager for backward compatibility."""
-        return self.config_loader.secrets_manager
 
     def load_configs(self):
         """Load all configuration files using ConfigLoader."""
@@ -212,11 +182,11 @@ class ConfigManager:
                 return default
             # If validation is enabled and this config was validated, check if it's valid
             if (
-                self.validation_enabled
-                and config_attr.replace("config_", "") in self.validation_results
+                self.config_loader.validation_enabled
+                and config_attr.replace("config_", "") in self.config_loader.validation_results
             ):
                 config_type = config_attr.replace("config_", "")
-                validation_result = self.validation_results.get(config_type)
+                validation_result = self.config_loader.validation_results.get(config_type)
                 if (
                     validation_result
                     and not validation_result.is_valid
@@ -243,10 +213,10 @@ class ConfigManager:
         Returns:
             True if configuration is valid or not validated
         """
-        if not self.validation_enabled:
+        if not self.config_loader.validation_enabled:
             return True
 
-        validation_result = self.validation_results.get(config_type)
+        validation_result = self.config_loader.validation_results.get(config_type)
         return validation_result.is_valid if validation_result else True
 
     def get_validation_summary(self) -> dict[str, dict[str, Any]]:
@@ -265,7 +235,7 @@ class ConfigManager:
             "xbridge",
             "api_keys",
         ]:
-            validation_result = self.validation_results.get(config_type)
+            validation_result = self.config_loader.validation_results.get(config_type)
             summary[config_type] = {
                 "validated": validation_result is not None,
                 "valid": validation_result.is_valid if validation_result else True,
@@ -285,7 +255,7 @@ class ConfigManager:
         Returns:
             True if all required configs are valid
         """
-        if not self.validation_enabled:
+        if not self.config_loader.validation_enabled:
             return True
 
         required_configs = ["ccxt", "xbridge", "api_keys"]
@@ -297,7 +267,7 @@ class ConfigManager:
             required_configs.append("basic_seller")
 
         for config_type in required_configs:
-            validation_result = self.validation_results.get(config_type)
+            validation_result = self.config_loader.validation_results.get(config_type)
             if not validation_result or not validation_result.is_valid:
                 self.logger.error(
                     f"Required configuration {config_type} validation failed"
@@ -343,16 +313,7 @@ class ConfigManager:
             self.pairs = {}  # Pair data
             self.load_xbridge_conf_on_startup = loadxbridgeconf  # Store the flag
 
-            strategy_map = {
-                "pingpong": PingPongStrategy,
-                "basic_seller": BasicSellerStrategy,
-                "autonomous_maker": AutonomousMakerStrategy,
-                "gui": None,
-            }
-            strategy_class = strategy_map.get(self.strategy)
-            if not strategy_class:
-                raise ConfigurationError(f"Unknown strategy: {self.strategy}")
-            self.strategy_instance = strategy_class(self)
+            self.strategy_instance = create_strategy(self.strategy, self)
             self.strategy_instance.initialize_strategy_specifics(**kwargs)
 
             # Delegate token and pair initialization to the strategy instance

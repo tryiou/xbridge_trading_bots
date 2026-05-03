@@ -12,6 +12,8 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 if TYPE_CHECKING:
     from strategies.basicseller_strategy import BasicSellerStrategy
 
+from definitions.order_status_processor import OrderStatusProcessor
+
 
 class BasicSellerStrategyTester:
     """
@@ -92,6 +94,19 @@ class BasicSellerStrategyTester:
         self.config_manager.tokens["BTC"].cex.usd_price = 100000.0
         self.pair.t1.cex.cex_price = t1_usd_price / 100000.0
         self.pair.t2.cex.cex_price = t2_usd_price / 100000.0
+
+    async def _process_status(self, disabled_coins=None, display=False):
+        """Helper to process order status using OrderStatusProcessor."""
+        from asyncio import Event
+
+        processor = OrderStatusProcessor(
+            self.pair.config_manager,
+            self.pair.xbridge_manager,
+            self.pair.error_handler,
+            self.strategy,
+            Event(),
+        )
+        await processor.process(self.pair.dex, disabled_coins, display)
 
     async def _test_sell_order_creation(self):
         """Tests that a SELL order is always created."""
@@ -188,7 +203,7 @@ class BasicSellerStrategyTester:
             }
 
             # Act
-            await self.pair.dex.status_check()
+            await self._process_status()
 
             # Assert
             assert self.pair.dex.disabled is True, (
@@ -215,7 +230,7 @@ class BasicSellerStrategyTester:
             self._set_mock_prices(
                 t1_usd_price=1.0, t2_usd_price=0.12
             )  # ~20% change in pair price
-            await self.pair.dex.status_check()
+            await self._process_status()
 
             # Assert
             mocks["cancel_order"].assert_called_once_with("mock_order_id_456")
@@ -266,7 +281,7 @@ class BasicSellerStrategyTester:
             }  # Maps to error
 
             # Act
-            await self.pair.dex.status_check()
+            await self._process_status()
 
             # Assert
             assert self.pair.dex.disabled is True, (
@@ -318,12 +333,15 @@ class BasicSellerStrategyTester:
 @pytest.fixture(scope="session")
 def mock_strategy_cli():
     """Fixture to create a mock strategy instance for testing in CLI mode."""
-    from unittest.mock import patch
-
-    with patch(
+    with (
+        patch(
             "definitions.config_manager.detect_rpc",
             return_value=("user", 1234, "pass", "/tmp"),
-    ), patch("definitions.xbridge_manager.is_port_open", return_value=True), patch("definitions.ccxt_manager.CCXTManager"), patch("asyncio.run"), patch("definitions.xbridge_manager.rpc_call"):
+        ),
+        patch("definitions.xbridge_manager.is_port_open", return_value=True),
+        patch("definitions.ccxt_manager.CCXTManager"),
+        patch("asyncio.run"),
+    ):
         from definitions.config_manager import ConfigManager
 
         config_manager = ConfigManager(strategy="basic_seller")
@@ -334,6 +352,7 @@ def mock_strategy_cli():
             min_sell_price_usd=0.5,
             sell_price_offset=0.01,
         )
+        config_manager.xbridge_manager._rpc_call = AsyncMock(return_value={"result": {}})
         return config_manager.strategy_instance
 
 

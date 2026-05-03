@@ -15,7 +15,11 @@ from definitions.circuit_breaker import (
 )
 from definitions.errors import RPCConfigError
 from definitions.logger import setup_logging
-from definitions.rpc import AsyncThreadingSemaphore, is_port_open, rpc_call
+from definitions.rpc import (
+    AsyncThreadingSemaphore,
+    is_port_open,
+    rpc_call as _rpc_call_module,
+)
 
 
 class XBridgeManager:
@@ -112,6 +116,7 @@ class XBridgeManager:
         self.circuit_breaker = CircuitBreaker(
             name=f"xbridge_rpc_{strategy}", config=cb_config, logger=self.logger
         )
+        self._rpc_call = _rpc_call_module
 
     async def _execute_rpc_call(
         self,
@@ -126,7 +131,7 @@ class XBridgeManager:
 
             try:
                 try:
-                    return await rpc_call(
+                    return await self._rpc_call(
                         method=method,
                         params=params,
                         rpc_user=self.blocknet_user_rpc,

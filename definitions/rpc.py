@@ -8,7 +8,7 @@ import aiohttp
 import async_timeout
 from aiohttp import BasicAuth, ClientSession
 
-from definitions.errors import BlockingError, OperationalError
+from definitions.errors import OperationalError
 
 
 class AsyncThreadingSemaphore:
@@ -120,20 +120,19 @@ async def rpc_call(
                             "error_code": error_code,
                             "error_msg": error_msg,
                         }
-                    blocking_codes = {-1, -2, 1018, 1026}  # Bad address, invalid amount
-                    if error_code in blocking_codes:
-                        raise BlockingError(
+                        if error_code < 0:
+                            raise OperationalError(
+                                f"RPC error {error_code}: {error_msg}",
+                                {**error_details, "prefix": prefix},
+                            )
+                        if logger:
+                            logger.warning(
+                                f"{prefix}_rpc_call: RPC error {error_code} - {error_msg}"
+                            )
+                        raise OperationalError(
                             f"RPC error {error_code}: {error_msg}",
-                            {**error_details, "prefix": prefix},
+                            {**error_details, "prefix": prefix, "err_count": err_count},
                         )
-                    if logger:
-                        logger.warning(
-                            f"{prefix}_rpc_call: RPC error {error_code} - {error_msg}"
-                        )
-                    raise OperationalError(
-                        f"RPC error {error_code}: {error_msg}",
-                        {**error_details, "prefix": prefix, "err_count": err_count},
-                    )
 
                     result = json_response.get("result")
                     if result is not None:
@@ -152,7 +151,7 @@ async def rpc_call(
             except Exception as e:
                 # Re-raise API errors that we intentionally raised
                 if (
-                    isinstance(e, (OperationalError, BlockingError))
+                    isinstance(e, OperationalError)
                     and e.args
                     and "RPC error" in str(e.args[0])
                 ):

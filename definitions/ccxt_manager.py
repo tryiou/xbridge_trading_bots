@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import threading
 import time
 from typing import Any
 
@@ -8,67 +7,17 @@ import ccxt
 
 from definitions.error_handler import ErrorHandler
 from definitions.errors import CriticalError, RPCConfigError
+from definitions.proxy_manager import ProxyManager
 from definitions.rpc import is_port_open, rpc_call
-from proxy_ccxt import AsyncPriceService
 
 
 class CCXTManager:
-    # Class-level variables for shared proxy state
-    _proxy_service_instance: Any | None = None
-    _proxy_service_thread: threading.Thread | None = None
-    _proxy_port: int = 2233
-    _proxy_lock = threading.Lock()
-    _proxy_ref_count: int = 0  # Track active strategies using proxy
-
-    # Class-level logger for proxy events
-    _proxy_logger = logging.getLogger("ccxt_manager.proxy")
-
-    @classmethod
-    def register_strategy(cls) -> None:
-        """Call whenever a strategy starts"""
-        with cls._proxy_lock:
-            cls._proxy_ref_count += 1
-            cls._proxy_logger.debug(
-                f"Strategy registered. New refcount: {cls._proxy_ref_count} "
-                f"(Thread: {getattr(cls._proxy_service_thread, 'name', 'None')})"
-            )
-
-    @classmethod
-    def unregister_strategy(cls) -> None:
-        """Call when strategy stops"""
-        with cls._proxy_lock:
-            if cls._proxy_ref_count > 0:
-                cls._proxy_ref_count -= 1
-                new_refcount = cls._proxy_ref_count
-                cls._proxy_logger.debug(
-                    f"Strategy unregistered. New refcount: {new_refcount} "
-                    f"(Thread: {getattr(cls._proxy_service_thread, 'name', 'None')})"
-                )
-            else:
-                cls._proxy_logger.warning(
-                    "unregister_strategy called with refcount <= 0"
-                )
-                new_refcount = 0
-
-            # Trigger cleanup when refcount reaches zero
-            if new_refcount == 0 and cls._proxy_service_thread:
-                if cls._proxy_service_thread.is_alive():
-                    cls._proxy_logger.debug("Scheduling proxy cleanup")
-                    threading.Thread(
-                        target=cls._cleanup_proxy, name="ProxyCleanup"
-                    ).start()
-                else:
-                    cls._proxy_logger.debug(
-                        "Proxy thread already dead - clearing state"
-                    )
-                    cls._proxy_service_thread = None
-                    cls._proxy_service_instance = None
-
     def __init__(
             self,
             config_manager: Any,
             logger: logging.Logger | None = None,
             error_handler: ErrorHandler | None = None,
+            proxy_manager: ProxyManager | None = None,
     ) -> None:
         self.cex_orderbook: dict[str, Any] | None = None
         self.cex_orderbook_timer: float | None = None
@@ -81,51 +30,7 @@ class CCXTManager:
         self.error_handler = error_handler or ErrorHandler(
             config_manager, logger=self.logger
         )
-
-    @classmethod
-    def _cleanup_proxy(cls) -> None:
-        """Coordinate proxy termination only when no strategies are running"""
-        with cls._proxy_lock:
-            # Double-check refcount under lock
-            if cls._proxy_ref_count > 0:
-                cls._proxy_logger.info(
-                    f"[PROXY.MAINTENANCE] Aborting cleanup - strategies still running: refcount={cls._proxy_ref_count}"
-                )
-                return
-
-            if (
-                    not cls._proxy_service_instance
-                    or not cls._proxy_service_thread.is_alive()
-            ):
-                cls._proxy_logger.info(
-                    "[PROXY.MAINTENANCE] Proxy service already terminated"
-                )
-                cls._proxy_service_instance = None
-                cls._proxy_service_thread = None
-                return
-
-            try:
-                cls._proxy_logger.info("[PROXY.MAINTENANCE] Stopping proxy service...")
-                cls._proxy_service_instance.stop()
-                cls._proxy_service_thread.join(timeout=10.0)
-
-                if cls._proxy_service_thread.is_alive():
-                    cls._proxy_logger.warning(
-                        "[PROXY.MAINTENANCE] Proxy service thread failed to stop after 10s"
-                    )
-                else:
-                    cls._proxy_logger.info(
-                        "[PROXY.MAINTENANCE] Proxy service stopped successfully"
-                    )
-
-            except Exception as e:
-                cls._proxy_logger.error(
-                    f"[PROXY.MAINTENANCE] Error during proxy service stop: {e!s}"
-                )
-            finally:
-                cls._proxy_service_instance = None
-                cls._proxy_service_thread = None
-                cls._proxy_logger.info("[PROXY.MAINTENANCE] Proxy state cleared")
+        self.proxy_manager = proxy_manager or ProxyManager()
 
     def init_ccxt_instance(
             self,
@@ -137,7 +42,7 @@ class CCXTManager:
         api_key: str | None = None
         api_secret: str | None = None
         if private_api:
-            api_keys_data = self.config_manager.secrets_manager.get_api_keys()
+            api_keys_data = self.config_manager.config_loader.secrets_manager.get_api_keys()
             for data in api_keys_data.get("api_info", []):
                 if exchange.lower() in data.get("exchange", "").lower():
                     api_key = data.get("api_key")
@@ -265,18 +170,19 @@ class CCXTManager:
         err_count = 0
 
         # Start proxy if needed before first attempt
-        if proxy and not is_port_open("127.0.0.1", self._proxy_port):
-            loop = asyncio.get_running_loop()
-            await loop.run_in_executor(None, self._start_proxy)
+        if proxy:
+            await asyncio.get_running_loop().run_in_executor(
+                None, self.proxy_manager.ensure_running
+            )
 
         while True:
             try:
                 used_proxy = False
-                if is_port_open("127.0.0.1", self._proxy_port) and proxy:  # CCXT PROXY
+                if proxy and is_port_open("127.0.0.1", self.proxy_manager.get_port()):
                     result = await rpc_call(
                         "ccxt_call_fetch_tickers",
                         tuple(symbols_list),
-                        rpc_port=self._proxy_port,
+                        rpc_port=self.proxy_manager.get_port(),
                         debug=self.config_manager.config_ccxt.debug_level,
                         logger=self.config_manager.general_log,
                         timeout=60,
@@ -318,81 +224,6 @@ class CCXTManager:
         if result is not None:
             self._debug_display("ccxt_call_fetch_ticker", [symbol], result)
         return result
-
-    def _start_proxy(self) -> None:
-        """Start shared CCXT proxy service in a thread. This is a blocking call."""
-        with CCXTManager._proxy_lock:
-            if (
-                    CCXTManager._proxy_service_thread
-                    and CCXTManager._proxy_service_thread.is_alive()
-            ):
-                CCXTManager._proxy_logger.info(
-                    "[PROXY.STARTUP] Proxy service thread is already running."
-                )
-                return
-
-            if is_port_open("127.0.0.1", CCXTManager._proxy_port):
-                CCXTManager._proxy_logger.warning(
-                    f"[PROXY.STARTUP] Proxy port {CCXTManager._proxy_port} already in use. Aborting start."
-                )
-                return
-
-            CCXTManager._proxy_logger.info(
-                f"[PROXY.STARTUP] Initializing proxy service on port {CCXTManager._proxy_port}"
-            )
-
-            try:
-                CCXTManager._proxy_service_instance = AsyncPriceService()
-
-                def service_runner() -> None:
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    try:
-                        loop.run_until_complete(
-                            CCXTManager._proxy_service_instance.run()
-                        )
-                    except Exception as e:
-                        CCXTManager._proxy_logger.error(
-                            f"Error in proxy service event loop: {e}", exc_info=True
-                        )
-                    finally:
-                        loop.close()
-
-                CCXTManager._proxy_service_thread = threading.Thread(
-                    target=service_runner, name="CCXTProxyService"
-                )
-                CCXTManager._proxy_service_thread.daemon = True
-                CCXTManager._proxy_service_thread.start()
-
-                CCXTManager._proxy_logger.info(
-                    "[PROXY.STARTUP] Proxy service thread started."
-                )
-
-                # Verify proxy started properly
-                proxy_started = False
-                for _attempt in range(10):  # Wait up to 10 seconds
-                    time.sleep(1)
-                    if is_port_open("127.0.0.1", CCXTManager._proxy_port):
-                        ready_msg = f"Proxy operational (Thread: {CCXTManager._proxy_service_thread.name})"
-                        CCXTManager._proxy_logger.info(ready_msg)
-                        proxy_started = True
-                        break
-
-                if not proxy_started:
-                    failure_msg = (
-                        "Proxy failed to start and open port after 10 seconds."
-                    )
-                    CCXTManager._proxy_logger.error(failure_msg)
-                    if CCXTManager._proxy_service_instance:
-                        CCXTManager._proxy_service_instance.stop()
-                    CCXTManager._proxy_service_instance = None
-                    CCXTManager._proxy_service_thread = None
-            except Exception as e:
-                error_detail = f"Startup error: {e!s}"
-                CCXTManager._proxy_logger.error(error_detail, exc_info=True)
-                CCXTManager._proxy_service_instance = None
-                CCXTManager._proxy_service_thread = None
-                self.error_handler.handle(e, context={"stage": "proxy_startup"})
 
     def _debug_display(
             self, func: str, params: Any, result: Any, timer: float | None = None

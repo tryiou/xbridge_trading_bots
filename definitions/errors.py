@@ -136,7 +136,7 @@ def convert_exception(e: Exception) -> AppError:
         return e
 
     # Handle CCXT Errors
-    if hasattr(e, "name"):
+    if getattr(e, "name", None):
         if e.name == "InsufficientFunds":
             return _wrap_exception(e, InsufficientFundsError)
         if e.name == "NetworkError":

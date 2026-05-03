@@ -8,15 +8,13 @@ import pytest
 # Add parent directory to path for module imports
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
+from definitions.balance_manager import BalanceManager
 from definitions.errors import RPCConfigError
-from definitions.starter import (
-    BalanceManager,
-    MainController,
-    PriceHandler,
-    TradingProcessor,
-    run_async_main,
-)
+from definitions.main_controller import MainController
+from definitions.price_handler import PriceHandler
+from definitions.run import run_async_main
 from definitions.token import CexToken, Token
+from definitions.trading_processor import TradingProcessor
 
 
 @pytest.fixture
@@ -118,7 +116,7 @@ async def test_price_handler_update(mock_config_manager):
         "LTC": ltc_mock,
     }
     mock_main_controller.config_manager = mock_config_manager
-    mock_main_controller.ccxt_i = mock_config_manager.my_ccxt
+    mock_main_controller.ccxt_i = mock_config_manager.ccxt_manager.my_ccxt
     mock_main_controller.shutdown_event = asyncio.Event()
 
     mock_config_manager.ccxt_manager.ccxt_call_fetch_tickers.return_value = {
@@ -126,8 +124,8 @@ async def test_price_handler_update(mock_config_manager):
         "LTC/BTC": {"info": {"lastPrice": "0.003"}},
     }
     mock_config_manager.config_coins.usd_ticker_custom = MagicMock(spec=object)
-    mock_config_manager.my_ccxt.id = "binance"
-    mock_config_manager.my_ccxt.symbols = ["BTC/USDT", "LTC/BTC"]
+    mock_config_manager.ccxt_manager.my_ccxt.id = "binance"
+    mock_config_manager.ccxt_manager.my_ccxt.symbols = ["BTC/USDT", "LTC/BTC"]
 
     price_handler = PriceHandler(mock_main_controller, asyncio.get_event_loop())
 
@@ -159,19 +157,15 @@ async def test_main_controller_loops(mock_main_controller):
     mock_main_controller.processor.process_pairs.assert_awaited_once()
 
 
-@patch("definitions.starter.main", new_callable=AsyncMock)
-@patch("definitions.starter.MainController")
-def test_run_async_main_rpc_error(MockController, mock_main, mock_config_manager):
-    """Tests that RPCConfigError during init is caught and logged."""
-    MockController.side_effect = RPCConfigError("Test RPC Error")
-
-    with pytest.raises(RPCConfigError):
-        run_async_main(mock_config_manager)
-
+def test_run_async_main_rpc_error(mock_config_manager):
+    """Test that RPCConfigError during init is caught, logged, and re-raised."""
+    with patch("definitions.run.MainController", side_effect=RPCConfigError("Test RPC Error")):
+        with pytest.raises(RPCConfigError, match="Test RPC Error"):
+            run_async_main(mock_config_manager)
     mock_config_manager.general_log.critical.assert_called_once()
     assert (
-            "Fatal RPC configuration error"
-            in mock_config_manager.general_log.critical.call_args[0][0]
+        "Fatal RPC configuration error"
+        in mock_config_manager.general_log.critical.call_args[0][0]
     )
 
 
@@ -240,15 +234,24 @@ async def test_price_handler_custom_coin(mock_config_manager):
 
     # Create token with async update_price
     token_mock = MagicMock()
-    token_mock.cex.update_price = AsyncMock()
+    token_mock.cex = MagicMock()
     mock_controller.tokens_dict = {"TEST": token_mock}
     mock_controller.shutdown_event = asyncio.Event()  # Add shutdown_event
+    # Set up custom_tickers - need to set on mock_config_manager because
+    # PriceHandler accesses self.config_manager which is mock_controller.config_manager
+    from types import SimpleNamespace
+    custom_tickers = SimpleNamespace()
+    custom_tickers.TEST = 0.5
+    mock_config_manager.config_coins = MagicMock()
+    mock_config_manager.config_coins.usd_ticker_custom = custom_tickers
 
     price_handler = PriceHandler(mock_controller, asyncio.get_event_loop())
     price_handler.ccxt_price_timer = 0  # Force update
+    # Mock the price_update_handler
+    price_handler.price_update_handler.update = AsyncMock()
 
     await price_handler.update_ccxt_prices()
-    token_mock.cex.update_price.assert_awaited_once()
+    price_handler.price_update_handler.update.assert_awaited_once()
 
 
 @pytest.mark.asyncio

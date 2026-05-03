@@ -9,6 +9,7 @@ import yaml
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from definitions.errors import OperationalError
+from definitions.price_update_handler import PriceUpdateHandler
 from definitions.token import Token
 
 
@@ -32,7 +33,12 @@ def mock_config_manager():
 @pytest.fixture
 def token(mock_config_manager):
     """Fixture to create a Token instance."""
-    return Token("TEST", "test_strategy", config_manager=mock_config_manager)
+    token = Token("TEST", "test_strategy", config_manager=mock_config_manager)
+    # Attach a PriceUpdateHandler to the fixture for tests
+    token.price_update_handler = PriceUpdateHandler(
+        mock_config_manager.ccxt_manager, mock_config_manager
+    )
+    return token
 
 
 # DexToken Tests
@@ -92,9 +98,9 @@ async def test_dex_token_write_address_failure(token):
 # CexToken Tests
 @pytest.mark.asyncio
 async def test_cex_token_update_price_no_btc_price(token):
-    """Test CexToken.update_price when BTC price is unavailable."""
+    """Test PriceUpdateHandler.update when BTC price is unavailable."""
     token.config_manager.tokens["BTC"].cex.usd_price = None
-    await token.cex.update_price()
+    await token.price_update_handler.update(token.cex)
     assert token.cex.usd_price is None
     assert token.cex.cex_price is None
     # Check that the error handler was called with OperationalError
@@ -110,9 +116,9 @@ async def test_cex_token_update_price_no_btc_price(token):
 
 @pytest.mark.asyncio
 async def test_cex_token_update_price_custom_ticker(token):
-    """Test CexToken.update_price using a custom ticker from config."""
+    """Test PriceUpdateHandler.update with custom ticker from config."""
     token.config_manager.config_coins.usd_ticker_custom.TEST = 0.5
-    await token.cex.update_price()
+    await token.price_update_handler.update(token.cex)
 
     assert token.cex.usd_price == 0.5
     assert token.cex.cex_price == pytest.approx(0.5 / 50000.0)
@@ -120,8 +126,8 @@ async def test_cex_token_update_price_custom_ticker(token):
 
 @pytest.mark.asyncio
 async def test_cex_token_update_price_api_failure(token):
-    """Test CexToken.update_price when API call fails repeatedly."""
-    token.config_manager.my_ccxt.symbols = ["TEST/BTC"]
+    """Test PriceUpdateHandler.update when API call fails repeatedly."""
+    token.config_manager.ccxt_manager.my_ccxt.symbols = ["TEST/BTC"]
     # Mock `ccxt_call_fetch_ticker` to simulate a persistent failure.
     token.config_manager.ccxt_manager.ccxt_call_fetch_ticker = AsyncMock(
         side_effect=Exception("API Error")
@@ -130,7 +136,7 @@ async def test_cex_token_update_price_api_failure(token):
     # Invalidate timer to ensure fetch is attempted
     token.cex.cex_price_timer = None
 
-    await token.cex.update_price()
+    await token.price_update_handler.update(token.cex)
 
     assert token.cex.usd_price is None
     assert token.cex.cex_price is None
@@ -194,9 +200,9 @@ async def test_cex_token_update_block_ticker(token):
 
 @pytest.mark.asyncio
 async def test_cex_token_update_price_exchange_success(token):
-    """Test CexToken.update_price for non-BTC token with exchange ticker returning valid price."""
+    """Test PriceUpdateHandler.update for non-BTC token with exchange ticker returning valid price."""
     token.symbol = "TEST"
-    token.config_manager.my_ccxt.symbols = ["TEST/BTC"]
+    token.config_manager.ccxt_manager.my_ccxt.symbols = ["TEST/BTC"]
     token.config_manager.tokens["BTC"].cex.usd_price = 50000.0
 
     # Mock the ccxt_manager's fetch_ticker method to return a valid ticker
@@ -205,7 +211,13 @@ async def test_cex_token_update_price_exchange_success(token):
         return_value=mock_ticker
     )
 
-    await token.cex.update_price()
+    await token.price_update_handler.update(token.cex)
+
+    assert token.cex.cex_price == 0.0002
+    assert token.cex.usd_price == pytest.approx(0.0002 * 50000.0)
+
+
+    await token.price_update_handler.update(token.cex)
 
     assert token.cex.cex_price == 0.0002
     assert token.cex.usd_price == 0.0002 * 50000.0
@@ -221,7 +233,7 @@ async def test_cex_token_update_price_btc(token):
     # We don't expect any external calls for BTC since it's handled as a special case
     token.config_manager.ccxt_manager.ccxt_call_fetch_ticker = AsyncMock()
 
-    await token.cex.update_price()
+    await token.price_update_handler.update(token.cex)
 
     # For BTC, cex_price should be 1 and usd_price should be the BTC token's USD price (50000.0)
     assert token.cex.cex_price == 1.0

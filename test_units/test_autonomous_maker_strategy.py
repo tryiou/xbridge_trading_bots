@@ -412,12 +412,12 @@ def mock_strategy():
         patch("definitions.xbridge_manager.is_port_open", return_value=True),
         patch("definitions.ccxt_manager.CCXTManager"),
         patch("asyncio.run"),
-        patch("definitions.xbridge_manager.rpc_call"),
     ):
         from definitions.config_manager import ConfigManager
 
         config_manager = ConfigManager(strategy="autonomous_maker")
         config_manager.initialize()
+        config_manager.xbridge_manager._rpc_call = AsyncMock(return_value={"result": {}})
         return config_manager.strategy_instance
 
 
