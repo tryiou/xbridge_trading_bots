@@ -159,9 +159,14 @@ async def test_main_controller_loops(mock_main_controller):
 
 def test_run_async_main_rpc_error(mock_config_manager):
     """Test that RPCConfigError during init is caught, logged, and re-raised."""
-    with patch("definitions.run.MainController", side_effect=RPCConfigError("Test RPC Error")):
-        with pytest.raises(RPCConfigError, match="Test RPC Error"):
-            run_async_main(mock_config_manager)
+    with (
+        patch(
+            "definitions.run.MainController",
+            side_effect=RPCConfigError("Test RPC Error"),
+        ),
+        pytest.raises(RPCConfigError, match="Test RPC Error"),
+    ):
+        run_async_main(mock_config_manager)
     mock_config_manager.general_log.critical.assert_called_once()
     assert (
         "Fatal RPC configuration error"
