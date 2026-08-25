@@ -24,7 +24,7 @@ class MakerStrategy(BaseStrategy):
 
     @abstractmethod
     def build_sell_order_details(
-            self, dex_pair: DexPair, manual_dex_price: float | None = None
+        self, dex_pair: DexPair, manual_dex_price: float | None = None
     ) -> tuple[float, float]:
         """
         Strategy-specific logic to determine amount and offset for a sell order.
@@ -33,7 +33,9 @@ class MakerStrategy(BaseStrategy):
         pass
 
     @abstractmethod
-    def calculate_sell_price(self, dex_pair: DexPair, manual_dex_price: float | None = None) -> float:
+    def calculate_sell_price(
+        self, dex_pair: DexPair, manual_dex_price: float | None = None
+    ) -> float:
         """
         Strategy-specific logic to calculate the sell price.
         """
@@ -41,7 +43,7 @@ class MakerStrategy(BaseStrategy):
 
     @abstractmethod
     def build_buy_order_details(
-            self, dex_pair: DexPair, manual_dex_price: float | None = None
+        self, dex_pair: DexPair, manual_dex_price: float | None = None
     ) -> tuple[float, float]:
         """
         Strategy-specific logic to determine amount and spread for a buy order.
@@ -65,11 +67,11 @@ class MakerStrategy(BaseStrategy):
 
     @abstractmethod
     def calculate_variation_based_on_side(
-            self,
-            dex_pair: DexPair,
-            current_order_side: str,
-            cex_price: float,
-            original_price: float,
+        self,
+        dex_pair: DexPair,
+        current_order_side: str,
+        cex_price: float,
+        original_price: float,
     ) -> float:
         """
         Strategy-specific logic to calculate price variation based on order side.
@@ -85,13 +87,11 @@ class MakerStrategy(BaseStrategy):
         pass
 
     @abstractmethod
-    def reinit_virtual_order_after_price_variation(
-            self, dex_pair: DexPair, disabled_coins: list
-    ):
+    def reinit_virtual_order_after_price_variation(self, dex_pair: DexPair):
         pass
 
     @abstractmethod
-    def handle_finished_order(self, dex_pair: DexPair, disabled_coins: list):
+    def handle_finished_order(self, dex_pair: DexPair):
         pass
 
     @abstractmethod
@@ -115,7 +115,7 @@ class MakerStrategy(BaseStrategy):
         return 15
 
     async def thread_init_async_action(self, pair_instance):
-        pair_instance.dex.init_virtual_order(self.controller.disabled_coins)
+        pair_instance.dex.init_virtual_order()
         await pair_instance.dex.create_order()
 
     async def process_pair_async(self, pair_instance):
@@ -127,9 +127,7 @@ class MakerStrategy(BaseStrategy):
                 self.config_manager.strategy_instance,
                 self.controller.shutdown_event,
             )
-        await self._order_status_processor.process(
-            pair_instance.dex, self.controller.disabled_coins
-        )
+        await self._order_status_processor.process(pair_instance.dex)
 
     async def cancel_own_orders(self):
         """Cancel only orders belonging to this strategy"""

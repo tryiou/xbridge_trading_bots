@@ -33,7 +33,6 @@ class XBridgeManager:
     _rpc_config: tuple[str, int, str, str] | None = None
     _rpc_config_lock = threading.Lock()
     _xbridge_conf_cache: dict[str, dict[str, Any]] | None = None
-    _xbridge_fees_cache: dict[str, dict[str, Any] | None] = {}
     _xbridge_conf_lock = threading.Lock()
 
     @property
@@ -64,7 +63,6 @@ class XBridgeManager:
         self.blocknet_password_rpc: str
         self.blocknet_datadir_path: str
         self.xbridge_conf: dict[str, dict[str, Any]] | None = None
-        self.xbridge_fees_estimate: dict[str, dict[str, Any] | None] = {}
 
         try:
             (
@@ -281,59 +279,8 @@ class XBridgeManager:
             self.logger.error(f"Error parsing xbridge.conf: {e!s}")
             self.xbridge_conf = None
 
-    def calculate_xbridge_fees(self) -> None:
-        """Calculate and store estimated XBridge transaction fees for each coin."""
-        if not self.xbridge_conf:
-            self.logger.error("Cannot calculate fees: xbridge.conf not loaded")
-            return
-
-        self.xbridge_fees_estimate = {}
-
-        for coin, config in self.xbridge_conf.items():
-            try:
-                # Get the fee per byte and minimum transaction fee
-                fee_per_byte = config.get("feeperbyte", 0)
-                min_tx_fee = config.get("mintxfee", 0)
-
-                # Estimate the fee for a typical transaction
-                # We'll assume a typical transaction size of 500 bytes (this might need adjustment)
-                typical_tx_size = 500
-                estimated_fee = fee_per_byte * typical_tx_size
-
-                # Ensure the fee doesn't go below the minimum
-                estimated_fee = max(estimated_fee, min_tx_fee)
-
-                # Convert to absolute value (in satoshis)
-                estimated_fee_satoshis = estimated_fee
-
-                # Convert to coin units (BTC, LTC, etc.)
-                coin_units = config.get("coin", 100000000)
-                estimated_fee_coin = estimated_fee_satoshis / coin_units
-
-                self.xbridge_fees_estimate[coin] = {
-                    "fee_per_byte": fee_per_byte,
-                    "min_tx_fee": min_tx_fee,
-                    "estimated_fee_satoshis": estimated_fee_satoshis,
-                    "estimated_fee_coin": estimated_fee_coin,
-                    "typical_tx_size": typical_tx_size,
-                }
-            except Exception as e:
-                self.logger.error(f"Error calculating fee estimate for {coin}: {e!s}")
-                self.xbridge_fees_estimate[coin] = None
-
-        self.logger.info(
-            f"XBridge fee estimates calculated for {len(self.xbridge_fees_estimate)} coins"
-        )
-        # self.logger.info(f"XBridge fee estimates: {self.xbridge_fees_estimate}")
-
     async def getnewtokenadress(self, token: str) -> Any:
         return await self.rpc_wrapper("dxGetNewTokenAddress", [token])
-
-    async def getmyordersbymarket(self, maker: str, taker: str) -> list[dict[str, Any]]:
-        myorders = await self.rpc_wrapper("dxGetMyOrders")
-        return [
-            zz for zz in myorders if (zz["maker"] == maker) and (zz["taker"] == taker)
-        ]
 
     async def cancelorder(self, order_id: str, use_shutdown_event: bool = True) -> Any:
         return await self.rpc_wrapper(
@@ -385,9 +332,6 @@ class XBridgeManager:
 
     async def dxflushcancelledorders(self) -> Any:
         return await self.rpc_wrapper("dxflushcancelledorders")
-
-    async def gettokenbalances(self) -> Any:
-        return await self.rpc_wrapper("dxgettokenbalances")
 
     async def gettokenutxo(self, token: str, used: bool = False) -> Any:
         cache_key = f"{token}_{used}"

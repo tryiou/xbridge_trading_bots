@@ -1,3 +1,5 @@
+from definitions.errors import CriticalError, StrategyError
+
 from .maker_strategy import MakerStrategy
 
 
@@ -44,16 +46,19 @@ class PingPongStrategy(MakerStrategy):
         t1_cex_price = dex_pair.t1.cex.cex_price
 
         if not all([btc_usd_price, t1_cex_price, btc_usd_price > 0, t1_cex_price > 0]):
-            self.config_manager.general_log.warning(
-                "Cannot calculate sell amount for %s due to missing or zero CEX price. BTC/USD: %s, %s/BTC: %s",
+            self.config_manager.general_log.error(
+                "Cannot calculate sell amount for %s — missing or zero CEX price. "
+                "BTC/USD: %s, %s/BTC: %s",
                 dex_pair.pair.name,
                 btc_usd_price,
                 dex_pair.t1.symbol,
                 t1_cex_price,
             )
-            amount = 0
-        else:
-            amount = (usd_amount / btc_usd_price) / t1_cex_price
+            raise StrategyError(
+                f"Missing CEX price for {dex_pair.pair.name}",
+                context={"pair": dex_pair.pair.name},
+            )
+        amount = (usd_amount / btc_usd_price) / t1_cex_price
 
         offset = dex_pair.pair.cfg.get("sell_price_offset", 0.05)
         return amount, offset
@@ -91,7 +96,7 @@ class PingPongStrategy(MakerStrategy):
         return dex_pair.pair.cfg.get("price_variation_tolerance")
 
     def calculate_variation_based_on_side(
-            self, dex_pair, current_order_side: str, cex_price: float, original_price: float
+        self, dex_pair, current_order_side: str, cex_price: float, original_price: float
     ) -> tuple[float, bool]:
         variation = float(cex_price / original_price)
 
@@ -110,30 +115,32 @@ class PingPongStrategy(MakerStrategy):
 
     def init_virtual_order_logic(self, dex_pair, order_history: dict):
         if not order_history or (
-                "side" in order_history and order_history["side"] == "BUY"
+            "side" in order_history and order_history["side"] == "BUY"
         ):
             dex_pair.create_virtual_sell_order()
         elif "side" in order_history and order_history["side"] == "SELL":
             dex_pair.create_virtual_buy_order()
         else:
-            self.config_manager.general_log.critical(
-                "Fatal error during init_order: Unexpected order history state\n%s",
+            self.config_manager.general_log.error(
+                "Unexpected order history state for %s: %s",
+                dex_pair.symbol,
                 order_history,
             )
-            raise SystemExit(1)
+            raise CriticalError(
+                f"Invalid order history state for {dex_pair.symbol}",
+                context={"pair": dex_pair.symbol, "order_history": order_history},
+            )
 
     async def handle_order_status_error(self, dex_pair):
         dex_pair.order = None
 
-    async def reinit_virtual_order_after_price_variation(
-            self, dex_pair, disabled_coins: list
-    ):
-        dex_pair.init_virtual_order(disabled_coins)
+    async def reinit_virtual_order_after_price_variation(self, dex_pair):
+        dex_pair.init_virtual_order()
         if not dex_pair.order:
             await dex_pair.create_order()
 
-    async def handle_finished_order(self, dex_pair, disabled_coins: list):
-        dex_pair.init_virtual_order(disabled_coins)
+    async def handle_finished_order(self, dex_pair):
+        dex_pair.init_virtual_order()
         await dex_pair.create_order()
 
     async def handle_error_swap_status(self, dex_pair):
@@ -144,5 +151,3 @@ class PingPongStrategy(MakerStrategy):
             "Disabling pair %s due to order error.", dex_pair.symbol
         )
         dex_pair.disabled = True
-
-

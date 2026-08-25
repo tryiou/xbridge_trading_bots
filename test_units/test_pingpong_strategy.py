@@ -92,7 +92,7 @@ class PingPongStrategyTester:
         self.pair.t1.cex.cex_price = self.pair.t1.cex.usd_price / 100000.0
         self.pair.t2.cex.cex_price = self.pair.t2.cex.usd_price / 100000.0
 
-    async def _process_status(self, disabled_coins=None, display=False):
+    async def _process_status(self, display=False):
         """Helper to process order status using OrderStatusProcessor."""
         from asyncio import Event
 
@@ -103,7 +103,7 @@ class PingPongStrategyTester:
             self.strategy,
             Event(),
         )
-        await processor.process(self.pair.dex, disabled_coins, display)
+        await processor.process(self.pair.dex, display)
 
     async def _test_initial_sell_order_creation(self):
         """
@@ -531,16 +531,18 @@ class PingPongStrategyTester:
                 "[SUB-TEST PASSED] Correctly calculated sell amount with valid prices."
             )
 
-            # --- Test edge case: missing BTC price ---
+            # --- Test edge case: missing BTC price raises exception ---
             self.config_manager.tokens["BTC"].cex.usd_price = 0  # Missing/zero price
+            from definitions.errors import StrategyError
+
             with patch.object(
-                    self.config_manager.general_log, "warning"
-            ) as mock_log_warning:
-                amount_zero, _ = self.strategy.build_sell_order_details(self.pair.dex)
-                assert amount_zero == 0
-                mock_log_warning.assert_called_once()
+                self.config_manager.general_log, "error"
+            ) as mock_log_error:
+                with pytest.raises(StrategyError, match="Missing CEX price"):
+                    self.strategy.build_sell_order_details(self.pair.dex)
+                mock_log_error.assert_called_once()
                 self.config_manager.general_log.info(
-                    "[SUB-TEST PASSED] Correctly returned 0 amount with missing BTC price."
+                    "[SUB-TEST PASSED] Correctly raised StrategyError with missing BTC price."
                 )
 
     async def _test_buy_order_price_lock(self):
@@ -604,7 +606,9 @@ def mock_strategy():
 
         config_manager = ConfigManager(strategy="pingpong")
         config_manager.initialize()
-        config_manager.xbridge_manager._rpc_call = AsyncMock(return_value={"result": {}})
+        config_manager.xbridge_manager._rpc_call = AsyncMock(
+            return_value={"result": {}}
+        )
         return config_manager.strategy_instance
 
 

@@ -7,7 +7,13 @@ with optional file-based override for development convenience.
 
 import logging
 import os
+import re
 from typing import Any
+
+# Matches the stripped form of CCXT_EXCHANGE_{exchange}_API_{KEY|SECRET}.
+# {exchange} may itself contain underscores (e.g. BINANCE_US), so the
+# parse is anchored on the fixed prefix/suffix rather than split indexes.
+_ENV_EXCHANGE_CREDENTIAL_RE = re.compile(r"^EXCHANGE_(.+)_API_(KEY|SECRET)$")
 
 
 class SecretsManager:
@@ -53,11 +59,13 @@ class SecretsManager:
             if not key.startswith(f"{self.ENV_PREFIX}EXCHANGE_"):
                 continue
 
-            parts = key[len(self.ENV_PREFIX) :].split("_", 3)
-            if len(parts) < 4 or parts[2] != "EXCHANGE":
+            match = _ENV_EXCHANGE_CREDENTIAL_RE.match(
+                key[len(self.ENV_PREFIX) :]
+            )
+            if not match:
                 continue
 
-            exchange = parts[3].upper()
+            exchange = match.group(1).upper()
             if exchange in processed_exchanges:
                 continue
 

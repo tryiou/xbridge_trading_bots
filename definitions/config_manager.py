@@ -71,7 +71,6 @@ class ConfigManager:
         self.config_coins = None
         self.config_pingpong = None
         self.config_basicseller = None
-        self.config_autonomous_maker = None
         self.config_xbridge = None
 
         # Mark role for resource management
@@ -101,9 +100,13 @@ class ConfigManager:
             # Create new manager instances. They will be initialized with this
             # slave ConfigManager instance, giving them the correct logger.
 
-            self.xbridge_manager = XBridgeManager(self, rpc_config=XBridgeManager._rpc_config)
+            self.xbridge_manager = XBridgeManager(
+                self, rpc_config=XBridgeManager._rpc_config
+            )
 
-            self.ccxt_manager = CCXTManager(self, proxy_manager=self.context.get("proxy_manager"))
+            self.ccxt_manager = CCXTManager(
+                self, proxy_manager=self.context.get("proxy_manager")
+            )
             # Share the underlying CCXT connection object from the master to avoid
             # re-initializing it (e.g., re-loading markets).
             if master_manager.ccxt_manager:
@@ -120,8 +123,12 @@ class ConfigManager:
                     context={"stage": "load_configs"},
                 )
                 raise
-            self.xbridge_manager = XBridgeManager(self, rpc_config=XBridgeManager._rpc_config)
-            self.ccxt_manager = CCXTManager(self, proxy_manager=self.context.get("proxy_manager"))
+            self.xbridge_manager = XBridgeManager(
+                self, rpc_config=XBridgeManager._rpc_config
+            )
+            self.ccxt_manager = CCXTManager(
+                self, proxy_manager=self.context.get("proxy_manager")
+            )
             # If this is the master GUI manager, initialize shared components now.
             if self.strategy == "gui":
                 self._init_ccxt()
@@ -145,25 +152,8 @@ class ConfigManager:
         self.config_xbridge = configs.get("xbridge")
         self.config_pingpong = configs.get("pingpong")
         self.config_basicseller = configs.get("basic_seller")
-        self.config_autonomous_maker = configs.get("autonomous_maker")
 
         return configs, api_keys
-
-    def get_validation_report(self) -> str:
-        """Generate a comprehensive validation report."""
-        return self.config_loader.get_validation_report()
-
-    def validate_all_configs(self) -> bool:
-        """Validate all loaded configurations and return overall status."""
-        return self.config_loader.validate_all_configs()
-
-    def enable_validation(self, enabled: bool = True):
-        """Enable or disable configuration validation."""
-        self.config_loader.validation_enabled = enabled
-        if enabled:
-            self.logger.info("Configuration validation enabled")
-        else:
-            self.logger.warning("Configuration validation disabled")
 
     def get_config_safe(self, config_attr: str, default: Any = None) -> Any:
         """
@@ -183,10 +173,13 @@ class ConfigManager:
             # If validation is enabled and this config was validated, check if it's valid
             if (
                 self.config_loader.validation_enabled
-                and config_attr.replace("config_", "") in self.config_loader.validation_results
+                and config_attr.replace("config_", "")
+                in self.config_loader.validation_results
             ):
                 config_type = config_attr.replace("config_", "")
-                validation_result = self.config_loader.validation_results.get(config_type)
+                validation_result = self.config_loader.validation_results.get(
+                    config_type
+                )
                 if (
                     validation_result
                     and not validation_result.is_valid
@@ -202,51 +195,6 @@ class ConfigManager:
                 f"Error getting config {config_attr}, returning default: {e}"
             )
             return default
-
-    def is_config_valid(self, config_type: str) -> bool:
-        """
-        Check if a configuration type is valid.
-
-        Args:
-            config_type: The configuration type (e.g., 'ccxt', 'pingpong')
-
-        Returns:
-            True if configuration is valid or not validated
-        """
-        if not self.config_loader.validation_enabled:
-            return True
-
-        validation_result = self.config_loader.validation_results.get(config_type)
-        return validation_result.is_valid if validation_result else True
-
-    def get_validation_summary(self) -> dict[str, dict[str, Any]]:
-        """
-        Get a summary of all validation results.
-
-        Returns:
-            Dictionary with validation status for each config type
-        """
-        summary = {}
-        for config_type in [
-            "ccxt",
-            "coins",
-            "pingpong",
-            "basic_seller",
-            "xbridge",
-            "api_keys",
-        ]:
-            validation_result = self.config_loader.validation_results.get(config_type)
-            summary[config_type] = {
-                "validated": validation_result is not None,
-                "valid": validation_result.is_valid if validation_result else True,
-                "error_count": len(validation_result.errors)
-                if validation_result
-                else 0,
-                "warning_count": len(validation_result.warnings)
-                if validation_result
-                else 0,
-            }
-        return summary
 
     def validate_required_configs(self) -> bool:
         """

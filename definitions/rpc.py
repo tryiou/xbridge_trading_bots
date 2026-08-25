@@ -105,15 +105,14 @@ async def rpc_call(
                     # XBridge returns errors in result field: {"result": {"error": "...", "code": N}}
                     result = json_response.get("result", {})
                     if isinstance(result, dict) and "error" in result:
-                        error = result["error"]
+                        error_value = result["error"]
                         error_msg = (
-                            error.get("message", str(error))
-                            if isinstance(error, dict)
-                            else str(error)
+                            error_value.get("message", str(error_value))
+                            if isinstance(error_value, dict)
+                            else str(error_value)
                         )
-                        error_code = (
-                            error.get("code", -1) if isinstance(error, dict) else -1
-                        )
+                        # Extract error_code from the flat result dict, not from the error string
+                        error_code = result.get("code", -1)
                         error_details = {
                             "method": method,
                             "params": params,

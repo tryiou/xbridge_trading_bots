@@ -20,20 +20,13 @@ class OrderStatus(Enum):
 
 
 class XBridgeErrorCode:
-    """XBridge-specific error codes that should not disable a pair."""
+    """XBridge error codes observed from dxMakeOrder RPC failures (1026 verified)."""
 
     INVALID_PARAMS = 1019
     INSUFFICIENT_FUNDS = 1018
-    RATE_LIMIT_EXCEEDED = 1026
+    BAD_ADDRESS = 1026
     DUPLICATE_ORDER = 1032
 
-
-IGNORABLE_XBRIDGE_ERROR_CODES: frozenset[int] = frozenset({
-    XBridgeErrorCode.INVALID_PARAMS,
-    XBridgeErrorCode.INSUFFICIENT_FUNDS,
-    XBridgeErrorCode.RATE_LIMIT_EXCEEDED,
-    XBridgeErrorCode.DUPLICATE_ORDER,
-})
 
 class PriceFieldName(Enum):
     """Exchange-specific field names for last price."""

@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 import ccxt
 
 from definitions.constants import CCXT_PRICE_REFRESH_INTERVAL
+from definitions.price_helpers import get_price_field_for_exchange
 from definitions.price_update_handler import PriceUpdateHandler
 from definitions.token import Token
 
@@ -144,8 +145,7 @@ class PriceHandler:
 
     def _get_last_price_string(self) -> str:
         """Get exchange-specific field name for last price."""
-        exchange_map: dict[str, str] = {"kucoin": "last", "binance": "lastPrice"}
-        return exchange_map.get(self.config_manager.ccxt_manager.my_ccxt.id, "lastTradeRate")
+        return get_price_field_for_exchange(self.config_manager.ccxt_manager.my_ccxt.id)
 
     def _update_token_price(
             self, tickers: dict, symbol: str, price_key: str, token_data: Token

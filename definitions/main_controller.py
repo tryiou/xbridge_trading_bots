@@ -21,7 +21,7 @@ class MainController:
     """Main controller class for coordinating trading operations."""
 
     def __init__(
-            self, config_manager: "ConfigManager", loop: asyncio.AbstractEventLoop
+        self, config_manager: "ConfigManager", loop: asyncio.AbstractEventLoop
     ) -> None:
         """
         Initialize MainController.
@@ -35,7 +35,6 @@ class MainController:
         self.tokens_dict: dict[str, Token] = config_manager.tokens
         self.ccxt_i: ccxt.Exchange = config_manager.ccxt_manager.my_ccxt
         self.config_coins: Any = config_manager.config_coins
-        self.disabled_coins: list[str] = []
         self.http_session: aiohttp.ClientSession | None = None
         self.shutdown_event: asyncio.Event = asyncio.Event()
         self._http_session_owner: bool = False
@@ -135,9 +134,9 @@ class MainController:
     async def close_http_session(self) -> None:
         """Close the HTTP session if controller owns it."""
         if (
-                self.http_session
-                and not self.http_session.closed
-                and self._http_session_owner
+            self.http_session
+            and not self.http_session.closed
+            and self._http_session_owner
         ):
             try:
                 await self.http_session.close()

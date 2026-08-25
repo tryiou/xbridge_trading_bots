@@ -13,7 +13,7 @@ class OrderStatusProcessor:
     price updates, order status verification, and order lifecycle management.
 
     Interface:
-        process(dex_pair, disabled_coins, display) -> None
+        process(dex_pair, display) -> None
     """
 
     def __init__(
@@ -30,12 +30,11 @@ class OrderStatusProcessor:
         self.strategy_instance = strategy_instance
         self.shutdown_event = shutdown_event
 
-    async def process(self, dex_pair, disabled_coins=None, display=False) -> None:
+    async def process(self, dex_pair, display=False) -> None:
         """Process order status for a DEX pair.
 
         Args:
             dex_pair: The DexPair instance to process.
-            disabled_coins: List of disabled coin symbols.
             display: Whether to display price information.
         """
         await dex_pair.pair.cex.update_pricing(display=display)
@@ -49,11 +48,12 @@ class OrderStatusProcessor:
         if dex_pair.order and dex_pair.order.get("id"):
             status = await self._check_order_status(dex_pair)
         elif not dex_pair.disabled and dex_pair.current_order:
-            dex_pair.init_virtual_order(disabled_coins, display=False)
+            dex_pair.init_virtual_order(display=False)
             if dex_pair.order and "id" in dex_pair.order:
                 status = await self._check_order_status(dex_pair)
 
         if status == dex_pair.STATUS_OPEN:
+            disabled_coins = self.config_manager.disabled_coins
             if disabled_coins and (
                 dex_pair.t1.symbol in disabled_coins
                 or dex_pair.t2.symbol in disabled_coins
@@ -65,9 +65,9 @@ class OrderStatusProcessor:
                     )
                     await dex_pair.cancel_myorder_async()
             else:
-                await self._check_price_variation(dex_pair, disabled_coins, display)
+                await self._check_price_variation(dex_pair, display)
         elif status == dex_pair.STATUS_FINISHED:
-            await self._handle_finished_order(dex_pair, disabled_coins)
+            await self._handle_finished_order(dex_pair)
         elif status == dex_pair.STATUS_OTHERS:
             dex_pair.check_price_in_range(display=display)
         elif status == dex_pair.STATUS_ERROR_SWAP:
@@ -80,18 +80,18 @@ class OrderStatusProcessor:
                 dex_pair.symbol,
             )
             dex_pair.order = None
-            dex_pair.init_virtual_order(disabled_coins, display=False)
+            dex_pair.init_virtual_order(display=False)
             await dex_pair.create_order()
 
     async def _check_order_status(self, dex_pair) -> int | None:
         """Check the status of the current order."""
         return await dex_pair.check_order_status()
 
-    async def _check_price_variation(self, dex_pair, disabled_coins, display) -> None:
+    async def _check_price_variation(self, dex_pair, display) -> None:
         """Check price variation and take appropriate action."""
-        await dex_pair.check_price_variation(disabled_coins, display=display)
+        await dex_pair.check_price_variation(display=display)
 
-    async def _handle_finished_order(self, dex_pair, disabled_coins) -> None:
+    async def _handle_finished_order(self, dex_pair) -> None:
         """Handle a finished order."""
         dex_pair.pair.logger.info(
             "order FINISHED: {'name': '%s', 'pair': '%s', 'side': '%s', 'orderid': '%s'}",
@@ -108,7 +108,7 @@ class OrderStatusProcessor:
                 await dex_pair.t1.dex.request_addr()
             elif taker_sym == dex_pair.t2.symbol:
                 await dex_pair.t2.dex.request_addr()
-        await self.strategy_instance.handle_finished_order(dex_pair, disabled_coins)
+        await self.strategy_instance.handle_finished_order(dex_pair)
 
     async def _handle_error_swap_status(self, dex_pair) -> None:
         """Handle error swap status."""

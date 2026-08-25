@@ -95,7 +95,7 @@ class BasicSellerStrategyTester:
         self.pair.t1.cex.cex_price = t1_usd_price / 100000.0
         self.pair.t2.cex.cex_price = t2_usd_price / 100000.0
 
-    async def _process_status(self, disabled_coins=None, display=False):
+    async def _process_status(self, display=False):
         """Helper to process order status using OrderStatusProcessor."""
         from asyncio import Event
 
@@ -106,7 +106,7 @@ class BasicSellerStrategyTester:
             self.strategy,
             Event(),
         )
-        await processor.process(self.pair.dex, disabled_coins, display)
+        await processor.process(self.pair.dex, display)
 
     async def _test_sell_order_creation(self):
         """Tests that a SELL order is always created."""
@@ -300,16 +300,15 @@ class BasicSellerStrategyTester:
 
         with (
             self._patch_dependencies(),
-            patch.object(self.config_manager.general_log, "error") as mock_log_error,
         ):
-            # Act
-            self.strategy.build_buy_order_details(self.pair.dex)
-            self.strategy.determine_buy_price(self.pair.dex)
+            # Act & Assert: both methods should raise RuntimeError
+            with pytest.raises(RuntimeError, match="sell-only strategy"):
+                self.strategy.build_buy_order_details(self.pair.dex)
+            with pytest.raises(RuntimeError, match="sell-only strategy"):
+                self.strategy.determine_buy_price(self.pair.dex)
 
-            # Assert
-            assert mock_log_error.call_count == 2
             self.config_manager.general_log.info(
-                "[TEST PASSED] Buy methods correctly logged errors."
+                "[TEST PASSED] Buy methods correctly raise RuntimeError for sell-only strategy."
             )
 
     def _test_strategy_static_values(self):
@@ -320,8 +319,8 @@ class BasicSellerStrategyTester:
         )
 
         assert (
-                self.strategy.get_price_variation_tolerance(self.pair.dex)
-                == self.pair.dex.PRICE_VARIATION_TOLERANCE_DEFAULT
+            self.strategy.get_price_variation_tolerance(self.pair.dex)
+            == self.pair.dex.PRICE_VARIATION_TOLERANCE_DEFAULT
         )
         assert self.strategy.should_update_cex_prices() is True
         assert self.strategy.get_operation_interval() == 15
@@ -352,7 +351,9 @@ def mock_strategy_cli():
             min_sell_price_usd=0.5,
             sell_price_offset=0.01,
         )
-        config_manager.xbridge_manager._rpc_call = AsyncMock(return_value={"result": {}})
+        config_manager.xbridge_manager._rpc_call = AsyncMock(
+            return_value={"result": {}}
+        )
         return config_manager.strategy_instance
 
 

@@ -49,6 +49,7 @@ def mock_pair():
     token2.dex.address = "t2_addr"
 
     config_manager = MagicMock()
+    config_manager.disabled_coins = None
     config_manager.strategy_instance = MagicMock()
     config_manager.strategy_instance.get_dex_history_file_path.return_value = (
         "mock_history.yaml"
@@ -271,9 +272,9 @@ async def test_dex_create_order_xb_error(dex_pair):
 
     await dex_pair.create_order()
 
-    # For pingpong strategy (which this test uses), the order should be cleared by handle_order_status_error
+    # Order cleared by handle_order_status_error, pair not disabled by _handle_order_error
     assert dex_pair.order is None
-    assert dex_pair.disabled is True
+    assert dex_pair.disabled is False
     strategy_handle_error_mock.assert_called_once_with(dex_pair)
     dex_pair.pair.logger.error.assert_called()
 
@@ -287,7 +288,7 @@ def test_map_order_status_invalid(dex_pair):
 def test_init_virtual_order_no_disabled_coins(dex_pair):
     """Tests that init_virtual_order works when no coins are disabled."""
     # Should not mark pair as disabled
-    dex_pair.init_virtual_order(disabled_coins=None, display=False)
+    dex_pair.init_virtual_order(display=False)
     assert not dex_pair.disabled
 
 
@@ -330,7 +331,7 @@ async def test_update_taker_address_mismatch(dex_pair):
         dex_pair.pair.config_manager.strategy_instance,
         dex_pair.pair.config_manager.shutdown_event,
     )
-    await processor.process(dex_pair, disabled_coins=None, display=False)
+    await processor.process(dex_pair, display=False)
     dex_pair.t1.dex.request_addr.assert_not_awaited()
     dex_pair.t2.dex.request_addr.assert_not_awaited()
 
@@ -380,11 +381,11 @@ async def test_dex_at_order_finished(dex_pair):
             dex_pair.pair.config_manager.strategy_instance,
             dex_pair.pair.config_manager.shutdown_event,
         )
-        await processor.process(dex_pair, disabled_coins=[])
+        await processor.process(dex_pair)
 
         # Verify async calls were awaited
         addr_mock.assert_awaited_once()
-        handle_mock.assert_awaited_once_with(dex_pair, [])
+        handle_mock.assert_awaited_once_with(dex_pair)
         write_mock.assert_called_once()
 
     # Verify order history update
@@ -588,12 +589,12 @@ async def test_check_price_variation_cancellation(dex_pair):
     dex_pair.pair.config_manager.strategy_instance.reinit_virtual_order_after_price_variation = mock_reinit
 
     # Test with disabled_coins
-    disabled_coins = ["T3"]
-    await dex_pair.check_price_variation(disabled_coins, display=True)
+    dex_pair.pair.config_manager.disabled_coins = ["T3"]
+    await dex_pair.check_price_variation(display=True)
 
     # Verify cancellation and reinit
     mock_cancel.assert_awaited_once()
-    mock_reinit.assert_awaited_once_with(dex_pair, disabled_coins)
+    mock_reinit.assert_awaited_once_with(dex_pair)
 
 
 @pytest.mark.asyncio
@@ -621,11 +622,12 @@ async def test_status_open_flow(dex_pair):
         dex_pair.pair.config_manager.strategy_instance,
         dex_pair.pair.config_manager.shutdown_event,
     )
-    await processor.process(dex_pair, disabled_coins=["T3"], display=True)
+    dex_pair.pair.config_manager.disabled_coins = ["T3"]
+    await processor.process(dex_pair, display=True)
 
-    # Verify
+  # Verify
     mock_check_status.assert_awaited_once_with()
-    mock_check_price_var.assert_awaited_once_with(["T3"], display=True)
+    mock_check_price_var.assert_awaited_once_with(display=True)
 
 
 @pytest.mark.asyncio
@@ -633,7 +635,7 @@ async def test_handle_status_open_disabled_coins(dex_pair):
     """Tests cancellation when coins are disabled during open status inline via status_check."""
     # Setup
     dex_pair.order = {"id": "open_order", "status": "open"}
-    disabled_coins = ["T1", "T3"]  # T1 is in the pair
+    dex_pair.pair.config_manager.disabled_coins = ["T1", "T3"]  # T1 is in the pair
 
     # Mock checking logic
     dex_pair.check_order_status = AsyncMock(return_value=dex_pair.STATUS_OPEN)
@@ -647,7 +649,7 @@ async def test_handle_status_open_disabled_coins(dex_pair):
         dex_pair.pair.config_manager.strategy_instance,
         dex_pair.pair.config_manager.shutdown_event,
     )
-    await processor.process(dex_pair, disabled_coins, display=True)
+    await processor.process(dex_pair, display=True)
 
     # Verify cancellation occurred
     dex_pair.cancel_myorder_async.assert_awaited_once()
@@ -711,7 +713,7 @@ async def test_complex_status_workflow(dex_pair):
         dex_pair.pair.config_manager.strategy_instance,
         dex_pair.pair.config_manager.shutdown_event,
     )
-    await processor.process(dex_pair, disabled_coins=None, display=False)
+    await processor.process(dex_pair, display=False)
 
     # Verify status check and price validation
     mock_check_status.assert_called_once()
@@ -891,3 +893,390 @@ class TestCexPair:
         # Verify exception was handled
         mock_cex_pair.pair.error_handler.handle_async.assert_awaited()
         assert mock_cex_pair.cex_orderbook_timer is None  # Should be reset
+
+
+# =============================================================================
+# Bad Address Recovery Tests
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_bad_address_exception_auto_recovery(dex_pair):
+    """Tests that a 'Bad address' RPC exception triggers address regeneration and retry."""
+    from definitions.errors import OperationalError
+    from definitions.pair import RecoverState
+
+    strategy_mock = dex_pair.pair.config_manager.strategy_instance
+    strategy_mock.calculate_sell_price.return_value = 10.0
+    strategy_mock.build_sell_order_details.return_value = (1.0, 0.01)
+    dex_pair.create_virtual_sell_order()
+    dex_pair.t1.dex.free_balance = 2.0
+
+    bad_addr = dex_pair.current_order["maker_address"]
+    new_addr = "new regenerated addr"
+
+    async def mock_request_addr():
+        dex_pair.t1.dex.address = new_addr
+
+    dex_pair.t1.dex.request_addr = AsyncMock(side_effect=mock_request_addr)
+
+    result = await dex_pair._try_recover_bad_address(
+        OperationalError(f"RPC error -1: Bad address {bad_addr}"),
+    )
+
+    assert result is RecoverState.RECOVERED
+    assert dex_pair.t1.dex.request_addr.await_count == 1
+    assert dex_pair.current_order["maker_address"] == new_addr
+    assert dex_pair._bad_address_recovered is True
+
+
+@pytest.mark.asyncio
+async def test_bad_address_second_attempt_disables_pair(dex_pair):
+    """Tests that a second 'Bad address' after recovery disables the pair."""
+    from definitions.errors import OperationalError
+    from definitions.pair import RecoverState
+
+    strategy_mock = dex_pair.pair.config_manager.strategy_instance
+    strategy_mock.calculate_sell_price.return_value = 10.0
+    strategy_mock.build_sell_order_details.return_value = (1.0, 0.01)
+    dex_pair.create_virtual_sell_order()
+    dex_pair.t1.dex.free_balance = 2.0
+
+    bad_addr = dex_pair.current_order["maker_address"]
+
+    result1 = await dex_pair._try_recover_bad_address(
+        OperationalError(f"RPC error -1: Bad address {bad_addr}"),
+    )
+    assert result1 is RecoverState.RECOVERED
+
+    result2 = await dex_pair._try_recover_bad_address(
+        OperationalError(
+            f"RPC error -1: Bad address {dex_pair.current_order['maker_address']}"
+        ),
+    )
+    assert result2 is RecoverState.ALREADY_DISABLED
+    assert dex_pair.disabled is True
+    assert "Bad address persists" in dex_pair.disable_reason
+
+
+@pytest.mark.asyncio
+async def test_bad_address_taker_side_recovery(dex_pair):
+    """Tests that bad address on the taker side regenerates the correct token."""
+    from definitions.errors import OperationalError
+    from definitions.pair import RecoverState
+
+    strategy_mock = dex_pair.pair.config_manager.strategy_instance
+    strategy_mock.calculate_sell_price.return_value = 10.0
+    strategy_mock.build_sell_order_details.return_value = (1.0, 0.01)
+    dex_pair.create_virtual_sell_order()
+    dex_pair.t1.dex.free_balance = 2.0
+
+    bad_addr = dex_pair.current_order["taker_address"]
+    new_addr = "new taker addr"
+
+    async def mock_request_addr():
+        dex_pair.t2.dex.address = new_addr
+
+    dex_pair.t2.dex.request_addr = AsyncMock(side_effect=mock_request_addr)
+
+    result = await dex_pair._try_recover_bad_address(
+        OperationalError(f"RPC error -1: Bad address {bad_addr}"),
+    )
+
+    assert result is RecoverState.RECOVERED
+    assert dex_pair.t2.dex.request_addr.await_count == 1
+    assert dex_pair.current_order["taker_address"] == new_addr
+
+
+@pytest.mark.asyncio
+async def test_non_bad_address_error_returns_normal(dex_pair):
+    """Tests that non-bad-address OperationalErrors return NORMAL state."""
+    from definitions.errors import OperationalError
+    from definitions.pair import RecoverState
+
+    result = await dex_pair._try_recover_bad_address(
+        OperationalError("Some other error"),
+    )
+    assert result is RecoverState.NORMAL
+
+
+def test_extract_bad_address(dex_pair):
+    """Tests the _extract_bad_address static method."""
+    assert (
+        DexPair._extract_bad_address(
+            "rpc error -1: Bad address DFmUR6XrhQUMimYVjCVuh2fWChQ4jb7S9L"
+        )
+        == "DFmUR6XrhQUMimYVjCVuh2fWChQ4jb7S9L"
+    )
+    assert DexPair._extract_bad_address("rpc error: Bad address abc123") == "abc123"
+    assert DexPair._extract_bad_address("some other error") == ""
+
+
+def test_xbridge_error_code_constant():
+    """Tests that XBridgeErrorCode.BAD_ADDRESS is correctly defined."""
+    from definitions.constants import XBridgeErrorCode
+
+    assert XBridgeErrorCode.BAD_ADDRESS == 1026
+    assert not hasattr(XBridgeErrorCode, "RATE_LIMIT_EXCEEDED")
+
+
+@pytest.mark.asyncio
+async def test_create_order_full_bad_address_flow(dex_pair):
+    """Integration: _create_order detects bad address, regenerates, retries, succeeds."""
+    from definitions.errors import OperationalError
+
+    strategy_mock = dex_pair.pair.config_manager.strategy_instance
+    strategy_mock.calculate_sell_price.return_value = 10.0
+    strategy_mock.build_sell_order_details.return_value = (1.0, 0.01)
+    dex_pair.create_virtual_sell_order()
+    dex_pair.t1.dex.free_balance = 2.0
+
+    bad_addr = dex_pair.current_order["maker_address"]
+    new_addr = "fresh_new_addr"
+
+    call_count = [0]
+
+    async def fail_then_succeed(*args, **kwargs):
+        if call_count[0] == 0:
+            call_count[0] += 1
+            raise OperationalError(f"RPC error -1: Bad address {bad_addr}")
+        return {"id": "order_123", "status": "created"}
+
+    async def mock_request_addr():
+        dex_pair.t1.dex.address = new_addr
+
+    dex_pair.t1.dex.request_addr = AsyncMock(side_effect=mock_request_addr)
+    dex_pair.pair.xbridge_manager.makeorder = AsyncMock(side_effect=fail_then_succeed)
+
+    await dex_pair._create_order(dry_mode=False, maker_size="1.000000")
+
+    assert dex_pair.pair.xbridge_manager.makeorder.call_count == 2
+    assert dex_pair.pair.xbridge_manager.makeorder.call_args[0][2] == new_addr
+    assert dex_pair.order == {"id": "order_123", "status": "created"}
+    assert dex_pair.disabled is False
+
+
+@pytest.mark.asyncio
+async def test_create_order_bad_address_retry_fails_disables(dex_pair):
+    """Integration: _create_order detects bad address, regenerates, retry also fails → disabled."""
+    from definitions.errors import OperationalError
+
+    strategy_mock = dex_pair.pair.config_manager.strategy_instance
+    strategy_mock.calculate_sell_price.return_value = 10.0
+    strategy_mock.build_sell_order_details.return_value = (1.0, 0.01)
+    dex_pair.create_virtual_sell_order()
+    dex_pair.t1.dex.free_balance = 2.0
+
+    bad_addr = dex_pair.current_order["maker_address"]
+
+    async def always_fail(*args, **kwargs):
+        raise OperationalError(f"RPC error -1: Bad address {bad_addr}")
+
+    async def mock_request_addr():
+        dex_pair.t1.dex.address = "new_addr_but_still_bad"
+
+    dex_pair.t1.dex.request_addr = AsyncMock(side_effect=mock_request_addr)
+    dex_pair.pair.xbridge_manager.makeorder = AsyncMock(side_effect=always_fail)
+    dex_pair.pair.error_handler.handle_async = AsyncMock(return_value=True)
+
+    await dex_pair._create_order(dry_mode=False, maker_size="1.000000")
+
+    assert dex_pair.disabled is True
+    assert "Bad address persists" in dex_pair.disable_reason
+
+
+@pytest.mark.asyncio
+async def test_handle_order_error_response_bad_address_recovery(dex_pair):
+    """Tests response-based bad address recovery via _handle_order_error."""
+    from definitions.pair import RecoverState
+
+    strategy_mock = dex_pair.pair.config_manager.strategy_instance
+    strategy_mock.calculate_sell_price.return_value = 10.0
+    strategy_mock.build_sell_order_details.return_value = (1.0, 0.01)
+    strategy_mock.handle_order_status_error = AsyncMock()
+    dex_pair.create_virtual_sell_order()
+
+    bad_addr = dex_pair.current_order["maker_address"]
+    new_addr = "newaddr123"
+
+    async def mock_request_addr():
+        dex_pair.t1.dex.address = new_addr
+
+    dex_pair.t1.dex.request_addr = AsyncMock(side_effect=mock_request_addr)
+
+    dex_pair.order = {"error": f"Bad address {bad_addr}", "code": 1026}
+    result = await dex_pair._try_recover_bad_address_from_response(dex_pair.order)
+
+    assert result is RecoverState.RECOVERED
+    assert dex_pair.current_order["maker_address"] == new_addr
+    assert dex_pair._bad_address_recovered is True
+
+
+@pytest.mark.asyncio
+async def test_handle_order_error_response_bad_address_second_attempt_disables(
+    dex_pair,
+):
+    """Tests second response-based bad address disables the pair."""
+    from definitions.pair import RecoverState
+
+    strategy_mock = dex_pair.pair.config_manager.strategy_instance
+    strategy_mock.calculate_sell_price.return_value = 10.0
+    strategy_mock.build_sell_order_details.return_value = (1.0, 0.01)
+    strategy_mock.handle_order_status_error = AsyncMock()
+    dex_pair.create_virtual_sell_order()
+
+    bad_addr = dex_pair.current_order["maker_address"]
+
+    async def mock_request_addr():
+        dex_pair.t1.dex.address = "newaddr_but_still_bad"
+
+    dex_pair.t1.dex.request_addr = AsyncMock(side_effect=mock_request_addr)
+
+    dex_pair.order = {"error": f"Bad address {bad_addr}", "code": 1026}
+    await dex_pair._try_recover_bad_address_from_response(dex_pair.order)
+    assert dex_pair._bad_address_recovered is True
+
+    new_bad_addr = dex_pair.current_order["maker_address"]
+    dex_pair.order = {"error": f"Bad address {new_bad_addr}", "code": 1026}
+    result = await dex_pair._try_recover_bad_address_from_response(dex_pair.order)
+
+    assert result is RecoverState.ALREADY_DISABLED
+    assert dex_pair.disabled is True
+    assert "Bad address persists" in dex_pair.disable_reason
+
+
+@pytest.mark.asyncio
+async def test_handle_order_error_response_bad_address_clears_order(dex_pair):
+    """Tests that _handle_order_error clears stale order after bad-address recovery."""
+    strategy_mock = dex_pair.pair.config_manager.strategy_instance
+    strategy_mock.calculate_sell_price.return_value = 10.0
+    strategy_mock.build_sell_order_details.return_value = (1.0, 0.01)
+    dex_pair.create_virtual_sell_order()
+
+    bad_addr = dex_pair.current_order["maker_address"]
+    new_addr = "newaddr123"
+
+    async def mock_request_addr():
+        dex_pair.t1.dex.address = new_addr
+
+    dex_pair.t1.dex.request_addr = AsyncMock(side_effect=mock_request_addr)
+
+    dex_pair.order = {"error": f"Bad address {bad_addr}", "code": 1026}
+    await dex_pair._handle_order_error()
+
+    assert dex_pair.current_order["maker_address"] == new_addr
+    assert dex_pair._bad_address_recovered is True
+    assert dex_pair.order is None
+
+
+@pytest.mark.asyncio
+async def test_bad_address_recovery_buy_order_updates_maker_slot(dex_pair):
+    """Tests BUY-order recovery writes the regenerated maker (T2) address to the correct slot."""
+    from definitions.pair import RecoverState
+
+    strategy_mock = dex_pair.pair.config_manager.strategy_instance
+    strategy_mock.determine_buy_price.return_value = 9.0
+    strategy_mock.build_buy_order_details.return_value = (1.5, 0.02)
+    dex_pair.create_virtual_buy_order()
+
+    # BUY maps maker->T2 / taker->T1
+    assert dex_pair.current_order["maker"] == "T2"
+    bad_addr = dex_pair.current_order["maker_address"]
+    assert bad_addr == dex_pair.t2.dex.address
+
+    new_addr = "new_t2_addr"
+
+    async def mock_request_addr():
+        dex_pair.t2.dex.address = new_addr
+
+    dex_pair.t2.dex.request_addr = AsyncMock(side_effect=mock_request_addr)
+
+    result = await dex_pair._try_recover_bad_address(
+        Exception(f"Bad address {bad_addr}")
+    )
+
+    assert result is RecoverState.RECOVERED
+    # The slot that held the bad address must be updated, the untouched side preserved.
+    assert dex_pair.current_order["maker_address"] == new_addr
+    assert dex_pair.current_order["taker_address"] == "t1_addr"
+    assert dex_pair.t2.dex.request_addr.await_count == 1
+    assert dex_pair._bad_address_recovered is True
+
+
+@pytest.mark.asyncio
+async def test_bad_address_detection_is_case_insensitive(dex_pair):
+    """Tests recovery triggers regardless of error-message casing."""
+    from definitions.pair import RecoverState
+
+    strategy_mock = dex_pair.pair.config_manager.strategy_instance
+    strategy_mock.calculate_sell_price.return_value = 10.0
+    strategy_mock.build_sell_order_details.return_value = (1.0, 0.01)
+    dex_pair.create_virtual_sell_order()
+
+    bad_addr = dex_pair.current_order["maker_address"]
+    new_addr = "newaddr_ci"
+
+    async def mock_request_addr():
+        dex_pair.t1.dex.address = new_addr
+
+    dex_pair.t1.dex.request_addr = AsyncMock(side_effect=mock_request_addr)
+
+    result = await dex_pair._try_recover_bad_address(
+        Exception(f"BAD ADDRESS {bad_addr}")
+    )
+
+    assert result is RecoverState.RECOVERED
+    assert dex_pair.current_order["maker_address"] == new_addr
+
+
+@pytest.mark.asyncio
+async def test_bad_address_recovery_failure_disables_instead_of_raising(dex_pair):
+    """Tests unmatched-address recovery disables the pair instead of raising."""
+    from definitions.pair import RecoverState
+
+    strategy_mock = dex_pair.pair.config_manager.strategy_instance
+    strategy_mock.calculate_sell_price.return_value = 10.0
+    strategy_mock.build_sell_order_details.return_value = (1.0, 0.01)
+    dex_pair.create_virtual_sell_order()
+
+    result = await dex_pair._try_recover_bad_address(
+        Exception("Bad address unknown_addr_not_matching_any_token")
+    )
+
+    assert result is RecoverState.ALREADY_DISABLED
+    assert dex_pair.disabled is True
+    assert "unknown_addr" in dex_pair.disable_reason
+
+
+@pytest.mark.asyncio
+async def test_response_path_recovery_failure_disables_instead_of_raising(dex_pair):
+    """Tests unmatched-address recovery on the response path disables, not raises."""
+    from definitions.pair import RecoverState
+
+    strategy_mock = dex_pair.pair.config_manager.strategy_instance
+    strategy_mock.calculate_sell_price.return_value = 10.0
+    strategy_mock.build_sell_order_details.return_value = (1.0, 0.01)
+    dex_pair.create_virtual_sell_order()
+
+    result = await dex_pair._try_recover_bad_address_from_response(
+        {"error": "Bad address unknown_addr_not_matching_any_token", "code": 1026}
+    )
+
+    assert result is RecoverState.ALREADY_DISABLED
+    assert dex_pair.disabled is True
+    assert "unknown_addr" in dex_pair.disable_reason
+    assert dex_pair.order is None
+
+
+@pytest.mark.asyncio
+async def test_handle_order_error_non_bad_address_calls_strategy(dex_pair):
+    """Tests that _handle_order_error calls strategy handler for non-bad-address errors."""
+    strategy_mock = dex_pair.pair.config_manager.strategy_instance
+    strategy_mock.calculate_sell_price.return_value = 10.0
+    strategy_mock.build_sell_order_details.return_value = (1.0, 0.01)
+    strategy_mock.handle_order_status_error = AsyncMock()
+
+    dex_pair.order = {"error": "Some error", "code": 1001}
+    await dex_pair._handle_order_error()
+
+    strategy_mock.handle_order_status_error.assert_called_once_with(dex_pair)

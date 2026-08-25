@@ -19,7 +19,6 @@ def reset_xbridge_manager_class_vars():
     XBridgeManager._rpc_config = None
     XBridgeManager._utxo_cache = {}
     XBridgeManager._xbridge_conf_cache = None
-    XBridgeManager._xbridge_fees_cache = {}
     yield
 
 
@@ -180,26 +179,3 @@ def test_parse_xbridge_conf_file_not_found(xbridge_manager):
         manager.logger.error.assert_called_with(
             "xbridge.conf not found at /mock/datadir/xbridge.conf"
         )
-
-
-def test_calculate_xbridge_fees(xbridge_manager):
-    """Tests the fee estimation logic."""
-    manager = xbridge_manager
-    # Manually set the parsed conf
-    manager.xbridge_conf = {
-        "BLOCK": {"feeperbyte": 20, "mintxfee": 10000, "coin": 100000000},
-        "LTC": {"feeperbyte": 10, "mintxfee": 20000, "coin": 100000000},
-    }
-
-    manager.calculate_xbridge_fees()
-
-    assert "BLOCK" in manager.xbridge_fees_estimate
-    assert "LTC" in manager.xbridge_fees_estimate
-
-    # BLOCK fee: feeperbyte * 500 = 10000. This is equal to mintxfee.
-    assert manager.xbridge_fees_estimate["BLOCK"]["estimated_fee_satoshis"] == 10000
-    assert manager.xbridge_fees_estimate["BLOCK"]["estimated_fee_coin"] == 0.0001
-
-    # LTC fee: feeperbyte * 500 = 5000. This is less than mintxfee.
-    assert manager.xbridge_fees_estimate["LTC"]["estimated_fee_satoshis"] == 20000
-    assert manager.xbridge_fees_estimate["LTC"]["estimated_fee_coin"] == 0.0002

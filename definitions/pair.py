@@ -2,16 +2,26 @@ from __future__ import annotations
 
 import logging
 import math
+import re
 import time
+from enum import Enum, auto
 from typing import TYPE_CHECKING, Any
 
-from definitions.constants import IGNORABLE_XBRIDGE_ERROR_CODES
+from definitions.constants import XBridgeErrorCode
 from definitions.price_update_handler import PriceUpdateHandler
 from definitions.yaml_utils import load_yaml, save_yaml
 
 if TYPE_CHECKING:
     from definitions.config_manager import ConfigManager
     from definitions.token import Token
+
+
+class RecoverState(Enum):
+    """Return state for bad-address recovery attempt."""
+
+    NORMAL = auto()
+    RECOVERED = auto()
+    ALREADY_DISABLED = auto()
 
 
 class Pair:
@@ -90,6 +100,7 @@ class DexPair:
         self.orderbook: dict[str, Any] | None = None
         self.orderbook_timer: float | None = None
         self.order: dict[str, Any] | None = None
+        self._bad_address_recovered = False
         self.read_last_order_history()
 
     async def update_dex_orderbook(self):
@@ -282,7 +293,8 @@ class DexPair:
             self.pair.cex.price / self.current_order["org_pprice"],
         )
 
-    def init_virtual_order(self, disabled_coins=None, display=True):
+    def init_virtual_order(self, display=True):
+        disabled_coins = self.pair.config_manager.disabled_coins
         if disabled_coins and (
             self.t1.symbol in disabled_coins or self.t2.symbol in disabled_coins
         ):
@@ -346,63 +358,226 @@ class DexPair:
 
     async def _create_order(self, dry_mode, maker_size):
         try:
-            maker, maker_address = (
-                self.current_order["maker"],
-                self.current_order["maker_address"],
-            )
-            taker, taker_address = (
-                self.current_order["taker"],
-                self.current_order["taker_address"],
-            )
-            taker_size = f"{self.current_order['taker_size']:.6f}"
-
-            if dry_mode:
-                self.pair.logger.info(
-                    "dex_create_order, Dry mode. xb.makeorder(%s, %s, %s, %s, %s, %s)",
-                    maker,
-                    maker_size,
-                    maker_address,
-                    taker,
-                    taker_size,
-                    taker_address,
-                )
-                return
-
-            if self.partial_percent:
-                min_size = f"{self.current_order['minimum_size']:.6f}"
-                self.order = await self.pair.xbridge_manager.makepartialorder(
-                    maker,
-                    maker_size,
-                    maker_address,
-                    taker,
-                    taker_size,
-                    taker_address,
-                    min_size,
-                )
-            else:
-                self.order = await self.pair.xbridge_manager.makeorder(
-                    maker, maker_size, maker_address, taker, taker_size, taker_address
-                )
+            await self._do_make_order(dry_mode)
 
             if self.order and "error" in self.order:
                 await self._handle_order_error()
 
         except Exception as e:
-            context = {
-                "pair": self.pair.symbol,
-                "stage": "order_creation",
-                "error": str(e),
-            }
-            retry_or_continue = await self.pair.error_handler.handle_async(e, context)
-            if not retry_or_continue:
-                self.disabled = True
-                self.disable_reason = str(e)
+            self.pair.logger.debug(
+                "[RECOVERY] Pair %s - order creation failed: %s: %s",
+                self.symbol,
+                type(e).__name__,
+                e,
+            )
+            recovered = await self._try_recover_bad_address(e)
+            if recovered is RecoverState.ALREADY_DISABLED:
+                self.pair.logger.debug(
+                    "[RECOVERY] Pair %s - ALREADY_DISABLED, aborting", self.symbol
+                )
+                return
+            if recovered is RecoverState.RECOVERED:
+                self.pair.logger.info(
+                    "[RECOVERY] Pair %s - address regenerated, retrying order...",
+                    self.symbol,
+                )
+                try:
+                    await self._do_make_order(dry_mode)
+                    if self.order and "error" in self.order:
+                        await self._handle_order_error()
+                except Exception as retry_exc:
+                    self.pair.logger.debug(
+                        "[RECOVERY] Pair %s - retry failed: %s: %s",
+                        self.symbol,
+                        type(retry_exc).__name__,
+                        retry_exc,
+                    )
+                    recovered = await self._try_recover_bad_address(retry_exc)
+                    if recovered is RecoverState.NORMAL:
+                        context = {
+                            "pair": self.pair.symbol,
+                            "stage": "order_creation_retry",
+                            "error": str(retry_exc),
+                        }
+                        should_continue = await self.pair.error_handler.handle_async(
+                            retry_exc, context
+                        )
+                        if not should_continue:
+                            self.disabled = True
+                            self.disable_reason = str(retry_exc)
+            else:
+                self.pair.logger.debug(
+                    "[RECOVERY] Pair %s - not a bad-address error, passing to error handler",
+                    self.symbol,
+                )
+                context = {
+                    "pair": self.pair.symbol,
+                    "stage": "order_creation",
+                    "error": str(e),
+                }
+                retry_or_continue = await self.pair.error_handler.handle_async(
+                    e, context
+                )
+                if not retry_or_continue:
+                    self.disabled = True
+                    self.disable_reason = str(e)
+
+    async def _do_make_order(self, dry_mode):
+        """Execute the actual XBridge makeorder/makepartialorder RPC call."""
+        maker, maker_address = (
+            self.current_order["maker"],
+            self.current_order["maker_address"],
+        )
+        taker, taker_address = (
+            self.current_order["taker"],
+            self.current_order["taker_address"],
+        )
+        maker_size = f"{self.current_order['maker_size']:.6f}"
+        taker_size = f"{self.current_order['taker_size']:.6f}"
+
+        self.pair.logger.debug(
+            "[RECOVERY] Pair %s - making order: maker=%s (%s), taker=%s (%s)",
+            self.symbol,
+            maker,
+            maker_address,
+            taker,
+            taker_address,
+        )
+
+        if dry_mode:
+            self.pair.logger.info(
+                "dex_create_order, Dry mode. xb.makeorder(%s, %s, %s, %s, %s, %s)",
+                maker,
+                maker_size,
+                maker_address,
+                taker,
+                taker_size,
+                taker_address,
+            )
+            return
+
+        if self.partial_percent:
+            min_size = f"{self.current_order['minimum_size']:.6f}"
+            self.order = await self.pair.xbridge_manager.makepartialorder(
+                maker,
+                f"{self.current_order['maker_size']:.6f}",
+                maker_address,
+                taker,
+                taker_size,
+                taker_address,
+                min_size,
+            )
+        else:
+            self.order = await self.pair.xbridge_manager.makeorder(
+                maker,
+                f"{self.current_order['maker_size']:.6f}",
+                maker_address,
+                taker,
+                taker_size,
+                taker_address,
+            )
+
+    async def _try_recover_bad_address(self, exc: Exception) -> RecoverState:
+        """Detect bad-address errors and regenerate the affected token's address.
+
+        Returns RecoverState.NORMAL if not a bad-address error (caller handles normally).
+        Returns RecoverState.RECOVERED if address was regenerated (caller should retry).
+        Returns RecoverState.ALREADY_DISABLED if pair is now disabled (caller returns).
+        """
+        error_str = str(exc)
+        is_bad_addr = "bad address" in error_str.lower()
+        self.pair.logger.debug(
+            "[RECOVERY] Pair %s - checking exception %s: is_bad_address=%s",
+            self.symbol,
+            type(exc).__name__,
+            is_bad_addr,
+        )
+        if not is_bad_addr:
+            return RecoverState.NORMAL
+
+        if self._bad_address_recovered:
+            self.disabled = True
+            self.disable_reason = f"Bad address persists after regeneration: {exc}"
+            self.pair.logger.warning(
+                "[RECOVERY] Pair %s - already recovered once, disabling (second bad address)",
+                self.symbol,
+            )
+            return RecoverState.ALREADY_DISABLED
+
+        self.pair.logger.info(
+            "[RECOVERY] Pair %s - regenerating bad address...", self.symbol
+        )
+        try:
+            await self._regenerate_bad_address(error_str)
+        except RuntimeError as regen_err:
+            # Recovery is impossible (unextractable/unmatched address):
+            # terminate loudly instead of escaping and looping forever.
+            self.disabled = True
+            self.disable_reason = str(regen_err)
+            return RecoverState.ALREADY_DISABLED
+        return RecoverState.RECOVERED
+
+    @staticmethod
+    def _extract_bad_address(error_str):
+        """Extract the wallet address from a 'Bad address <addr>' error string.
+
+        The capture stops at the first non-word character, which naturally
+        excludes trailing punctuation from repr/str() of Python dicts.
+        """
+        match = re.search(r"bad\s+address\s+([\w]+)", error_str, re.IGNORECASE)
+        if match:
+            return match.group(1)
+        return ""
+
+    async def _regenerate_bad_address(self, error_str: str) -> None:
+        """Regenerate the token whose address appears in the bad-address error.
+
+        Updates the current_order slot(s) that held the bad address regardless
+        of order side (BUY maps maker->t2 / taker->t1, SELL the reverse).
+        Raises RuntimeError if the extracted address matches neither token.
+        """
+        bad_addr = self._extract_bad_address(error_str)
+        if not bad_addr:
+            self.pair.logger.critical(
+                "[RECOVERY] Pair %s - FAILED to extract bad address from: %s",
+                self.symbol,
+                error_str[:300],
+            )
+            raise RuntimeError(f"Could not extract bad address from: {error_str}")
+
+        token = None
+        if bad_addr == self.t1.dex.address:
+            token = self.t1
+        elif bad_addr == self.t2.dex.address:
+            token = self.t2
+        else:
+            self.pair.logger.critical(
+                "[RECOVERY] Pair %s - bad address %s matched neither token",
+                self.symbol,
+                bad_addr,
+            )
+            raise RuntimeError(
+                f"Bad address {bad_addr} matched neither token for {self.symbol}"
+            )
+
+        await token.dex.request_addr()
+        for slot in ("maker_address", "taker_address"):
+            if self.current_order[slot] == bad_addr:
+                self.current_order[slot] = token.dex.address
+        self._bad_address_recovered = True
 
     async def _handle_order_error(self):
         original_error = self.order
-        if original_error.get("code") not in IGNORABLE_XBRIDGE_ERROR_CODES:
-            self.disabled = True
-            self.disable_reason = str(original_error)
+        error_code = original_error.get("code")
+
+        if error_code == XBridgeErrorCode.BAD_ADDRESS:
+            recovered = await self._try_recover_bad_address_from_response(
+                original_error
+            )
+            if recovered is RecoverState.RECOVERED:
+                # Drop the id-less error dict so the next cycle places a fresh order.
+                self.order = None
+            return
 
         strategy_handler = getattr(
             self.pair.config_manager.strategy_instance,
@@ -418,6 +593,34 @@ class DexPair:
             self.symbol,
             original_error,
         )
+
+    async def _try_recover_bad_address_from_response(
+        self, order_error: dict
+    ) -> RecoverState:
+        """Recovery path for response-based bad-address errors (code 1026)."""
+        if self._bad_address_recovered:
+            self.disabled = True
+            self.disable_reason = (
+                f"Bad address persists after regeneration: {order_error}"
+            )
+            self.pair.logger.warning(
+                "[RECOVERY] Pair %s - already recovered once, disabling (second bad address, response path)",
+                self.symbol,
+            )
+            return RecoverState.ALREADY_DISABLED
+
+        error_msg = str(order_error)
+        self.pair.logger.info(
+            "[RECOVERY] Pair %s - regenerating bad address (response path)...",
+            self.symbol,
+        )
+        try:
+            await self._regenerate_bad_address(error_msg)
+        except RuntimeError as regen_err:
+            self.disabled = True
+            self.disable_reason = str(regen_err)
+            return RecoverState.ALREADY_DISABLED
+        return RecoverState.RECOVERED
 
     async def check_order_status(self) -> int:
         try:
@@ -469,7 +672,7 @@ class DexPair:
         if self.pair.strategy in ["pingpong", "basic_seller"]:
             self.order = None
 
-    async def check_price_variation(self, disabled_coins, display=False):
+    async def check_price_variation(self, display=False):
         if "side" in self.current_order and not self.check_price_in_range(
             display=display
         ):
@@ -487,7 +690,7 @@ class DexPair:
                 )
                 await self.cancel_myorder_async()
             await self.pair.config_manager.strategy_instance.reinit_virtual_order_after_price_variation(
-                self, disabled_coins
+                self
             )
 
     def _is_shutting_down(self) -> bool:
@@ -510,7 +713,7 @@ class CexPair:
         self.cex_orderbook_timer: float | None = None
 
     async def update_pricing(self, display=False):
-        if not hasattr(self.pair, '_price_update_handler'):
+        if not hasattr(self.pair, "_price_update_handler"):
             self.pair._price_update_handler = PriceUpdateHandler(
                 self.pair.ccxt_manager, self.pair.config_manager
             )
@@ -543,7 +746,9 @@ class CexPair:
             try:
                 self.cex_orderbook = (
                     await self.pair.ccxt_manager.ccxt_call_fetch_order_book(
-                        self.pair.config_manager.ccxt_manager.my_ccxt, self.symbol, limit
+                        self.pair.config_manager.ccxt_manager.my_ccxt,
+                        self.symbol,
+                        limit,
                     )
                 )
                 self.cex_orderbook_timer = time.time()
