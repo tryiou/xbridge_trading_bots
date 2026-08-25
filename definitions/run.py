@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 
 
 def run_async_main(
-        config_manager: "ConfigManager", startup_tasks: list[Callable] | None = None
+    config_manager: "ConfigManager", startup_tasks: list[Callable] | None = None
 ) -> None:
     """
     Run main application loop with proper signal handling and cleanup.
@@ -70,9 +70,9 @@ def run_async_main(
 
 
 async def main(
-        config_manager: "ConfigManager",
-        loop: asyncio.AbstractEventLoop,
-        startup_tasks: list[Callable] | None = None,
+    config_manager: "ConfigManager",
+    loop: asyncio.AbstractEventLoop,
+    startup_tasks: list[Callable] | None = None,
 ) -> None:
     """
     Execute the main trading loop.
@@ -132,7 +132,7 @@ async def main(
                     flush_timer = current_time
 
                 sleep_needed: float = operation_interval - (
-                        current_time - operation_timer
+                    current_time - operation_timer
                 )
                 if sleep_needed <= 0:
                     await controller.main_loop()

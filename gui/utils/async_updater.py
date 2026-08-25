@@ -17,13 +17,13 @@ class AsyncUpdater:
     """
 
     def __init__(
-            self,
-            tk_widget: Any,
-            update_target_method: Callable,
-            fetch_data_callable: Callable,
-            update_interval_ms: int = 1500,
-            process_interval_ms: int = 250,
-            name: str = "AsyncUpdater",
+        self,
+        tk_widget: Any,
+        update_target_method: Callable,
+        fetch_data_callable: Callable,
+        update_interval_ms: int = 1500,
+        process_interval_ms: int = 250,
+        name: str = "AsyncUpdater",
     ):
         """
         Initializes the AsyncUpdater.
@@ -114,8 +114,8 @@ class AsyncUpdater:
 
                 # Check for stop signal in queue
                 if (
-                        not self._update_queue.empty()
-                        and self._update_queue.queue[0] is None
+                    not self._update_queue.empty()
+                    and self._update_queue.queue[0] is None
                 ):
                     self._update_queue.get()  # Consume the None
                     break

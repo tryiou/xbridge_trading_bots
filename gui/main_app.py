@@ -100,12 +100,12 @@ class MainApplication:
         with self.master_config_manager.resource_lock:
             for frame in self.strategy_frames.values():
                 if getattr(frame, "config_manager", None) and hasattr(
-                        frame.config_manager, "tokens"
+                    frame.config_manager, "tokens"
                 ):
                     tokens = frame.config_manager.tokens
                     for token_symbol, token_obj in tokens.items():
                         if getattr(token_obj, "cex", None) and getattr(
-                                token_obj, "dex", None
+                            token_obj, "dex", None
                         ):
                             balance_total = token_obj.dex_total_balance or 0.0
                             balance_free = token_obj.dex_free_balance or 0.0
@@ -333,7 +333,7 @@ class MainApplication:
             all_tokens = {}
             for frame in self.strategy_frames.values():
                 if getattr(frame, "config_manager", None) and hasattr(
-                        frame.config_manager, "tokens"
+                    frame.config_manager, "tokens"
                 ):
                     for token_symbol, token_obj in frame.config_manager.tokens.items():
                         all_tokens[token_symbol] = token_obj

@@ -158,16 +158,18 @@ class TestCCXTManager:
         mock_rpc_call.return_value = {}
         mock_ccxt = MagicMock()
         # Mock proxy_manager.ensure_running to avoid actually starting proxy
-        with patch.object(self.manager.proxy_manager, "ensure_running"), \
-             patch("definitions.ccxt_manager.is_port_open", return_value=True):
+        with (
+            patch.object(self.manager.proxy_manager, "ensure_running"),
+            patch("definitions.ccxt_manager.is_port_open", return_value=True),
+        ):
             await self.manager.ccxt_call_fetch_tickers(mock_ccxt, ["BTC/USDT"])
             mock_rpc_call.assert_awaited_once()
 
     def test_start_proxy_handles_process_creation_failure(self):
         proxy = ProxyManager()
         with patch(
-                "definitions.proxy_manager.AsyncPriceService",
-                side_effect=OSError("Process error"),
+            "definitions.proxy_manager.AsyncPriceService",
+            side_effect=OSError("Process error"),
         ):
             proxy.ensure_running()
             # Verify the proxy process is set to None after failure

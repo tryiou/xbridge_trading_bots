@@ -72,10 +72,10 @@ class CircuitBreaker(Generic[T]):
     """
 
     def __init__(
-            self,
-            name: str,
-            config: CircuitBreakerConfig | None = None,
-            logger: logging.Logger | None = None,
+        self,
+        name: str,
+        config: CircuitBreakerConfig | None = None,
+        logger: logging.Logger | None = None,
     ):
         self.name = name
         self.config = config or CircuitBreakerConfig()
@@ -252,7 +252,7 @@ class CircuitBreakerManager:
         self._lock = asyncio.Lock()
 
     def get_breaker(
-            self, name: str, config: CircuitBreakerConfig | None = None
+        self, name: str, config: CircuitBreakerConfig | None = None
     ) -> CircuitBreaker:
         """Get or create a circuit breaker by name."""
         if name not in self._breakers:
@@ -261,12 +261,12 @@ class CircuitBreakerManager:
         return self._breakers[name]
 
     async def call(
-            self,
-            breaker_name: str,
-            func: Callable[..., T],
-            *args: Any,
-            config: CircuitBreakerConfig | None = None,
-            **kwargs: Any,
+        self,
+        breaker_name: str,
+        func: Callable[..., T],
+        *args: Any,
+        config: CircuitBreakerConfig | None = None,
+        **kwargs: Any,
     ) -> T:
         """Execute a function with circuit breaker protection."""
         breaker = self.get_breaker(breaker_name, config)

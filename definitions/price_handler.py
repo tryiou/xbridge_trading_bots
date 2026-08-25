@@ -19,10 +19,10 @@ class PriceHandler:
     """Handles updating token prices from CEX sources."""
 
     def __init__(
-            self,
-            main_controller: "MainController",
-            loop: asyncio.AbstractEventLoop,
-            price_update_handler: PriceUpdateHandler | None = None,
+        self,
+        main_controller: "MainController",
+        loop: asyncio.AbstractEventLoop,
+        price_update_handler: PriceUpdateHandler | None = None,
     ) -> None:
         """
         Initialize PriceHandler.
@@ -56,8 +56,8 @@ class PriceHandler:
 
         now: float = time.time()
         if (
-                self.ccxt_price_timer is None
-                or now - self.ccxt_price_timer > CCXT_PRICE_REFRESH_INTERVAL
+            self.ccxt_price_timer is None
+            or now - self.ccxt_price_timer > CCXT_PRICE_REFRESH_INTERVAL
         ):
             try:
                 await self._fetch_and_update_prices()
@@ -148,7 +148,7 @@ class PriceHandler:
         return get_price_field_for_exchange(self.config_manager.ccxt_manager.my_ccxt.id)
 
     def _update_token_price(
-            self, tickers: dict, symbol: str, price_key: str, token_data: Token
+        self, tickers: dict, symbol: str, price_key: str, token_data: Token
     ) -> None:
         """
         Update a token's price from ticker data.

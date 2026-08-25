@@ -146,7 +146,7 @@ class PriceFetcher:
                     )
                     # Handle invalid ticker responses (non-dict/non-iterable)
                     if not isinstance(tickers, dict) and not hasattr(
-                            tickers, "__iter__"
+                        tickers, "__iter__"
                     ):
                         logger.error(f"Invalid tickers response type: {type(tickers)}")
                     else:
@@ -284,7 +284,7 @@ class WebServer:
         self.refresh_interval = 15
 
     def _error_response(
-            self, code: int, message: str, request_id: Any, status: int
+        self, code: int, message: str, request_id: Any, status: int
     ) -> web.Response:
         """Creates and returns a standardized JSON-RPC error web response."""
         return web.json_response(
@@ -373,7 +373,9 @@ class WebServer:
 class AsyncPriceService:
     """Main service class that orchestrates everything."""
 
-    def __init__(self, config_path: str = "./config/config_ccxt.yaml", port: int = 2233):
+    def __init__(
+        self, config_path: str = "./config/config_ccxt.yaml", port: int = 2233
+    ):
         self.config = YamlToObject(config_path)
         self.session = None
         self.fetcher = None

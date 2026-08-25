@@ -33,7 +33,7 @@ class TreeviewMixin:
             )
 
     def _on_key_press_scroll(
-            self, event: tk.Event, canvas: tk.Canvas, direction: int
+        self, event: tk.Event, canvas: tk.Canvas, direction: int
     ) -> None:
         """
         Handles key press events for scrolling the canvas, avoiding interference with Treeview focus.
@@ -41,23 +41,23 @@ class TreeviewMixin:
         # Check if the focus is currently on a Treeview within this config window
         # This prevents the canvas from scrolling when the user intends to scroll the Treeview
         if (
-                self.config_window
-                and hasattr(self, "pairs_treeview")
-                and self.pairs_treeview
-                and self.config_window.focus_get() == self.pairs_treeview
+            self.config_window
+            and hasattr(self, "pairs_treeview")
+            and self.pairs_treeview
+            and self.config_window.focus_get() == self.pairs_treeview
         ):
             return
         if (
-                self.config_window
-                and hasattr(self, "sellers_treeview")
-                and self.sellers_treeview
-                and self.config_window.focus_get() == self.sellers_treeview
+            self.config_window
+            and hasattr(self, "sellers_treeview")
+            and self.sellers_treeview
+            and self.config_window.focus_get() == self.sellers_treeview
         ):
             return
         canvas.yview_scroll(direction, "units")
 
     def _create_scrollable_content_frame(
-            self, parent_frame: ttk.Frame
+        self, parent_frame: ttk.Frame
     ) -> tuple[tk.Canvas, ttk.Frame]:
         """
         Creates a canvas and an inner frame for scrollable content.
@@ -82,10 +82,10 @@ class TreeviewMixin:
         return canvas, content_frame
 
     def _create_treeview_with_scrollbar(
-            self,
-            parent_frame: ttk.LabelFrame,
-            columns: list[tuple[str, str]],
-            height: int = 8,
+        self,
+        parent_frame: ttk.LabelFrame,
+        columns: list[tuple[str, str]],
+        height: int = 8,
     ) -> ttk.Treeview:
         """
         Creates a ttk.Treeview widget with a vertical scrollbar.
@@ -122,14 +122,14 @@ class TreeviewMixin:
         return treeview
 
     def _create_control_buttons_for_treeview(
-            self,
-            parent_frame: ttk.Frame,
-            add_command: Callable,
-            remove_command: Callable,
-            edit_command: Callable,
-            add_text: str = "Add",
-            remove_text: str = "Remove",
-            edit_text: str = "Edit",
+        self,
+        parent_frame: ttk.Frame,
+        add_command: Callable,
+        remove_command: Callable,
+        edit_command: Callable,
+        add_text: str = "Add",
+        remove_text: str = "Remove",
+        edit_text: str = "Edit",
     ) -> None:
         """
         Creates standard Add, Remove, and Edit buttons for a Treeview.

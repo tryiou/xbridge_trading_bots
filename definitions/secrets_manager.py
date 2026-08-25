@@ -59,9 +59,7 @@ class SecretsManager:
             if not key.startswith(f"{self.ENV_PREFIX}EXCHANGE_"):
                 continue
 
-            match = _ENV_EXCHANGE_CREDENTIAL_RE.match(
-                key[len(self.ENV_PREFIX) :]
-            )
+            match = _ENV_EXCHANGE_CREDENTIAL_RE.match(key[len(self.ENV_PREFIX) :])
             if not match:
                 continue
 

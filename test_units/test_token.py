@@ -80,7 +80,10 @@ async def test_dex_token_request_addr_failure(token):
 async def test_dex_token_write_address_success(token):
     """Test DexToken.write_address success case."""
     token.dex.address = "new_address"
-    with patch("builtins.open", create=True), patch("definitions.token.save_yaml") as mock_dump:
+    with (
+        patch("builtins.open", create=True),
+        patch("definitions.token.save_yaml") as mock_dump,
+    ):
         await token.dex.write_address()
         mock_dump.assert_called_once()
         token.config_manager.error_handler.handle_async.assert_not_awaited()
@@ -215,7 +218,6 @@ async def test_cex_token_update_price_exchange_success(token):
 
     assert token.cex.cex_price == 0.0002
     assert token.cex.usd_price == pytest.approx(0.0002 * 50000.0)
-
 
     await token.price_update_handler.update(token.cex)
 

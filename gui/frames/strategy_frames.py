@@ -20,7 +20,7 @@ class PingPongFrame(StandardStrategyFrame):
     """
 
     def __init__(
-            self, parent, main_app: "MainApplication", master_config_manager: ConfigManager
+        self, parent, main_app: "MainApplication", master_config_manager: ConfigManager
     ):
         super().__init__(parent, main_app, "pingpong", master_config_manager)
 
@@ -37,7 +37,7 @@ class BasicSellerFrame(StandardStrategyFrame):
     """
 
     def __init__(
-            self, parent, main_app: "MainApplication", master_config_manager: ConfigManager
+        self, parent, main_app: "MainApplication", master_config_manager: ConfigManager
     ):
         super().__init__(parent, main_app, "basic_seller", master_config_manager)
 
@@ -56,7 +56,7 @@ class ArbitrageFrame(StandardStrategyFrame):
     """
 
     def __init__(
-            self, parent, main_app: "MainApplication", master_config_manager: ConfigManager
+        self, parent, main_app: "MainApplication", master_config_manager: ConfigManager
     ):
         super().__init__(parent, main_app, "arbitrage", master_config_manager)
 

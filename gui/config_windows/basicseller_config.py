@@ -58,17 +58,15 @@ class GUI_Config_BasicSeller(BaseConfigWindow, TreeviewMixin):
         for col, (width, anchor) in col_configs.items():
             self.sellers_treeview.column(col, width=width, anchor=anchor)
 
-        self.sellers_treeview.bind(
-            "<Double-1>", lambda _: self.edit_seller_config()
-        )
+        self.sellers_treeview.bind("<Double-1>", lambda _: self.edit_seller_config())
         self._populate_sellers_treeview()
 
     def _populate_sellers_treeview(self):
         """Populates the sellers Treeview with data from the configuration manager."""
         if (
-                self.sellers_treeview
-                and self.parent.config_manager
-                and self.parent.config_manager.config_basicseller
+            self.sellers_treeview
+            and self.parent.config_manager
+            and self.parent.config_manager.config_basicseller
         ):
             for cfg in self.parent.config_manager.config_basicseller.seller_configs:
                 self.sellers_treeview.insert(

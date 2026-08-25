@@ -65,7 +65,7 @@ async def test_unified_shutdown_sequence():
 
     # Patch wait_for pending RPCs
     with patch(
-            "definitions.shutdown.wait_for_pending_rpcs", new_callable=AsyncMock
+        "definitions.shutdown.wait_for_pending_rpcs", new_callable=AsyncMock
     ) as mock_wait_rpc:
         # Act
         await ShutdownCoordinator.unified_shutdown(mock_cm)

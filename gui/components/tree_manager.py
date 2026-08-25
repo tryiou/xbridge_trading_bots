@@ -15,10 +15,10 @@ class TreeManager:
     """
 
     def __init__(
-            self,
-            parent_frame: ttk.Frame,
-            columns: list[tuple[str, str, int]],
-            redraw_callback: Callable,
+        self,
+        parent_frame: ttk.Frame,
+        columns: list[tuple[str, str, int]],
+        redraw_callback: Callable,
     ):
         self.parent = parent_frame
         self.columns = columns

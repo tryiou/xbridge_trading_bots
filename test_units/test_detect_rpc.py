@@ -94,7 +94,7 @@ def test_prompt_user_for_config_path_console():
 @patch("ttkbootstrap.Style")
 @patch("ttkbootstrap.Bootstyle.setup_ttkbootstrap_api")
 def test_prompt_user_for_config_path_dialog(
-        mock_setup_api, mock_style, mock_tk, mock_askopenfilename
+    mock_setup_api, mock_style, mock_tk, mock_askopenfilename
 ):
     """Test tkinter dialog for config path."""
     mock_askopenfilename.return_value = "/path/from/dialog/blocknet.conf"
@@ -124,7 +124,7 @@ def test_save_and_load_config_path_yaml(tmp_path):
 @patch("definitions.detect_rpc.load_config_path_from_yaml")
 @patch("os.path.exists")
 def test_detect_rpc_flow(
-        mock_exists, mock_load_yaml, mock_get_default, mock_prompt, mock_read_config
+    mock_exists, mock_load_yaml, mock_get_default, mock_prompt, mock_read_config
 ):
     """Test the complete logic flow of detect_rpc."""
 

@@ -8,7 +8,7 @@ if TYPE_CHECKING:
 
 
 async def wait_for_pending_rpcs(
-        config_manager: "ConfigManager", timeout: int = 30
+    config_manager: "ConfigManager", timeout: int = 30
 ) -> None:
     """Universal function to wait for pending RPCs to complete"""
     start_time = time.time()

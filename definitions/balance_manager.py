@@ -13,10 +13,10 @@ class BalanceManager:
     """Manages token balance updates for the trading system."""
 
     def __init__(
-            self,
-            tokens_dict: dict[str, Token],
-            config_manager: "ConfigManager",
-            loop: asyncio.AbstractEventLoop,
+        self,
+        tokens_dict: dict[str, Token],
+        config_manager: "ConfigManager",
+        loop: asyncio.AbstractEventLoop,
     ) -> None:
         """
         Initialize BalanceManager.
@@ -40,9 +40,9 @@ class BalanceManager:
         """
         strategy_instance = getattr(self.config_manager, "strategy_instance", None)
         if (
-                strategy_instance
-                and hasattr(strategy_instance, "dry_mode")
-                and strategy_instance.dry_mode
+            strategy_instance
+            and hasattr(strategy_instance, "dry_mode")
+            and strategy_instance.dry_mode
         ):
             self.config_manager.general_log.debug(
                 "Skipping balance update in dry_mode."
@@ -83,12 +83,12 @@ class BalanceManager:
     def _should_update_bals(self) -> bool:
         """Determine if balance update interval has elapsed."""
         return (
-                self.timer_main_dx_update_bals is None
-                or time.time() - self.timer_main_dx_update_bals > UPDATE_BALANCES_DELAY
+            self.timer_main_dx_update_bals is None
+            or time.time() - self.timer_main_dx_update_bals > UPDATE_BALANCES_DELAY
         )
 
     async def _update_token_balance(
-            self, token_data: Token, xb_tokens: list[str]
+        self, token_data: Token, xb_tokens: list[str]
     ) -> None:
         """
         Update balance for a single token.

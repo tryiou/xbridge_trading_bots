@@ -137,7 +137,7 @@ def test_column_sorting_logic():
     )
 
     for i, (actual_key, expected_key) in enumerate(
-            zip(actual_sort_keys, expected_sort_keys_order, strict=False)
+        zip(actual_sort_keys, expected_sort_keys_order, strict=False)
     ):
         # For float values, direct comparison is fine unless NaN is involved.
         # For string values, direct comparison is fine.
@@ -159,7 +159,7 @@ def test_column_sorting_logic():
     )
 
     for i, (actual_key, expected_key) in enumerate(
-            zip(actual_sort_keys_desc, expected_sort_keys_order_desc, strict=False)
+        zip(actual_sort_keys_desc, expected_sort_keys_order_desc, strict=False)
     ):
         assert actual_key == expected_key, (
             f"Descending Mismatch at index {i}: Expected {expected_key}, Got {actual_key}"

@@ -13,11 +13,11 @@ from definitions.rpc import is_port_open, rpc_call
 
 class CCXTManager:
     def __init__(
-            self,
-            config_manager: Any,
-            logger: logging.Logger | None = None,
-            error_handler: ErrorHandler | None = None,
-            proxy_manager: ProxyManager | None = None,
+        self,
+        config_manager: Any,
+        logger: logging.Logger | None = None,
+        error_handler: ErrorHandler | None = None,
+        proxy_manager: ProxyManager | None = None,
     ) -> None:
         self.cex_orderbook: dict[str, Any] | None = None
         self.cex_orderbook_timer: float | None = None
@@ -33,16 +33,18 @@ class CCXTManager:
         self.proxy_manager = proxy_manager or ProxyManager()
 
     def init_ccxt_instance(
-            self,
-            exchange: str,
-            hostname: str | None = None,
-            private_api: bool = False,
-            debug_level: int = 1,
+        self,
+        exchange: str,
+        hostname: str | None = None,
+        private_api: bool = False,
+        debug_level: int = 1,
     ) -> Any:
         api_key: str | None = None
         api_secret: str | None = None
         if private_api:
-            api_keys_data = self.config_manager.config_loader.secrets_manager.get_api_keys()
+            api_keys_data = (
+                self.config_manager.config_loader.secrets_manager.get_api_keys()
+            )
             for data in api_keys_data.get("api_info", []):
                 if exchange.lower() in data.get("exchange", "").lower():
                     api_key = data.get("api_key")
@@ -98,7 +100,7 @@ class CCXTManager:
             return None
 
     async def _ccxt_blocking_call_with_retry(
-            self, func: Any, context: dict[str, Any], *args: Any
+        self, func: Any, context: dict[str, Any], *args: Any
     ) -> Any:
         """Helper method to run a blocking CCXT function with retry and error handling.
 
@@ -124,25 +126,25 @@ class CCXTManager:
                 context_with_err_count = {**context, "err_count": err_count}
                 # The handler will convert the exception type appropriately.
                 if not await self.error_handler.handle_async(
-                        error, context=context_with_err_count
+                    error, context=context_with_err_count
                 ):
                     return None
 
     async def ccxt_call_fetch_order_book(
-            self, ccxt_o: Any, symbol: str, limit: int = 25, ignore_timer: bool = False
+        self, ccxt_o: Any, symbol: str, limit: int = 25, ignore_timer: bool = False
     ) -> dict[str, Any] | None:
         update_cex_orderbook_timer_delay = 2
         if (
-                ignore_timer
-                or self.cex_orderbook_timer is None
-                or time.time() - self.cex_orderbook_timer > update_cex_orderbook_timer_delay
+            ignore_timer
+            or self.cex_orderbook_timer is None
+            or time.time() - self.cex_orderbook_timer > update_cex_orderbook_timer_delay
         ):
             self.cex_orderbook = await self._fetch_order_book(ccxt_o, symbol, limit)
             self.cex_orderbook_timer = time.time()
         return self.cex_orderbook
 
     async def _fetch_order_book(
-            self, ccxt_o: Any, symbol: str, limit: int
+        self, ccxt_o: Any, symbol: str, limit: int
     ) -> dict[str, Any] | None:
         context = {"method": "_fetch_order_book", "symbol": symbol, "limit": limit}
         result = await self._ccxt_blocking_call_with_retry(
@@ -152,9 +154,7 @@ class CCXTManager:
             self._debug_display("ccxt_call_fetch_order_book", [symbol, limit], result)
         return result
 
-    async def ccxt_call_fetch_free_balance(
-            self, ccxt_o: Any
-    ) -> dict[str, Any] | None:
+    async def ccxt_call_fetch_free_balance(self, ccxt_o: Any) -> dict[str, Any] | None:
         context = {"method": "ccxt_call_fetch_free_balance"}
         result = await self._ccxt_blocking_call_with_retry(
             ccxt_o.fetch_free_balance, context
@@ -164,7 +164,7 @@ class CCXTManager:
         return result
 
     async def ccxt_call_fetch_tickers(
-            self, ccxt_o: Any, symbols_list: list[str], proxy: bool = True
+        self, ccxt_o: Any, symbols_list: list[str], proxy: bool = True
     ) -> dict[str, Any] | None:
         start = time.time()
         err_count = 0
@@ -215,7 +215,7 @@ class CCXTManager:
                     return None
 
     async def ccxt_call_fetch_ticker(
-            self, ccxt_o: Any, symbol: str
+        self, ccxt_o: Any, symbol: str
     ) -> dict[str, Any] | None:
         context = {"method": "ccxt_call_fetch_ticker", "symbol": symbol}
         result = await self._ccxt_blocking_call_with_retry(
@@ -226,7 +226,7 @@ class CCXTManager:
         return result
 
     def _debug_display(
-            self, func: str, params: Any, result: Any, timer: float | None = None
+        self, func: str, params: Any, result: Any, timer: float | None = None
     ) -> None:
         debug_level = self.config_manager.config_ccxt.debug_level
         if debug_level < 2:

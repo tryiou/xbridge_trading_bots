@@ -65,8 +65,8 @@ class GUIShutdownCoordinator:
             if hasattr(self.main_app, "balance_stop_event"):
                 self.main_app.balance_stop_event.set()
             if (
-                    hasattr(self.main_app, "balance_updater_thread")
-                    and self.main_app.balance_updater_thread.is_alive()
+                hasattr(self.main_app, "balance_updater_thread")
+                and self.main_app.balance_updater_thread.is_alive()
             ):
                 self.main_app.balance_updater_thread.join(2.0)
             logger.info("Balance updater stopped.")

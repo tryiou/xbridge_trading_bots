@@ -66,7 +66,7 @@ class BaseStrategy(ABC):
         return f"{self.config_manager.ROOT_DIR}/data/{self.config_manager.strategy}_{token_symbol}_addr.yaml"
 
     def get_tokens_from_pair_configs(
-            self, pair_configs: list[dict[str, Any]]
+        self, pair_configs: list[dict[str, Any]]
     ) -> list[str]:
         tokens = set()
         for cfg in pair_configs:
@@ -77,11 +77,11 @@ class BaseStrategy(ABC):
         return list(tokens)
 
     def _create_pairs_from_configs(
-            self,
-            configs: list[dict[str, Any]],
-            tokens_dict: dict,
-            strategy_name: str,
-            **extra_kwargs,
+        self,
+        configs: list[dict[str, Any]],
+        tokens_dict: dict,
+        strategy_name: str,
+        **extra_kwargs,
     ) -> dict:
         """DRY helper method to generate Pair objects from config arrays."""
         from definitions.pair import Pair

@@ -32,22 +32,14 @@ class PriceUpdateHandler:
             return
 
         token = cex_token.token
-        cex_symbol = (
-            "BTC/USDT" if token.symbol == "BTC" else f"{token.symbol}/BTC"
-        )
-        my_ccxt = (
-            self.ccxt_manager.my_ccxt
-            if self.config_manager
-            else None
-        )
+        cex_symbol = "BTC/USDT" if token.symbol == "BTC" else f"{token.symbol}/BTC"
+        my_ccxt = self.ccxt_manager.my_ccxt if self.config_manager else None
         exchange_id = getattr(my_ccxt, "id", "default") if my_ccxt else "default"
         lastprice_string = get_price_field_for_exchange(exchange_id)
 
         async def fetch_ticker_async(symbol: str) -> float | None:
             try:
-                ticker = await self.ccxt_manager.ccxt_call_fetch_ticker(
-                    my_ccxt, symbol
-                )
+                ticker = await self.ccxt_manager.ccxt_call_fetch_ticker(my_ccxt, symbol)
             except Exception as e:
                 await cex_token.token.error_handler.handle_async(
                     e,

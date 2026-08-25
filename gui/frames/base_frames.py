@@ -22,11 +22,11 @@ class BaseStrategyFrame(ttk.Frame):
     """Base class for strategy-specific frames in the GUI with centralized error handling."""
 
     def __init__(
-            self,
-            parent,
-            main_app: "MainApplication",
-            strategy_name: str,
-            master_config_manager: ConfigManager,
+        self,
+        parent,
+        main_app: "MainApplication",
+        strategy_name: str,
+        master_config_manager: ConfigManager,
     ):
         super().__init__(parent)
         self.main_app = main_app
@@ -76,8 +76,8 @@ class BaseStrategyFrame(ttk.Frame):
         if not hasattr(self.config_manager, "strategy_instance"):
             raise RuntimeError("Strategy not properly initialized")
         if (
-                self.config_manager.strategy_instance
-                and self.config_manager.strategy_instance.is_running
+            self.config_manager.strategy_instance
+            and self.config_manager.strategy_instance.is_running
         ):
             raise RuntimeError("Bot thread already running")
 
@@ -149,9 +149,9 @@ class BaseStrategyFrame(ttk.Frame):
             )
 
         if (
-                self.config_manager
-                and self.config_manager.strategy_instance
-                and self.config_manager.strategy_instance.is_running
+            self.config_manager
+            and self.config_manager.strategy_instance
+            and self.config_manager.strategy_instance.is_running
         ):
             self.config_manager.general_log.warning(
                 "Bot thread did not terminate gracefully."
@@ -221,16 +221,16 @@ class BaseStrategyFrame(ttk.Frame):
         return (
             "V"
             if status
-               in {
-                   "open",
-                   "new",
-                   "created",
-                   "accepting",
-                   "hold",
-                   "initialized",
-                   "committed",
-                   "finished",
-               }
+            in {
+                "open",
+                "new",
+                "created",
+                "accepting",
+                "hold",
+                "initialized",
+                "committed",
+                "finished",
+            }
             else "X"
         )
 
@@ -253,9 +253,9 @@ class BaseStrategyFrame(ttk.Frame):
                 order_id = "None"
 
                 if (
-                        self.started
-                        and pair_obj.dex.order
-                        and "status" in pair_obj.dex.order
+                    self.started
+                    and pair_obj.dex.order
+                    and "status" in pair_obj.dex.order
                 ):
                     status = pair_obj.dex.order.get("status", "None")
                     current_order_side = (
@@ -298,9 +298,9 @@ class BaseStrategyFrame(ttk.Frame):
 
                 variation_display = "None"
                 if (
-                        self.started
-                        and pair_obj.dex.order
-                        and "status" in pair_obj.dex.order
+                    self.started
+                    and pair_obj.dex.order
+                    and "status" in pair_obj.dex.order
                 ):
                     variation_display = str(pair_obj.dex.variation)
 
@@ -390,11 +390,11 @@ class BaseStrategyFrame(ttk.Frame):
 
 class StandardStrategyFrame(BaseStrategyFrame, metaclass=abc.ABCMeta):
     def __init__(
-            self,
-            parent,
-            main_app: "MainApplication",
-            strategy_name: str,
-            master_config_manager: ConfigManager,
+        self,
+        parent,
+        main_app: "MainApplication",
+        strategy_name: str,
+        master_config_manager: ConfigManager,
     ):
         self.orders_panel: OrdersPanel
         self.gui_config: BaseConfigWindow

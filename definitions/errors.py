@@ -11,9 +11,7 @@ class AppError(Exception):
 
     context: dict[str, Any]
 
-    def __init__(
-            self, message: str, context: dict[str, Any] | None = None
-    ) -> None:
+    def __init__(self, message: str, context: dict[str, Any] | None = None) -> None:
         super().__init__(message)
         self.context = context or {}
         # Preserve original cause for better debugging
@@ -68,9 +66,7 @@ class RPCConfigError(ConfigurationError):
             - keys: Missing configuration keys
     """
 
-    def __init__(
-            self, message: str, context: dict[str, Any] | None = None
-    ) -> None:
+    def __init__(self, message: str, context: dict[str, Any] | None = None) -> None:
         super().__init__(message, context)
 
 

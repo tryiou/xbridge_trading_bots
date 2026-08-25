@@ -245,6 +245,7 @@ async def test_price_handler_custom_coin(mock_config_manager):
     # Set up custom_tickers - need to set on mock_config_manager because
     # PriceHandler accesses self.config_manager which is mock_controller.config_manager
     from types import SimpleNamespace
+
     custom_tickers = SimpleNamespace()
     custom_tickers.TEST = 0.5
     mock_config_manager.config_coins = MagicMock()

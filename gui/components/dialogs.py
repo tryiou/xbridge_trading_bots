@@ -84,11 +84,11 @@ class BasePairDialog(BaseDialog):
     """Base dialog for adding/editing PingPong pairs."""
 
     def __init__(
-            self,
-            parent,
-            config: "GUI_Config_PingPong",
-            title: str,
-            values: tuple | None = None,
+        self,
+        parent,
+        config: "GUI_Config_PingPong",
+        title: str,
+        values: tuple | None = None,
     ):
         super().__init__(parent, config, title)
 
@@ -173,7 +173,7 @@ class AddPairDialog(BasePairDialog):
 
     def on_add(self):
         if not self._validate_pair(self.pair_var) or not self._validate_numeric(
-                self.var_tol_var, self.sell_offset_var, self.usd_amt_var, self.spread_var
+            self.var_tol_var, self.sell_offset_var, self.usd_amt_var, self.spread_var
         ):
             return
         self.result = self._get_values()
@@ -182,7 +182,7 @@ class AddPairDialog(BasePairDialog):
 
 class PairConfigDialog(BasePairDialog):
     def __init__(
-            self, parent: tk.Toplevel, values: tuple, config: "GUI_Config_PingPong"
+        self, parent: tk.Toplevel, values: tuple, config: "GUI_Config_PingPong"
     ) -> None:
         super().__init__(parent, config, "Edit Pair Configuration", values=values)
         self.pair_entry.config(state="readonly")
@@ -190,7 +190,7 @@ class PairConfigDialog(BasePairDialog):
 
     def on_save(self) -> None:
         if not self._validate_numeric(
-                self.var_tol_var, self.sell_offset_var, self.usd_amt_var, self.spread_var
+            self.var_tol_var, self.sell_offset_var, self.usd_amt_var, self.spread_var
         ):
             self.result = None
             return
@@ -202,11 +202,11 @@ class BaseSellerDialog(BaseDialog):
     """Base dialog for adding/editing BasicSeller instances."""
 
     def __init__(
-            self,
-            parent,
-            config: "GUI_Config_BasicSeller",
-            title: str,
-            values: tuple | None = None,
+        self,
+        parent,
+        config: "GUI_Config_BasicSeller",
+        title: str,
+        values: tuple | None = None,
     ):
         super().__init__(parent, config, title)
 
@@ -282,7 +282,7 @@ class AddSellerDialog(BaseSellerDialog):
 
     def on_add(self):
         if not self._validate_pair(self.pair_var) or not self._validate_numeric(
-                self.amount_var, self.min_price_var, self.offset_var
+            self.amount_var, self.min_price_var, self.offset_var
         ):
             return
         self.result = self._get_values()
@@ -291,7 +291,7 @@ class AddSellerDialog(BaseSellerDialog):
 
 class SellerConfigDialog(BaseSellerDialog):
     def __init__(
-            self, parent: tk.Toplevel, values: tuple, config: "GUI_Config_BasicSeller"
+        self, parent: tk.Toplevel, values: tuple, config: "GUI_Config_BasicSeller"
     ) -> None:
         super().__init__(parent, config, "Edit Seller Instance", values=values)
         self.pair_entry.config(state="readonly")
@@ -299,7 +299,7 @@ class SellerConfigDialog(BaseSellerDialog):
 
     def on_save(self) -> None:
         if not self._validate_numeric(
-                self.amount_var, self.min_price_var, self.offset_var
+            self.amount_var, self.min_price_var, self.offset_var
         ):
             self.result = None
             return

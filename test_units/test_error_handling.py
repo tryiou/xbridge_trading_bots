@@ -99,7 +99,11 @@ class ErrorHandlingVisitor(ast.NodeVisitor):
                     break
             if not has_context and len(node.exc.args) > 1:
                 second_arg = node.exc.args[1]
-                if isinstance(second_arg, ast.Dict) or (isinstance(second_arg, ast.Call) and hasattr(second_arg.func, "id") and second_arg.func.id == "dict"):
+                if isinstance(second_arg, ast.Dict) or (
+                    isinstance(second_arg, ast.Call)
+                    and hasattr(second_arg.func, "id")
+                    and second_arg.func.id == "dict"
+                ):
                     has_context = True
 
             if not has_context:

@@ -625,7 +625,7 @@ async def test_status_open_flow(dex_pair):
     dex_pair.pair.config_manager.disabled_coins = ["T3"]
     await processor.process(dex_pair, display=True)
 
-  # Verify
+    # Verify
     mock_check_status.assert_awaited_once_with()
     mock_check_price_var.assert_awaited_once_with(display=True)
 

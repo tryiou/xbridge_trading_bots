@@ -328,7 +328,10 @@ async def test_block_ticker_error_handling():
     fetcher = PriceFetcher(config, session)
     fetcher.ccxt_i = AsyncMock()
 
-    with patch("asyncio.sleep", new_callable=AsyncMock), pytest.raises(aiohttp.ClientError, match="API timeout"):
+    with (
+        patch("asyncio.sleep", new_callable=AsyncMock),
+        pytest.raises(aiohttp.ClientError, match="API timeout"),
+    ):
         await fetcher.get_block_ticker()
 
 
@@ -415,10 +418,13 @@ async def test_network_failure_scenarios(mock_price_fetcher):
             await fetcher.get_ccxt_tickers("BTC/USD")
 
         fetcher.custom_tickers = {}  # Clear cache
-        with patch(
+        with (
+            patch(
                 "aiohttp.ClientSession.get",
                 side_effect=aiohttp.ClientError("Simulated network failure"),
-        ), pytest.raises(aiohttp.ClientError):
+            ),
+            pytest.raises(aiohttp.ClientError),
+        ):
             await fetcher.get_block_ticker()
 
 

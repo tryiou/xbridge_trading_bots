@@ -787,7 +787,7 @@ def test_start_failure_handling(gui_app):
 
     # Force startup failure
     with patch.object(
-            pingpong_frame, "_pre_start_validation", side_effect=Exception("Test error")
+        pingpong_frame, "_pre_start_validation", side_effect=Exception("Test error")
     ):
         pingpong_frame.start()
         app.root.update_idletasks()
@@ -817,9 +817,9 @@ def test_stop_failure_handling(gui_app):
 
     # Force shutdown failure
     with patch.object(
-            pingpong_frame,
-            "_signal_controller_shutdown",
-            side_effect=Exception("Test error"),
+        pingpong_frame,
+        "_signal_controller_shutdown",
+        side_effect=Exception("Test error"),
     ):
         # Simulate error display
         app.status_var.get.return_value = "Error stopping PingPong bot: Test error"
@@ -924,7 +924,7 @@ def test_initialization_failure(gui_app):
 
     # Force an exception during initialization
     with patch.object(
-            MainApplication, "__init__", side_effect=Exception("Initialization error")
+        MainApplication, "__init__", side_effect=Exception("Initialization error")
     ):
         # Simulate the error being handled by the GUI
         app.on_initialization_failure = MagicMock()
@@ -1043,7 +1043,7 @@ def test_error_propagation_to_ui(gui_app, tk_root):  # <-- Add tk_root fixture
 
     # Force an exception in _pre_start_validation
     with patch.object(
-            frame, "_pre_start_validation", side_effect=Exception("Test error")
+        frame, "_pre_start_validation", side_effect=Exception("Test error")
     ):
         frame.start()
 

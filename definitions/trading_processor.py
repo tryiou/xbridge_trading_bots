@@ -42,9 +42,7 @@ class TradingProcessor:
             if asyncio.iscoroutinefunction(target_function):
                 task: asyncio.Task[Any] = target_function(pair)
             else:
-                task = self.controller.loop.run_in_executor(
-                    None, target_function, pair
-                )
+                task = self.controller.loop.run_in_executor(None, target_function, pair)
             pair_tasks.append((pair, task))
 
         if pair_tasks:

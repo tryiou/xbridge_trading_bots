@@ -98,7 +98,7 @@ def generate_completed_table(completed_cycles):
         # Add a check to ensure both orders have the necessary data before processing
         required_keys = ["maker", "taker", "maker_size", "taker_size"]
         if not all(key in sell_order for key in required_keys) or not all(
-                key in buy_order for key in required_keys
+            key in buy_order for key in required_keys
         ):
             logger.warning(
                 f"Skipping incomplete completed cycle. SELL: {sell_order}, BUY: {buy_order}"
@@ -173,7 +173,7 @@ def generate_inprogress_table(in_progress_cycle):
     for sell in in_progress_cycle:
         # Check for required keys to prevent crashes on incomplete log entries
         if not all(
-                key in sell for key in ["maker", "taker", "maker_size", "taker_size"]
+            key in sell for key in ["maker", "taker", "maker_size", "taker_size"]
         ):
             logger.warning(
                 f"Skipping incomplete in-progress order due to missing keys: {sell}"

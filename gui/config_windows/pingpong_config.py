@@ -91,9 +91,9 @@ class GUI_Config_PingPong(BaseConfigWindow, TreeviewMixin):
     def _populate_pairs_treeview(self) -> None:
         """Populates the pairs Treeview with data from the configuration manager."""
         if (
-                self.pairs_treeview
-                and self.parent.config_manager
-                and self.parent.config_manager.config_pingpong
+            self.pairs_treeview
+            and self.parent.config_manager
+            and self.parent.config_manager.config_pingpong
         ):
             for cfg in self.parent.config_manager.config_pingpong.pair_configs:
                 self.pairs_treeview.insert(

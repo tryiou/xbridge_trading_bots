@@ -30,7 +30,11 @@ class ProxyManager:
     def ensure_running(self) -> None:
         """Start the proxy service if not already running."""
         with self._lock:
-            if self._service_instance is not None and self._service_thread and self._service_thread.is_alive():
+            if (
+                self._service_instance is not None
+                and self._service_thread
+                and self._service_thread.is_alive()
+            ):
                 return
             self._logger.info(f"Starting proxy service on port {self._port}...")
             try:
@@ -56,9 +60,7 @@ class ProxyManager:
         """Register a strategy using the proxy. Increments reference count."""
         with self._lock:
             self._ref_count += 1
-            self._logger.debug(
-                f"Strategy registered. New refcount: {self._ref_count}"
-            )
+            self._logger.debug(f"Strategy registered. New refcount: {self._ref_count}")
 
     def unregister(self) -> None:
         """Unregister a strategy. Stops proxy if refcount reaches 0."""
