@@ -14,6 +14,7 @@ def tk_root():
         root = tk.Tk()
     except tk.TclError as error:
         pytest.skip(f"Tk display not available: {error}")
+    root.withdraw()  # never show windows on the tester's desktop
     yield root
     root.destroy()
 

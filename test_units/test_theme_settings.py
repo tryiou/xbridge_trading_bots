@@ -13,10 +13,13 @@ from gui.utils.theming import (
 
 
 class FakeColors:
-    """Minimal Colors stand-in exposing only the background color."""
+    """Minimal Colors stand-in exposing only the colors the palette needs."""
 
-    def __init__(self, bg: str):
+    def __init__(self, bg: str, fg: str, warning: str, danger: str):
         self.bg = bg
+        self.fg = fg
+        self.warning = warning
+        self.danger = danger
 
 
 class FakeStyle:
@@ -27,11 +30,14 @@ class FakeStyle:
         names: list[str],
         current: str = DEFAULT_THEME,
         bg: str = "#222222",
+        fg: str = "#ffffff",
+        warning: str = "#ffaa00",
+        danger: str = "#ff3333",
         mode: str = "dark",
     ):
         self._names = set(names)
         self._current = current
-        self.colors = FakeColors(bg)
+        self.colors = FakeColors(bg, fg, warning, danger)
         self.theme_mode = mode
 
     def theme_names(self) -> tuple[str, ...]:
@@ -161,6 +167,31 @@ class TestRowColors:
         assert _hex_value(odd) < _hex_value(even)
 
 
+class TestLogPalette:
+    def test_dark_mode_uses_theme_colors(self):
+        from gui.utils.theming import log_palette
+
+        palette = log_palette(FakeStyle([DEFAULT_THEME], mode="dark"))
+        assert palette["background"] == "#222222"
+        assert palette["foreground"] == palette["INFO"] == "#ffffff"
+        assert palette["insertbackground"] == "#ffffff"
+        assert palette["WARNING"] == "#ffaa00"
+        assert palette["ERROR"] == palette["CRITICAL"] == "#ff3333"
+
+    def test_debug_dimmer_than_foreground_on_dark(self):
+        from gui.utils.theming import log_palette
+
+        palette = log_palette(FakeStyle([DEFAULT_THEME], mode="dark"))
+        assert _hex_value(palette["DEBUG"]) < _hex_value(palette["foreground"])
+
+    def test_debug_dimmer_than_foreground_on_light(self):
+        from gui.utils.theming import log_palette
+
+        palette = log_palette(FakeStyle(["dracula-light"], fg="#1a1a1a", mode="light"))
+        # On light themes "dim" means lighter (closer to the background).
+        assert _hex_value(palette["DEBUG"]) > _hex_value(palette["foreground"])
+
+
 @pytest.fixture(scope="module")
 def tk_root():
     import tkinter as tk
@@ -169,37 +200,56 @@ def tk_root():
         root = tk.Tk()
     except tk.TclError as error:
         pytest.skip(f"Tk display not available: {error}")
+    root.withdraw()  # never show windows on the tester's desktop
     yield root
     root.destroy()
 
 
+@pytest.fixture
+def fresh_style(tk_root):
+    """Yield a Style bound to this module's root, not a stale singleton.
+
+    ttkbootstrap's Style is a process-wide singleton bound to whatever Tk
+    root existed when first created; earlier test modules leave one behind.
+    Tests that switch themes and assert on live recoloring must run against
+    a style sharing their own interpreter, so the singleton is reset here
+    and the previous instance restored afterwards.
+    """
+    pytest.importorskip("ttkbootstrap")
+
+    from ttkbootstrap import Style
+
+    previous = Style.instance
+    Style.instance = None
+    try:
+        style = Style(theme=DEFAULT_THEME)
+    except BaseException:
+        Style.instance = previous
+        raise
+    yield style
+    Style.instance = previous
+
+
 class TestApplySavedThemeDisplay:
-    def test_real_style_switches_theme(self, tk_root, tmp_path, monkeypatch):
+    def test_real_style_switches_theme(self, fresh_style, tmp_path, monkeypatch):
         """Integration with a real Style, skipped without a display."""
-        pytest.importorskip("ttkbootstrap")
-
-        from ttkbootstrap import Style
-
         settings_file = str(tmp_path / "gui_settings.yaml")
         monkeypatch.setattr(theming, "THEME_SETTINGS_PATH", settings_file)
         theming.save_yaml(settings_file, {"theme": "nord-dark"})
 
-        style = Style(theme=DEFAULT_THEME)
-        assert apply_saved_theme(style) == "nord-dark"
-        assert style.theme_use() == "nord-dark"
+        assert apply_saved_theme(fresh_style) == "nord-dark"
+        assert fresh_style.theme_use() == "nord-dark"
 
-    def test_row_colors_follow_live_theme_switch(self, tk_root, monkeypatch):
+    def test_row_colors_follow_live_theme_switch(
+        self, tk_root, fresh_style, monkeypatch
+    ):
         """Row tag colors update when the theme changes at runtime."""
-        pytest.importorskip("ttkbootstrap")
-
         from tkinter import ttk
-
-        from ttkbootstrap import Style
 
         from gui.utils.theming import apply_row_colors
 
         monkeypatch.setattr(theming, "THEME_SETTINGS_PATH", "/nonexistent")
-        style = Style(theme=DEFAULT_THEME)
+        style = fresh_style
         tree = ttk.Treeview(tk_root, columns=["a"], show="headings")
         apply_row_colors(tree)
         dark_even = tree.tag_configure("evenrow")["background"]
@@ -249,15 +299,11 @@ class TestTagAlternatingRowsDisplay:
         assert self._row_tags(tree) == ["evenrow", "oddrow", "evenrow"]
         tree.destroy()
 
-    def test_tag_colors_follow_theme_switch(self, tk_root, monkeypatch):
-        pytest.importorskip("ttkbootstrap")
-
-        from ttkbootstrap import Style
-
+    def test_tag_colors_follow_theme_switch(self, tk_root, fresh_style, monkeypatch):
         from gui.utils.theming import attach_row_color_listener
 
         monkeypatch.setattr(theming, "THEME_SETTINGS_PATH", "/nonexistent")
-        style = Style(theme=DEFAULT_THEME)
+        style = fresh_style
         tree = self._make_tree(tk_root)
         remove_listener = attach_row_color_listener(tree)
         tree.insert("", "end", values=("x",))
@@ -271,3 +317,37 @@ class TestTagAlternatingRowsDisplay:
         assert dark_even != light_even
         remove_listener()
         tree.destroy()
+
+
+class TestLogThemeListenerDisplay:
+    def test_log_colors_follow_live_theme_switch(
+        self, tk_root, fresh_style, monkeypatch
+    ):
+        """Log recolors when <<ThemeChanged>> reaches it after a theme switch."""
+        import tkinter as tk
+
+        from gui.utils.theming import attach_log_theme_listener
+
+        monkeypatch.setattr(theming, "THEME_SETTINGS_PATH", "/nonexistent")
+        style = fresh_style
+        text = tk.Text(tk_root)
+        attach_log_theme_listener(text)
+        text.insert("end", "info line\n", ("INFO",))
+        dark_bg = text.configure("background")[4]
+        dark_info = text.tag_configure("INFO")["foreground"]
+        assert dark_info  # tag configured at attach time
+
+        style.theme_use("dracula-light")
+        # Generate on the widget itself: synthetic delivery of the exact
+        # event the listener handles, independent of Tk's per-interp,
+        # per-widget-class broadcast quirks.
+        text.event_generate("<<ThemeChanged>>")
+        tk_root.update()
+        light_bg = text.configure("background")[4]
+        light_info = text.tag_configure("INFO")["foreground"]
+
+        assert dark_bg != light_bg
+        assert dark_info != light_info
+        underline = text.tag_configure("CRITICAL")["underline"]
+        assert underline and underline[-1] in (1, "1")
+        text.destroy()

@@ -6,6 +6,8 @@ import time
 import tkinter as tk
 from tkinter import ttk
 
+from gui.utils.theming import attach_log_theme_listener
+
 logger = logging.getLogger(__name__)
 
 # Constants for log management
@@ -31,21 +33,13 @@ class LogFrame(ttk.Frame):
             wrap="word",
             state="disabled",
             height=10,
-            background="#222",
-            foreground="white",
         )
+        attach_log_theme_listener(self.log_text)
         scrollbar = ttk.Scrollbar(self, orient="vertical", command=self.log_text.yview)
         self.log_text.configure(yscrollcommand=scrollbar.set)
 
         self.log_text.grid(row=0, column=0, sticky="nsew")
         scrollbar.grid(row=0, column=1, sticky="ns")
-
-        # Configure tags for different log levels
-        self.log_text.tag_config("INFO", foreground="white")
-        self.log_text.tag_config("DEBUG", foreground="gray")
-        self.log_text.tag_config("WARNING", foreground="orange")
-        self.log_text.tag_config("ERROR", foreground="red")
-        self.log_text.tag_config("CRITICAL", foreground="red", underline=1)
 
     def add_log(self, message: str, level: str):
         """

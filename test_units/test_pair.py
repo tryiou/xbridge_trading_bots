@@ -16,7 +16,7 @@ from definitions.token import CexToken, DexToken, Token
 
 
 @pytest.fixture
-def mock_pair():
+def mock_pair(tmp_path):
     """Fixture to create a mock Pair instance for DexPair testing."""
     token1 = MagicMock(spec=Token)
     token1.symbol = "T1"
@@ -51,8 +51,8 @@ def mock_pair():
     config_manager = MagicMock()
     config_manager.disabled_coins = None
     config_manager.strategy_instance = MagicMock()
-    config_manager.strategy_instance.get_dex_history_file_path.return_value = (
-        "mock_history.yaml"
+    config_manager.strategy_instance.get_dex_history_file_path.return_value = str(
+        tmp_path / "mock_history.yaml"
     )
     config_manager.general_log = MagicMock()
     config_manager.error_handler = MagicMock()
@@ -296,8 +296,7 @@ def test_write_last_order_history_failure(dex_pair):
     """Tests error handling in write_last_order_history."""
     file_path = dex_pair._get_history_file_path()
     dex_pair.order_history = {"side": "SELL"}
-    with patch("builtins.open", mock_open()) as mock_file:
-        mock_file.return_value.__enter__.side_effect = OSError("Disk full")
+    with patch("definitions.pair.save_yaml", side_effect=OSError("Disk full")):
         dex_pair.write_last_order_history()
         # Verify error handler was called with expected exception type
         handle_call_args = dex_pair.pair.error_handler.handle.call_args

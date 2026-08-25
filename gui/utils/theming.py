@@ -281,3 +281,73 @@ def tag_alternating_rows(tree: ttk.Treeview) -> None:
     for index, item_id in enumerate(tree.get_children()):
         tag = "evenrow" if index % 2 == 0 else "oddrow"
         tree.item(item_id, tags=(tag,))
+
+
+_DEBUG_DIM_DELTA_LIGHT: float = 0.15
+_DEBUG_DIM_DELTA_DARK: float = -0.15
+
+_LOG_LEVELS: tuple[str, ...] = ("INFO", "DEBUG", "WARNING", "ERROR", "CRITICAL")
+
+
+def log_palette(style: Style) -> dict[str, str]:
+    """Derive log-console colors from the active theme.
+
+    The mapping keys double as Text-widget options ("background",
+    "foreground", "insertbackground") and log-level tag names; values are
+    hex colors readable against the theme background in both modes.
+
+    Args:
+        style: ttkbootstrap Style instance with a theme applied.
+
+    Returns:
+        Mapping of Text option / level-tag name to hex color.
+    """
+    colors = style.colors
+    dim_delta = (
+        _DEBUG_DIM_DELTA_LIGHT if style.theme_mode == "light" else _DEBUG_DIM_DELTA_DARK
+    )
+    return {
+        "background": str(colors.bg),
+        "foreground": str(colors.fg),
+        "insertbackground": str(colors.fg),
+        "INFO": str(colors.fg),
+        "DEBUG": _shift_brightness(str(colors.fg), dim_delta),
+        "WARNING": str(colors.warning),
+        "ERROR": str(colors.danger),
+        "CRITICAL": str(colors.danger),
+    }
+
+
+def attach_log_theme_listener(text: tk.Text) -> None:
+    """Style a log Text widget from the active theme and recolor on change.
+
+    Bound on both the toplevel and the widget: which of the two receives
+    ``<<ThemeChanged>>`` varies across Tk versions and platforms for
+    non-ttk widgets, so both are registered and the idempotent apply makes
+    duplicate delivery harmless. Level tags already applied to existing
+    lines restyle retroactively. No remover is provided: the log console
+    lives for the whole application lifetime.
+
+    Args:
+        text: Text widget used as the application log console.
+    """
+
+    def apply() -> None:
+        style = Style.get_instance()
+        if style is None:
+            logger.debug("No Style instance available; keeping log colors")
+            return
+        palette = log_palette(style)
+        with contextlib.suppress(tk.TclError):
+            text.configure(
+                background=palette["background"],
+                foreground=palette["foreground"],
+                insertbackground=palette["insertbackground"],
+            )
+            for level in _LOG_LEVELS:
+                text.tag_configure(level, foreground=palette[level])
+            text.tag_configure("CRITICAL", underline=1)
+
+    apply()
+    text.bind("<<ThemeChanged>>", lambda event: apply(), add="+")
+    text.winfo_toplevel().bind("<<ThemeChanged>>", lambda event: apply(), add="+")
