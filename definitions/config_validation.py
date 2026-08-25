@@ -124,11 +124,6 @@ class PingPongConfigValidator(ConfigValidator):
             if not isinstance(debug_level, int) or not (0 <= debug_level <= 10):
                 result.add_error("debug_level must be an integer between 0 and 10")
 
-        if "ttk_theme" in config:
-            theme = config["ttk_theme"]
-            if not isinstance(theme, str) or not theme.strip():
-                result.add_error("ttk_theme must be a non-empty string")
-
         if "pair_configs" not in config:
             result.add_error("Missing required field: pair_configs")
             return result

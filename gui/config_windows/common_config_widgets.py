@@ -3,6 +3,8 @@ import tkinter as tk
 from collections.abc import Callable
 from tkinter import ttk
 
+from gui.utils.theming import attach_row_color_listener
+
 
 class TreeviewMixin:
     """
@@ -101,6 +103,7 @@ class TreeviewMixin:
             show="headings",
             height=height,
         )
+        attach_row_color_listener(treeview)
 
         for col_id, display_name in columns:
             treeview.heading(col_id, text=display_name)

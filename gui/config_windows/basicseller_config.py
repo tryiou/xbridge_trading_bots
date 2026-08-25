@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any
 from gui.components.dialogs import AddSellerDialog, SellerConfigDialog
 from gui.config_windows.base_config_window import BaseConfigWindow
 from gui.config_windows.common_config_widgets import TreeviewMixin
+from gui.utils.theming import tag_alternating_rows
 
 if TYPE_CHECKING:
     from gui.frames.base_frames import BaseStrategyFrame
@@ -81,6 +82,7 @@ class GUI_Config_BasicSeller(BaseConfigWindow, TreeviewMixin):
                         cfg.get("sell_price_offset", 0.0),
                     ),
                 )
+            tag_alternating_rows(self.sellers_treeview)
 
     def _create_control_buttons_area(self, parent_frame: ttk.Frame):
         """Creates control buttons (Add, Remove, Edit) for seller configurations."""
@@ -106,6 +108,7 @@ class GUI_Config_BasicSeller(BaseConfigWindow, TreeviewMixin):
         dialog = self._open_single_dialog(AddSellerDialog, self)
         if dialog.result and self.sellers_treeview:
             self.sellers_treeview.insert("", "end", values=dialog.result)
+            tag_alternating_rows(self.sellers_treeview)
             self.update_status(
                 f"Seller {dialog.result[2]} added successfully.", "lightgreen"
             )
@@ -116,6 +119,7 @@ class GUI_Config_BasicSeller(BaseConfigWindow, TreeviewMixin):
             selected = self.sellers_treeview.selection()
             if selected:
                 self.sellers_treeview.delete(selected)
+                tag_alternating_rows(self.sellers_treeview)
                 self.update_status("Selected seller removed.", "lightgray")
 
     def edit_seller_config(self):

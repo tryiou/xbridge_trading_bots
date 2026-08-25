@@ -6,6 +6,8 @@ import re
 from collections.abc import Callable
 from tkinter import ttk
 
+from gui.utils.theming import attach_row_color_listener
+
 logger = logging.getLogger(__name__)
 
 
@@ -34,6 +36,7 @@ class TreeManager:
         self.tree.configure(yscrollcommand=self.scroll.set)
 
         self._clean_pattern = re.compile(r"[$%,\[\]]")
+        self._remove_row_color_listener: Callable[[], None] | None = None
         self._setup_tree()
 
         self.sort_column: str | None = None
@@ -63,11 +66,13 @@ class TreeManager:
             with contextlib.suppress(Exception):
                 self.parent.after_cancel(self._after_id)
         self._after_id = None
+        if self._remove_row_color_listener:
+            self._remove_row_color_listener()
+            self._remove_row_color_listener = None
 
     def _setup_tree(self):
         """Configures tree columns, bindings, and appearance."""
-        self.tree.tag_configure("evenrow", background="#333333")
-        self.tree.tag_configure("oddrow", background="#404040")
+        self._remove_row_color_listener = attach_row_color_listener(self.tree)
 
         total_weight = sum(col[2] for col in self.columns)
 

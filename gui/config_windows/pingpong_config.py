@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any
 from gui.components.dialogs import AddPairDialog, PairConfigDialog
 from gui.config_windows.base_config_window import BaseConfigWindow
 from gui.config_windows.common_config_widgets import TreeviewMixin
+from gui.utils.theming import tag_alternating_rows
 
 if TYPE_CHECKING:
     from gui.frames.base_frames import BaseStrategyFrame
@@ -18,7 +19,6 @@ class GUI_Config_PingPong(BaseConfigWindow, TreeviewMixin):
     def __init__(self, parent: "BaseStrategyFrame") -> None:
         super().__init__(parent)
         self.debug_level_entry: ttk.Entry | None = None
-        self.ttk_theme_entry: ttk.Entry | None = None
         self.pairs_treeview: ttk.Treeview | None = None
 
     def _create_widgets(self, parent_frame: ttk.Frame):
@@ -28,7 +28,7 @@ class GUI_Config_PingPong(BaseConfigWindow, TreeviewMixin):
         self._create_pairs_treeview_widgets(content_frame)
 
     def _create_general_settings_widgets(self, parent_frame: ttk.Frame) -> None:
-        """Creates widgets for general settings like debug level and theme."""
+        """Creates widgets for general settings like debug level."""
         general_frame = ttk.LabelFrame(parent_frame, text="General Settings")
         general_frame.grid(row=0, column=0, padx=5, pady=5, sticky="ew")
         general_frame.grid_columnconfigure(1, weight=1)
@@ -41,16 +41,6 @@ class GUI_Config_PingPong(BaseConfigWindow, TreeviewMixin):
         if self.parent.config_manager and self.parent.config_manager.config_pingpong:
             self.debug_level_entry.insert(
                 0, str(self.parent.config_manager.config_pingpong.debug_level)
-            )
-
-        ttk.Label(general_frame, text="TTK Theme:").grid(
-            row=1, column=0, padx=5, pady=5, sticky="w"
-        )
-        self.ttk_theme_entry = ttk.Entry(general_frame)
-        self.ttk_theme_entry.grid(row=1, column=1, padx=5, pady=5, sticky="ew")
-        if self.parent.config_manager and self.parent.config_manager.config_pingpong:
-            self.ttk_theme_entry.insert(
-                0, self.parent.config_manager.config_pingpong.ttk_theme
             )
 
     def _create_pairs_treeview_widgets(self, parent_frame: ttk.Frame) -> None:
@@ -109,6 +99,7 @@ class GUI_Config_PingPong(BaseConfigWindow, TreeviewMixin):
                         cfg.get("spread", 0.1),
                     ),
                 )
+            tag_alternating_rows(self.pairs_treeview)
 
     def _create_control_buttons_area(self, parent_frame: ttk.Frame) -> None:
         """Creates control buttons (Add, Remove, Edit) for pair configurations."""
@@ -133,6 +124,7 @@ class GUI_Config_PingPong(BaseConfigWindow, TreeviewMixin):
 
         if dialog.result and self.pairs_treeview:
             self.pairs_treeview.insert("", "end", values=dialog.result)
+            tag_alternating_rows(self.pairs_treeview)
             self.update_status(
                 f"Pair {dialog.result[2]} added successfully.", "lightgreen"
             )
@@ -144,6 +136,7 @@ class GUI_Config_PingPong(BaseConfigWindow, TreeviewMixin):
         selected = self.pairs_treeview.selection()
         if selected:
             self.pairs_treeview.delete(selected)
+            tag_alternating_rows(self.pairs_treeview)
             self.update_status("Selected pair removed.", "lightgray")
 
     def edit_pair_config(self) -> None:
@@ -227,9 +220,6 @@ class GUI_Config_PingPong(BaseConfigWindow, TreeviewMixin):
             "debug_level": int(self.debug_level_entry.get())
             if self.debug_level_entry
             else 0,
-            "ttk_theme": self.ttk_theme_entry.get()
-            if self.ttk_theme_entry
-            else "flatly",
             "pair_configs": pair_configs,
         }
         return new_config

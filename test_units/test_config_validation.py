@@ -148,7 +148,6 @@ class TestPingPongConfigValidator(unittest.TestCase):
         self.validator = PingPongConfigValidator()
         self.valid_config = {
             "debug_level": 2,
-            "ttk_theme": "darkly",
             "pair_configs": [
                 {
                     "name": "LTC_BLOCK_1",

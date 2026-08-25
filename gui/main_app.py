@@ -18,7 +18,13 @@ from gui.frames.strategy_frames import (
 )  # , ArbitrageFrame
 from gui.shutdown.gui_shutdown_coordinator import GUIShutdownCoordinator
 from gui.utils.logging_setup import setup_console_logging, setup_gui_logging
-from gui.utils.theming import warmup_ttk_styles
+from gui.utils.theming import (
+    DEFAULT_THEME,
+    apply_saved_theme,
+    available_themes,
+    save_theme,
+    warmup_ttk_styles,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -170,8 +176,10 @@ class MainApplication:
         self._watchdog_count = 0
         self.status_var = tk.StringVar(value="Idle")
 
-        # Setup UI theme
-        self.style = Style(theme="darkly")
+        # Setup UI theme: apply the saved theme first so warmup validates
+        # the theme that will actually be used.
+        self.style = Style(theme=DEFAULT_THEME)
+        apply_saved_theme(self.style)
         warmup_ttk_styles(self.style, self.root)
         self.root.configure(background=self.style.lookup("TFrame", "background"))
 
@@ -241,8 +249,38 @@ class MainApplication:
         """Create status bar with live status updates at bottom of window."""
         status_frame = ttk.Frame(self.root)
         status_frame.pack(side="bottom", fill="x", padx=5, pady=5)
+        status_frame.grid_columnconfigure(0, weight=1)
         status_label = ttk.Label(status_frame, textvariable=self.status_var, anchor="w")
-        status_label.pack(fill="x")
+        status_label.grid(row=0, column=0, sticky="ew")
+
+        theme_label = ttk.Label(status_frame, text="Theme:")
+        theme_label.grid(row=0, column=1, padx=(10, 2))
+        self.theme_var = tk.StringVar(value=self.style.theme_use())
+        theme_selector = ttk.Combobox(
+            status_frame,
+            textvariable=self.theme_var,
+            values=available_themes(self.style),
+            state="readonly",
+            width=18,
+        )
+        theme_selector.grid(row=0, column=2)
+        theme_selector.bind("<<ComboboxSelected>>", self._on_theme_selected)
+
+    def _on_theme_selected(self, event: tk.Event) -> None:
+        """Apply the theme selected in the status bar dropdown and persist it."""
+        event.widget.selection_clear()
+        theme = self.theme_var.get()
+        try:
+            self.style.theme_use(theme)
+        except tk.TclError as error:
+            error_msg = f"Failed to apply theme '{theme}': {error}"
+            logger.error(error_msg)
+            self.status_var.set(error_msg)
+            self.theme_var.set(self.style.theme_use())
+            return
+        self.root.configure(background=self.style.lookup("TFrame", "background"))
+        save_theme(theme)
+        self.status_var.set(f"Theme changed to '{theme}'.")
 
     def on_closing(self) -> None:
         """Handles application closing event by signaling shutdown coordinator"""
