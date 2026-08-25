@@ -9,6 +9,7 @@ import yaml
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from definitions.detect_rpc import (
+    _prompt_with_dialog,
     detect_rpc,
     get_default_config_path,
     load_config_path_from_yaml,
@@ -100,6 +101,33 @@ def test_prompt_user_for_config_path_dialog(
     mock_askopenfilename.return_value = "/path/from/dialog/blocknet.conf"
     path = prompt_user_for_config_path()
     assert path == "/path/from/dialog/blocknet.conf"
+
+
+@patch("tkinter.filedialog.askopenfilename", return_value="/x/blocknet.conf")
+@patch("tkinter.Tk")
+def test_prompt_with_dialog_preserves_existing_style_singleton(mock_tk, _mock_ask):
+    """An existing ttkbootstrap Style singleton must survive the dialog."""
+    sentinel = object()
+    with patch("ttkbootstrap.Style") as mock_style:
+        mock_style.instance = sentinel
+        result = _prompt_with_dialog()
+    assert mock_style.instance is sentinel
+    mock_style.assert_called_once_with(theme="darkly")
+    assert result == "/x/blocknet.conf"
+    mock_tk.return_value.destroy.assert_called_once()
+
+
+@patch("tkinter.filedialog.askopenfilename", return_value="")
+@patch("tkinter.Tk")
+def test_prompt_with_dialog_resets_singleton_it_created(mock_tk, _mock_ask):
+    """The Style singleton is discarded only when the dialog created it."""
+    with patch("ttkbootstrap.Style") as mock_style:
+        mock_style.instance = None
+        result = _prompt_with_dialog()
+    assert mock_style.instance is None
+    mock_style.assert_called_once_with(theme="darkly")
+    assert result == ""
+    mock_tk.return_value.destroy.assert_called_once()
 
 
 def test_save_and_load_config_path_yaml(tmp_path):

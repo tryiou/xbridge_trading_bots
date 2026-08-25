@@ -54,6 +54,7 @@ def _prompt_with_dialog() -> str:
 
     import ttkbootstrap
 
+    style_created_by_dialog = ttkbootstrap.Style.instance is None
     root = Tk()
     style = ttkbootstrap.Style(theme="darkly")
     root.style = style
@@ -64,7 +65,10 @@ def _prompt_with_dialog() -> str:
         parent=root,
     )
     root.destroy()
-    ttkbootstrap.Style.instance = None
+    if style_created_by_dialog:
+        # Only discard the Style singleton if this dialog created it;
+        # otherwise the application's live Style instance would be lost.
+        ttkbootstrap.Style.instance = None
 
     return config_path
 

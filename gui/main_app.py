@@ -18,6 +18,7 @@ from gui.frames.strategy_frames import (
 )  # , ArbitrageFrame
 from gui.shutdown.gui_shutdown_coordinator import GUIShutdownCoordinator
 from gui.utils.logging_setup import setup_console_logging, setup_gui_logging
+from gui.utils.theming import warmup_ttk_styles
 
 logger = logging.getLogger(__name__)
 
@@ -167,12 +168,12 @@ class MainApplication:
 
         self.root.title(title)
         self._watchdog_count = 0
+        self.status_var = tk.StringVar(value="Idle")
 
         # Setup UI theme
         self.style = Style(theme="darkly")
-        self.style.theme_use("darkly")
+        warmup_ttk_styles(self.style, self.root)
         self.root.configure(background=self.style.lookup("TFrame", "background"))
-        self.status_var = tk.StringVar(value="Idle")
 
     def _create_main_structure(self) -> None:
         """Create main panels and layout structure."""
