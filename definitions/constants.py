@@ -20,12 +20,17 @@ class OrderStatus(Enum):
 
 
 class XBridgeErrorCode:
-    """XBridge error codes observed from dxMakeOrder RPC failures (1026 verified)."""
+    """XBridge error codes observed from dxMakeOrder RPC failures.
+
+    Note: the API reference lists 1032 as "Unsupported asset", but live
+    daemons emit 1032 as "Could not find a service node with required
+    services"; named for the observed behaviour.
+    """
 
     INVALID_PARAMS = 1019
     INSUFFICIENT_FUNDS = 1018
     BAD_ADDRESS = 1026
-    DUPLICATE_ORDER = 1032
+    SERVICE_NODE_UNAVAILABLE = 1032
 
 
 class PriceFieldName(Enum):
@@ -85,6 +90,14 @@ DEFAULT_TRADE_SIZE_DIGITS: Final[int] = 8
 PRICE_VARIATION_TOLERANCE_DEFAULT: Final[float] = 0.01
 TYPICAL_TX_SIZE_ESTIMATE: Final[int] = 500  # bytes
 ORDERBOOK_UPDATE_DELAY: Final[float] = 2.0
+
+# =============================================================================
+# Historic Order-ID Pool (resurrection defense across daemon restarts)
+# =============================================================================
+
+POOL_FILE_TEMPLATE: Final[str] = "data/order_id_pool_{strategy}.yaml"
+POOL_FILE_BUDGET_BYTES: Final[int] = 524_288  # 512KB hard ceiling on the pool file
+POOL_TTL_DAYS: Final[int] = 7  # entries older than this are opportunistically purged
 
 # =============================================================================
 # Debug Levels

@@ -72,6 +72,13 @@ class ShutdownCoordinator:
             else:
                 logger.warning("No strategy instance available for order cancellation")
 
+            # 3. Persist the historic order-id pool before exiting
+            try:
+                if config_manager.xbridge_manager.order_pool.flush(force=True):
+                    logger.info("Order-id pool persisted on shutdown")
+            except Exception as e:
+                logger.warning("Order-id pool flush failed on shutdown: %s", e)
+
         except asyncio.CancelledError:
             logging.getLogger("unified_shutdown").warning("Shutdown was cancelled.")
             raise

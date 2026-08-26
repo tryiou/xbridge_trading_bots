@@ -13,8 +13,10 @@ from definitions.circuit_breaker import (
     CircuitBreakerConfig,
     CircuitBreakerError,
 )
+from definitions.constants import POOL_FILE_TEMPLATE
 from definitions.errors import RPCConfigError
 from definitions.logger import setup_logging
+from definitions.order_id_pool import OrderIdPool
 from definitions.rpc import (
     AsyncThreadingSemaphore,
     is_port_open,
@@ -63,6 +65,12 @@ class XBridgeManager:
         self.blocknet_password_rpc: str
         self.blocknet_datadir_path: str
         self.xbridge_conf: dict[str, dict[str, Any]] | None = None
+
+        # Per-session historic notebook: only THIS instance's posted ids live
+        # here, so a checkup can never touch another session's orders.
+        self.order_pool = OrderIdPool(
+            file_path=POOL_FILE_TEMPLATE.format(strategy=strategy)
+        )
 
         try:
             (
@@ -287,6 +295,10 @@ class XBridgeManager:
             "dxCancelOrder", [order_id], use_shutdown_event=use_shutdown_event
         )
 
+    async def getmyorders(self) -> Any:
+        """All own orders of the current daemon session (dxGetMyOrders)."""
+        return await self.rpc_wrapper("dxGetMyOrders")
+
     async def cancelallorders(self, use_shutdown_event: bool = True) -> list[str]:
         myorders = await self.rpc_wrapper(
             "dxGetMyOrders", use_shutdown_event=use_shutdown_event
@@ -366,7 +378,7 @@ class XBridgeManager:
         makeramount: float,
         makeraddress: str,
         taker: str,
-        takeramount: float,
+        takeramount: str | float,
         takeraddress: str,
     ) -> Any:
         result = await self.rpc_wrapper(
@@ -381,6 +393,7 @@ class XBridgeManager:
                 "exact",
             ],
         )
+        self._record_posted_order(result, maker, taker)
         return result
 
     async def makepartialorder(
@@ -389,7 +402,7 @@ class XBridgeManager:
         makeramount: float,
         makeraddress: str,
         taker: str,
-        takeramount: float,
+        takeramount: str | float,
         takeraddress: str,
         min_size: float,
         repost: bool = False,
@@ -407,7 +420,17 @@ class XBridgeManager:
                 repost,
             ],
         )
+        self._record_posted_order(result, maker, taker)
         return result
+
+    def _record_posted_order(self, result: Any, maker: str, taker: str) -> None:
+        """Remember a successfully posted order id in the historic pool."""
+        if isinstance(result, dict) and result.get("id"):
+            try:
+                self.order_pool.add(str(result["id"]), f"{maker}/{taker}")
+                self.order_pool.flush()
+            except Exception as e:  # pool must never break order flow
+                self.logger.warning("Could not record posted order id: %s", e)
 
     async def getorderstatus(self, oid: str) -> Any:
         return await self.rpc_wrapper("dxGetOrder", [oid])

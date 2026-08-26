@@ -71,7 +71,20 @@ class TreeviewMixin:
         parent_frame.grid_columnconfigure(0, weight=1)
 
         content_frame = ttk.Frame(canvas)
-        canvas.create_window((0, 0), window=content_frame, anchor="nw")
+        content_window_id = canvas.create_window(
+            (0, 0), window=content_frame, anchor="nw"
+        )
+
+        def sync_canvas_size(event: tk.Event) -> None:
+            """Keeps the inner frame sized to the canvas so content stretches
+            with the window, while preserving scrolling when space is tight."""
+            canvas.itemconfigure(content_window_id, width=event.width)
+            if content_frame.winfo_reqheight() <= event.height:
+                canvas.itemconfigure(content_window_id, height=event.height)
+            else:
+                canvas.itemconfigure(content_window_id, height=0)
+
+        canvas.bind("<Configure>", sync_canvas_size)
 
         self._setup_scroll_bindings(canvas)
         content_frame.bind(

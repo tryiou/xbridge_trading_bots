@@ -51,6 +51,9 @@ class OrderStatusProcessor:
             dex_pair.init_virtual_order(display=False)
             if dex_pair.order and "id" in dex_pair.order:
                 status = await self._check_order_status(dex_pair)
+            else:
+                # No live order (e.g. previous creation failed): place one now.
+                await dex_pair.create_order()
 
         if status == dex_pair.STATUS_OPEN:
             disabled_coins = self.config_manager.disabled_coins
@@ -73,10 +76,11 @@ class OrderStatusProcessor:
         elif status == dex_pair.STATUS_ERROR_SWAP:
             await self._handle_error_swap_status(dex_pair)
         elif status is not None and not dex_pair.disabled:
+            current = dex_pair.order or {}
             dex_pair.pair.logger.info(
                 "Order %s is %s. Re-initializing order for %s.",
-                dex_pair.order.get("id"),
-                dex_pair.order.get("status"),
+                current.get("id"),
+                current.get("status"),
                 dex_pair.symbol,
             )
             dex_pair.order = None
@@ -93,13 +97,24 @@ class OrderStatusProcessor:
 
     async def _handle_finished_order(self, dex_pair) -> None:
         """Handle a finished order."""
+        order_id = str((dex_pair.order or {}).get("id") or "")
         dex_pair.pair.logger.info(
             "order FINISHED: {'name': '%s', 'pair': '%s', 'side': '%s', 'orderid': '%s'}",
             dex_pair.pair.cfg["name"],
             dex_pair.symbol,
             dex_pair.current_order["side"],
-            dex_pair.order["id"],
+            order_id,
         )
+        # Self-observed resolution: this id leaves the historic notebook now,
+        # so the listing-based checkup will never flag a watched fill as
+        # "filled while unmonitored".
+        if order_id:
+            try:
+                dex_pair.pair.xbridge_manager.order_pool.purge(order_id)
+            except Exception as pool_err:
+                dex_pair.pair.logger.debug(
+                    "Pool purge of finished order %s skipped: %s", order_id, pool_err
+                )
         dex_pair.order_history = dex_pair.current_order
         dex_pair.write_last_order_history()
         if not self.shutdown_event.is_set():

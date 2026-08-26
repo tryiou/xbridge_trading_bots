@@ -4,6 +4,7 @@ import os
 import stat
 import tempfile
 from collections.abc import Callable
+from io import StringIO
 from typing import Any
 
 from ruamel.yaml import YAML
@@ -22,6 +23,15 @@ _config_yaml.default_flow_style = False
 def load_yaml(path: str) -> dict[str, Any]:
     with open(path) as f:
         return _simple_yaml.load(f) or {}
+
+
+def dumps_yaml(data: dict[str, Any] | None) -> str:
+    """Serialize ``data`` to a YAML string using the same dumper as save_yaml."""
+    if data is None:
+        return ""
+    buf = StringIO()
+    _simple_yaml.dump(data, buf)
+    return buf.getvalue()
 
 
 def save_yaml(path: str, data: dict[str, Any] | None) -> None:

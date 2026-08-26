@@ -76,3 +76,24 @@ async def test_unified_shutdown_sequence():
 
         # 2. Cancelled strategy orders
         mock_cm.strategy_instance.cancel_own_orders.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_unified_shutdown_flushes_order_pool():
+    """Shutdown persists the historic order-id pool (forced)."""
+    mock_cm = MagicMock()
+    mock_cm.resource_lock = threading.RLock()
+    mock_cm.general_log = MagicMock()
+    mock_cm.error_handler.handle_async = AsyncMock()
+    mock_cm.controller = MagicMock()
+    mock_cm.controller.shutdown_event = asyncio.Event()
+    mock_cm.strategy_instance = MagicMock(spec=MakerStrategy)
+    mock_cm.strategy_instance.cancel_own_orders = AsyncMock(return_value=0)
+    type(mock_cm.xbridge_manager).active_rpc_counter = PropertyMock(return_value=0)
+    mock_pool = MagicMock()
+    mock_pool.flush.return_value = True
+    mock_cm.xbridge_manager.order_pool = mock_pool
+
+    await ShutdownCoordinator.unified_shutdown(mock_cm)
+
+    mock_pool.flush.assert_called_once_with(force=True)

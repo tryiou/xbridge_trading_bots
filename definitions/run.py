@@ -137,6 +137,14 @@ async def main(
                 if sleep_needed <= 0:
                     await controller.main_loop()
                     operation_timer = current_time
+                    checkup = getattr(strategy, "run_periodic_checkup", None)
+                    if checkup is not None:
+                        try:
+                            await checkup()
+                        except Exception as e:
+                            config_manager.general_log.warning(
+                                "Order checkup failed: %s", e
+                            )
 
                 # Short sleep while checking for shutdown
                 with contextlib.suppress(asyncio.TimeoutError):

@@ -179,3 +179,80 @@ def test_parse_xbridge_conf_file_not_found(xbridge_manager):
         manager.logger.error.assert_called_with(
             "xbridge.conf not found at /mock/datadir/xbridge.conf"
         )
+
+
+# ---------------------------------------------------------------------------
+# Historic order-id pool: capture on post + getmyorders passthrough
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def tmp_order_pool(xbridge_manager, tmp_path):
+    """Inject a temp-file pool as this instance's notebook."""
+    from definitions.order_id_pool import OrderIdPool
+
+    pool = OrderIdPool(file_path=str(tmp_path / "pool.yaml"))
+    xbridge_manager.order_pool = pool
+    yield pool
+
+
+@pytest.mark.asyncio
+async def test_makeorder_records_id_in_pool(xbridge_manager, tmp_order_pool):
+    xbridge_manager.rpc_wrapper = AsyncMock(
+        return_value={"id": "posted-1", "status": "created"}
+    )
+    result = await xbridge_manager.makeorder("BLOCK", 1, "addr1", "LTC", 2, "addr2")
+
+    assert result["id"] == "posted-1"
+    assert tmp_order_pool.ids == {"posted-1"}
+    assert tmp_order_pool._ids["posted-1"]["sym"] == "BLOCK/LTC"
+    # Capture is flushed to disk immediately (newest ids are the valuable ones).
+    assert not tmp_order_pool.dirty
+
+
+@pytest.mark.asyncio
+async def test_makepartialorder_records_id_in_pool(xbridge_manager, tmp_order_pool):
+    xbridge_manager.rpc_wrapper = AsyncMock(
+        return_value={"id": "partial-1", "status": "created"}
+    )
+    await xbridge_manager.makepartialorder("BLOCK", 1, "addr1", "LTC", 2, "addr2", 0.5)
+    assert tmp_order_pool.ids == {"partial-1"}
+
+
+@pytest.mark.asyncio
+async def test_makeorder_failure_does_not_pollute_pool(xbridge_manager, tmp_order_pool):
+    xbridge_manager.rpc_wrapper = AsyncMock(return_value={"error": "boom"})
+    result = await xbridge_manager.makeorder("BLOCK", 1, "a", "LTC", 2, "b")
+    assert result == {"error": "boom"}
+    assert tmp_order_pool.size == 0
+
+    xbridge_manager.rpc_wrapper = AsyncMock(side_effect=RuntimeError("timeout"))
+    with pytest.raises(RuntimeError):
+        await xbridge_manager.makeorder("BLOCK", 1, "a", "LTC", 2, "b")
+    assert tmp_order_pool.size == 0
+
+
+@pytest.mark.asyncio
+async def test_pool_failure_never_breaks_order_flow(xbridge_manager, tmp_order_pool):
+    xbridge_manager.rpc_wrapper = AsyncMock(
+        return_value={"id": "ok-1", "status": "created"}
+    )
+    with patch.object(type(tmp_order_pool), "add", side_effect=OSError("disk gone")):
+        result = await xbridge_manager.makeorder("BLOCK", 1, "a", "LTC", 2, "b")
+    assert result["id"] == "ok-1"  # order flow unaffected by pool I/O failure
+
+
+@pytest.mark.asyncio
+async def test_getmyorders_passthrough(xbridge_manager):
+    xbridge_manager.rpc_wrapper = AsyncMock(return_value=[{"id": "x"}])
+    result = await xbridge_manager.getmyorders()
+    assert result == [{"id": "x"}]
+    assert xbridge_manager.rpc_wrapper.call_args.args[0] == "dxGetMyOrders"
+
+
+def test_cancelallorders_signature_unscoped_by_default():
+    """Regression lock: cancelallorders keeps its wallet-wide contract."""
+    import inspect
+
+    sig = inspect.signature(XBridgeManager.cancelallorders)
+    assert list(sig.parameters) == ["self", "use_shutdown_event"]

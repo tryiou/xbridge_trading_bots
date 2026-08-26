@@ -21,6 +21,7 @@ class MakerStrategy(BaseStrategy):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self._order_status_processor: OrderStatusProcessor | None = None
+        self._checkup_running = False
 
     @abstractmethod
     def build_sell_order_details(
@@ -128,6 +129,131 @@ class MakerStrategy(BaseStrategy):
                 self.controller.shutdown_event,
             )
         await self._order_status_processor.process(pair_instance.dex)
+
+    async def run_periodic_checkup(self) -> None:
+        """Graveyard reconciliation: one dxGetMyOrders, zero per-id calls.
+
+        Walks OUR historic notebook against the daemon's own-orders listing:
+
+        * absent from listing  -> no order exists right now -> dormant, kept;
+        * canceled/expired     -> legit resting state of a past id -> kept
+          (purging here would blind us to its later resurrection);
+        * open/new, not tracked-> RESURRECTED ghost -> ERROR log + cancel,
+          id STAYS pooled so repeat offenders keep being caught;
+        * finished             -> filled while unmonitored -> CRITICAL, pruned;
+        * failed-swap stages   -> WARN (funds roll back) -> pruned;
+        * other in-progress    -> INFO once per state change, kept.
+
+        Only ids from our own notebook are ever examined: manual orders and
+        sibling sessions are structurally out of reach. Never raises.
+        """
+        if self._checkup_running:
+            return
+        self._checkup_running = True
+        try:
+            xbm = self.config_manager.xbridge_manager
+            pool = xbm.order_pool
+            try:
+                listing = await xbm.getmyorders()
+            except Exception as e:
+                self.config_manager.general_log.debug(
+                    "Checkup: could not list own orders (%s)", e
+                )
+                return
+            if not isinstance(listing, list):
+                return
+            index = {o["id"]: o for o in listing if isinstance(o, dict) and o.get("id")}
+            tracked = self._collect_tracked_ids()
+            pool.enforce_ttl()
+
+            for oid in list(pool.ids):
+                entry = index.get(oid)
+                if entry is None:
+                    continue  # no order exists right now -> dormant
+                status = str(entry.get("status", "")).lower()
+                if oid in tracked:
+                    continue  # our actively managed order, normal life
+                await self._apply_pool_verdict(pool, oid, entry, status)
+
+            pool.flush()
+        finally:
+            self._checkup_running = False
+
+    def _iter_pairs(self):
+        """Yield the pairs owned by this strategy instance."""
+        if not getattr(self, "controller", None) or not self.controller.pairs_dict:
+            return
+        yield from self.controller.pairs_dict.values()
+
+    def _collect_tracked_ids(self) -> set[str]:
+        """Ids this strategy is currently managing."""
+        tracked: set[str] = set()
+        for pair in self._iter_pairs():
+            order = pair.dex.order
+            if isinstance(order, dict) and order.get("id"):
+                tracked.add(str(order["id"]))
+        return tracked
+
+    async def _apply_pool_verdict(
+        self, pool, oid: str, entry: dict, status: str
+    ) -> None:
+        """Flag/handle one pooled id per the v9 verdict table. Never raises."""
+        log = self.config_manager.general_log
+        previous = pool.last_status(oid)
+
+        def flag(level: str, message: str) -> None:
+            # One log per observed state change, never per round.
+            if previous != status:
+                getattr(log, level)(message)
+
+        if status == "finished":
+            flag(
+                "critical",
+                f"Checkup: pooled order {oid} FILLED while unmonitored! "
+                f"Snapshot: {entry}",
+            )
+            pool.purge(oid)  # final state observed -> mystery resolved
+        elif status in ("offline", "invalid", "rolled back", "rollback failed"):
+            flag(
+                "warning",
+                f"Checkup: pooled order {oid} ended '{status}' (funds roll "
+                f"back automatically), purged",
+            )
+            pool.purge(oid)  # final state observed -> mystery resolved
+        elif status in ("open", "new"):
+            flag(
+                "error",
+                f"Checkup: RESURRECTED order {oid} is {status} - cancelling",
+            )
+            try:
+                result = await self.config_manager.xbridge_manager.cancelorder(oid)
+                if result:
+                    # Deliberate: stays pooled. A cancelled ghost remains a
+                    # candidate; if it resurrects again it gets caught again.
+                    pass
+                else:
+                    log.warning(
+                        "Checkup: cancel of %s got no confirmation; "
+                        "stays pooled for retry",
+                        oid,
+                    )
+            except Exception as e:
+                log.warning(
+                    "Checkup: cancelling resurrected %s failed, stays pooled: %s",
+                    oid,
+                    e,
+                )
+            pool.set_last_status(oid, status)
+        elif status in ("canceled", "expired"):
+            # Legit resting state: keep vigilant without logging every round.
+            pool.set_last_status(oid, status)
+        else:
+            # Exotic in-progress stage on an unmanaged id: flag it.
+            flag(
+                "info",
+                f"Checkup: pooled order {oid} in unexpected stage '{status}'",
+            )
+            pool.set_last_status(oid, status)
 
     async def cancel_own_orders(self):
         """Cancel only orders belonging to this strategy"""

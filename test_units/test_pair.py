@@ -252,6 +252,7 @@ async def test_dex_create_order_xb_error(dex_pair):
     strategy_mock = dex_pair.pair.config_manager.strategy_instance
     strategy_mock.calculate_sell_price.return_value = 10.0
     strategy_mock.build_sell_order_details.return_value = (1.0, 0.01)
+    strategy_mock.handle_finished_order = AsyncMock()
 
     dex_pair.create_virtual_sell_order()
     dex_pair.t1.dex.free_balance = 2.0  # Sufficient balance
@@ -391,6 +392,63 @@ async def test_dex_at_order_finished(dex_pair):
     assert dex_pair.order_history == dex_pair.current_order
 
 
+@pytest.mark.asyncio
+async def test_process_retries_create_order_when_no_live_order(dex_pair):
+    """Regression: failed order creation must be retried on the next cycle."""
+    dex_pair.current_order = {
+        "symbol": "T1/T2",
+        "side": "SELL",
+        "maker": "T1",
+        "maker_address": "t1_addr",
+        "taker": "T2",
+        "taker_address": "t2_addr",
+        "maker_size": 1.0,
+        "taker_size": 10.0,
+        "dex_price": 10.0,
+        "org_pprice": 10.0,
+    }
+    dex_pair.order = None  # e.g. previous creation failed with RPC error 1032
+    dex_pair.t1.dex.free_balance = 2.0
+
+    processor = OrderStatusProcessor(
+        dex_pair.pair.config_manager,
+        dex_pair.pair.xbridge_manager,
+        dex_pair.pair.error_handler,
+        dex_pair.pair.config_manager.strategy_instance,
+        dex_pair.pair.config_manager.shutdown_event,
+    )
+    await processor.process(dex_pair)
+
+    dex_pair.pair.xbridge_manager.makeorder.assert_awaited_once()
+    assert not dex_pair.disabled
+
+
+@pytest.mark.asyncio
+async def test_process_does_not_retry_create_order_when_disabled(dex_pair):
+    """Tests that disabled pairs never retry order creation."""
+    dex_pair.current_order = {
+        "symbol": "T1/T2",
+        "side": "SELL",
+        "maker_size": 1.0,
+        "org_pprice": 10.0,
+    }
+    dex_pair.order = None
+    dex_pair.disabled = True
+    dex_pair.disable_reason = "RPC error 1032"
+
+    processor = OrderStatusProcessor(
+        dex_pair.pair.config_manager,
+        dex_pair.pair.xbridge_manager,
+        dex_pair.pair.error_handler,
+        dex_pair.pair.config_manager.strategy_instance,
+        dex_pair.pair.config_manager.shutdown_event,
+    )
+    await processor.process(dex_pair)
+
+    dex_pair.pair.xbridge_manager.makeorder.assert_not_awaited()
+    dex_pair.pair.logger.info.assert_called()
+
+
 def test_dex_pair_read_last_order_history(dex_pair):
     """Tests reading order history from file."""
     # Test 1: Successful read
@@ -519,6 +577,7 @@ async def test_dex_create_order_disabled(dex_pair):
     strategy_mock = dex_pair.pair.config_manager.strategy_instance
     strategy_mock.calculate_sell_price.return_value = 10.0
     strategy_mock.build_sell_order_details.return_value = (1.0, 0.01)
+    strategy_mock.handle_finished_order = AsyncMock()
 
     # Setup virtual order
     dex_pair.create_virtual_sell_order()
@@ -908,6 +967,7 @@ async def test_bad_address_exception_auto_recovery(dex_pair):
     strategy_mock = dex_pair.pair.config_manager.strategy_instance
     strategy_mock.calculate_sell_price.return_value = 10.0
     strategy_mock.build_sell_order_details.return_value = (1.0, 0.01)
+    strategy_mock.handle_finished_order = AsyncMock()
     dex_pair.create_virtual_sell_order()
     dex_pair.t1.dex.free_balance = 2.0
 
@@ -938,6 +998,7 @@ async def test_bad_address_second_attempt_disables_pair(dex_pair):
     strategy_mock = dex_pair.pair.config_manager.strategy_instance
     strategy_mock.calculate_sell_price.return_value = 10.0
     strategy_mock.build_sell_order_details.return_value = (1.0, 0.01)
+    strategy_mock.handle_finished_order = AsyncMock()
     dex_pair.create_virtual_sell_order()
     dex_pair.t1.dex.free_balance = 2.0
 
@@ -967,6 +1028,7 @@ async def test_bad_address_taker_side_recovery(dex_pair):
     strategy_mock = dex_pair.pair.config_manager.strategy_instance
     strategy_mock.calculate_sell_price.return_value = 10.0
     strategy_mock.build_sell_order_details.return_value = (1.0, 0.01)
+    strategy_mock.handle_finished_order = AsyncMock()
     dex_pair.create_virtual_sell_order()
     dex_pair.t1.dex.free_balance = 2.0
 
@@ -1027,6 +1089,7 @@ async def test_create_order_full_bad_address_flow(dex_pair):
     strategy_mock = dex_pair.pair.config_manager.strategy_instance
     strategy_mock.calculate_sell_price.return_value = 10.0
     strategy_mock.build_sell_order_details.return_value = (1.0, 0.01)
+    strategy_mock.handle_finished_order = AsyncMock()
     dex_pair.create_virtual_sell_order()
     dex_pair.t1.dex.free_balance = 2.0
 
@@ -1063,6 +1126,7 @@ async def test_create_order_bad_address_retry_fails_disables(dex_pair):
     strategy_mock = dex_pair.pair.config_manager.strategy_instance
     strategy_mock.calculate_sell_price.return_value = 10.0
     strategy_mock.build_sell_order_details.return_value = (1.0, 0.01)
+    strategy_mock.handle_finished_order = AsyncMock()
     dex_pair.create_virtual_sell_order()
     dex_pair.t1.dex.free_balance = 2.0
 
@@ -1092,6 +1156,7 @@ async def test_handle_order_error_response_bad_address_recovery(dex_pair):
     strategy_mock = dex_pair.pair.config_manager.strategy_instance
     strategy_mock.calculate_sell_price.return_value = 10.0
     strategy_mock.build_sell_order_details.return_value = (1.0, 0.01)
+    strategy_mock.handle_finished_order = AsyncMock()
     strategy_mock.handle_order_status_error = AsyncMock()
     dex_pair.create_virtual_sell_order()
 
@@ -1121,6 +1186,7 @@ async def test_handle_order_error_response_bad_address_second_attempt_disables(
     strategy_mock = dex_pair.pair.config_manager.strategy_instance
     strategy_mock.calculate_sell_price.return_value = 10.0
     strategy_mock.build_sell_order_details.return_value = (1.0, 0.01)
+    strategy_mock.handle_finished_order = AsyncMock()
     strategy_mock.handle_order_status_error = AsyncMock()
     dex_pair.create_virtual_sell_order()
 
@@ -1150,6 +1216,7 @@ async def test_handle_order_error_response_bad_address_clears_order(dex_pair):
     strategy_mock = dex_pair.pair.config_manager.strategy_instance
     strategy_mock.calculate_sell_price.return_value = 10.0
     strategy_mock.build_sell_order_details.return_value = (1.0, 0.01)
+    strategy_mock.handle_finished_order = AsyncMock()
     dex_pair.create_virtual_sell_order()
 
     bad_addr = dex_pair.current_order["maker_address"]
@@ -1210,6 +1277,7 @@ async def test_bad_address_detection_is_case_insensitive(dex_pair):
     strategy_mock = dex_pair.pair.config_manager.strategy_instance
     strategy_mock.calculate_sell_price.return_value = 10.0
     strategy_mock.build_sell_order_details.return_value = (1.0, 0.01)
+    strategy_mock.handle_finished_order = AsyncMock()
     dex_pair.create_virtual_sell_order()
 
     bad_addr = dex_pair.current_order["maker_address"]
@@ -1236,6 +1304,7 @@ async def test_bad_address_recovery_failure_disables_instead_of_raising(dex_pair
     strategy_mock = dex_pair.pair.config_manager.strategy_instance
     strategy_mock.calculate_sell_price.return_value = 10.0
     strategy_mock.build_sell_order_details.return_value = (1.0, 0.01)
+    strategy_mock.handle_finished_order = AsyncMock()
     dex_pair.create_virtual_sell_order()
 
     result = await dex_pair._try_recover_bad_address(
@@ -1255,6 +1324,7 @@ async def test_response_path_recovery_failure_disables_instead_of_raising(dex_pa
     strategy_mock = dex_pair.pair.config_manager.strategy_instance
     strategy_mock.calculate_sell_price.return_value = 10.0
     strategy_mock.build_sell_order_details.return_value = (1.0, 0.01)
+    strategy_mock.handle_finished_order = AsyncMock()
     dex_pair.create_virtual_sell_order()
 
     result = await dex_pair._try_recover_bad_address_from_response(
@@ -1273,9 +1343,98 @@ async def test_handle_order_error_non_bad_address_calls_strategy(dex_pair):
     strategy_mock = dex_pair.pair.config_manager.strategy_instance
     strategy_mock.calculate_sell_price.return_value = 10.0
     strategy_mock.build_sell_order_details.return_value = (1.0, 0.01)
+    strategy_mock.handle_finished_order = AsyncMock()
     strategy_mock.handle_order_status_error = AsyncMock()
 
     dex_pair.order = {"error": "Some error", "code": 1001}
     await dex_pair._handle_order_error()
 
     strategy_mock.handle_order_status_error.assert_called_once_with(dex_pair)
+
+
+# ---------------------------------------------------------------------------
+# Historic notebook: hot-path finish purge + ambiguous-status recovery
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_handle_finished_order_purges_pool_entry(dex_pair, tmp_path):
+    """A watched fill leaves the notebook: listing-finished later is silent."""
+    from definitions.order_id_pool import OrderIdPool
+
+    pool = OrderIdPool(file_path=str(tmp_path / "p.yaml"))
+    pool.add("fin-1", "T1/T2")
+    dex_pair.pair.xbridge_manager.order_pool = pool
+    dex_pair.pair.config_manager.strategy_instance.handle_finished_order = AsyncMock()
+
+    dex_pair.order = {"id": "fin-1", "status": "finished", "taker": "T2"}
+    dex_pair.current_order = {
+        "side": "SELL",
+        "maker_size": 1.0,
+        "org_pprice": 10.0,
+        "symbol": "T1/T2",
+    }
+    processor = OrderStatusProcessor(
+        dex_pair.pair.config_manager,
+        dex_pair.pair.xbridge_manager,
+        dex_pair.pair.error_handler,
+        dex_pair.pair.config_manager.strategy_instance,
+        dex_pair.pair.config_manager.shutdown_event,
+    )
+
+    await processor._handle_finished_order(dex_pair)
+
+    assert "fin-1" not in pool.ids
+
+
+@pytest.mark.asyncio
+async def test_process_recovers_after_ambiguous_status_end_to_end(dex_pair):
+    """Regression lock: ambiguous status wipe must not crash the repost branch.
+
+    check_order_status fails -> order=None -> STATUS_CANCELLED_WITHOUT_CALL ->
+    process() hits the re-initialization branch and must handle a missing
+    order dict gracefully, then place a fresh order.
+    """
+    dex_pair.order = {"id": "lost-x", "status": "open"}
+    strategy_mock = dex_pair.pair.config_manager.strategy_instance
+    strategy_mock.calculate_sell_price.return_value = 10.0
+    strategy_mock.build_sell_order_details.return_value = (1.0, 0.01)
+    strategy_mock.handle_finished_order = AsyncMock()
+    dex_pair.t1.dex.free_balance = 5.0
+    dex_pair.current_order = {
+        "side": "SELL",
+        "maker_size": 1.0,
+        "org_pprice": 10.0,
+        "symbol": "T1/T2",
+        "maker_address": "a",
+        "taker_address": "b",
+        "taker_size": 10.0,
+        "dex_price": 10.0,
+        "maker": "T1",
+        "taker": "T2",
+    }
+    processor = OrderStatusProcessor(
+        dex_pair.pair.config_manager,
+        dex_pair.pair.xbridge_manager,
+        dex_pair.pair.error_handler,
+        strategy_mock,
+        dex_pair.pair.config_manager.shutdown_event,
+    )
+    # Cycle 1: the daemon never answers -> order wiped as unknown fate ->
+    # IMMEDIATELY reposted by the re-initialization branch, without crashing
+    # on the now-missing order dict (regression guard).
+    dex_pair.pair.xbridge_manager.getorderstatus = AsyncMock(
+        side_effect=RuntimeError("connection reset")
+    )
+    dex_pair.pair.xbridge_manager.makeorder = AsyncMock(
+        return_value={"id": "fresh-1", "status": "created"}
+    )
+    with patch.object(dex_pair.pair.cex, "update_pricing", new_callable=AsyncMock):
+        await processor.process(dex_pair)
+    dex_pair.pair.xbridge_manager.makeorder.assert_awaited_once()
+    assert dex_pair.order is not None
+
+    # Cycle 2: same story again - the loop keeps healing itself.
+    with patch.object(dex_pair.pair.cex, "update_pricing", new_callable=AsyncMock):
+        await processor.process(dex_pair)
+    assert dex_pair.pair.xbridge_manager.makeorder.await_count == 2
