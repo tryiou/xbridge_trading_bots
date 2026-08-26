@@ -1,4 +1,5 @@
 import logging
+import logging.handlers
 import os
 import threading
 from typing import Any, Optional
@@ -49,7 +50,12 @@ class ConfigManager:
                 logs_dir = os.path.join(self.ROOT_DIR, "logs")
                 os.makedirs(logs_dir, exist_ok=True)
                 trade_log_file = os.path.join(logs_dir, f"{strategy}_trade.log")
-                trade_handler = logging.FileHandler(trade_log_file)
+                trade_handler = logging.handlers.RotatingFileHandler(
+                    trade_log_file,
+                    maxBytes=10 * 1024 * 1024,
+                    backupCount=5,
+                    encoding="utf-8",
+                )
                 trade_handler.setFormatter(
                     logging.Formatter(
                         "[%(asctime)s] [%(name)-20s] %(levelname)-8s - %(message)s"

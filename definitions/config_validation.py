@@ -315,6 +315,15 @@ class XBridgeConfigValidator(ConfigValidator):
             if not isinstance(debug_level, int) or not (0 <= debug_level <= 10):
                 result.add_error("debug_level must be an integer between 0 and 10")
 
+        if "rpc_timeout" in config:
+            rpc_timeout = config["rpc_timeout"]
+            if not isinstance(rpc_timeout, (int, float)) or rpc_timeout <= 0:
+                result.add_error("rpc_timeout must be a positive number")
+            elif rpc_timeout > 600:
+                result.add_warning(
+                    "rpc_timeout is very high (>600s) - slow RPCs may block trading"
+                )
+
         if "max_concurrent_tasks" in config:
             tasks = config["max_concurrent_tasks"]
             if not isinstance(tasks, int) or not (1 <= tasks <= 100):

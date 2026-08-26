@@ -67,7 +67,7 @@ SHUTDOWN_TIMEOUT: Final[float] = 45.0
 # Network & Connection Constants
 # =============================================================================
 
-DEFAULT_RPC_TIMEOUT: Final[int] = 30
+DEFAULT_RPC_TIMEOUT: Final[int] = 120
 DEFAULT_RPC_PORT: Final[int] = 41412
 DEFAULT_RPC_PORT_TESTNET: Final[int] = 41413
 DEFAULT_PROXY_PORT: Final[int] = 2233

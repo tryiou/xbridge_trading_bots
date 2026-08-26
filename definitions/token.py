@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any
 
 import aiohttp
 
-from definitions.constants import DEFAULT_PROXY_PORT
+from definitions.constants import DEFAULT_PROXY_PORT, DEFAULT_RPC_TIMEOUT
 from definitions.rpc import is_port_open, rpc_call
 from definitions.yaml_utils import load_yaml, save_yaml
 
@@ -146,6 +146,16 @@ class CexToken:
         self.cex_total_balance: float | None = None
         self.cex_free_balance: float | None = None
 
+    def _get_rpc_timeout(self) -> int:
+        try:
+            cfg = getattr(self.token.config_manager, "config_xbridge", None)
+            cfg_timeout = getattr(cfg, "rpc_timeout", None) if cfg else None
+            if isinstance(cfg_timeout, (int, float)) and cfg_timeout > 0:
+                return int(cfg_timeout)
+        except Exception:
+            pass
+        return DEFAULT_RPC_TIMEOUT
+
     async def update_block_ticker(self) -> float | None:
         result = None
         used_proxy = False
@@ -156,6 +166,7 @@ class CexToken:
                         "fetch_ticker_block",
                         rpc_port=DEFAULT_PROXY_PORT,
                         debug=2,
+                        timeout=self._get_rpc_timeout(),
                         session=session,
                     )
                     used_proxy = True

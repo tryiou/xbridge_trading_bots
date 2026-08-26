@@ -13,7 +13,7 @@ from definitions.circuit_breaker import (
     CircuitBreakerConfig,
     CircuitBreakerError,
 )
-from definitions.constants import POOL_FILE_TEMPLATE
+from definitions.constants import DEFAULT_RPC_TIMEOUT, POOL_FILE_TEMPLATE
 from definitions.errors import RPCConfigError
 from definitions.logger import setup_logging
 from definitions.order_id_pool import OrderIdPool
@@ -124,6 +124,18 @@ class XBridgeManager:
         )
         self._rpc_call = _rpc_call_module
 
+    def _get_rpc_timeout(self) -> int:
+        """Resolve RPC timeout from config with safe fallback."""
+        try:
+            cfg_timeout = getattr(
+                self.config_manager.config_xbridge, "rpc_timeout", None
+            )
+            if isinstance(cfg_timeout, (int, float)) and cfg_timeout > 0:
+                return int(cfg_timeout)
+        except Exception:
+            pass
+        return DEFAULT_RPC_TIMEOUT
+
     async def _execute_rpc_call(
         self,
         method: str,
@@ -144,6 +156,7 @@ class XBridgeManager:
                         rpc_password=self.blocknet_password_rpc,
                         rpc_port=self.blocknet_port_rpc,
                         debug=self.config_manager.config_xbridge.debug_level,
+                        timeout=self._get_rpc_timeout(),
                         logger=self.logger,
                         session=None,
                         shutdown_event=final_shutdown_event,

@@ -1,5 +1,7 @@
+import contextlib
 import contextvars
 import logging
+import logging.handlers
 import os
 
 from .bcolors import bcolors
@@ -77,10 +79,15 @@ def setup_logging(
         return log_handle
 
     if log_handle.handlers:
+        for h in list(log_handle.handlers):
+            with contextlib.suppress(Exception):
+                h.close()
         log_handle.handlers.clear()
 
     if log_file:
-        handler = logging.FileHandler(log_file)
+        handler = logging.handlers.RotatingFileHandler(
+            log_file, maxBytes=10 * 1024 * 1024, backupCount=5, encoding="utf-8"
+        )
         handler.setFormatter(formatter)
         handler.setLevel(level)
         handler.addFilter(CorrelationIdFilter())

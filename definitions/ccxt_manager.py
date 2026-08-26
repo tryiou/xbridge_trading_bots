@@ -5,6 +5,7 @@ from typing import Any
 
 import ccxt
 
+from definitions.constants import DEFAULT_RPC_TIMEOUT
 from definitions.error_handler import ErrorHandler
 from definitions.errors import CriticalError, RPCConfigError
 from definitions.proxy_manager import ProxyManager
@@ -163,6 +164,16 @@ class CCXTManager:
             self._debug_display("ccxt_call_fetch_free_balance", [], result)
         return result
 
+    def _get_rpc_timeout(self, fallback: int = 60) -> int:
+        try:
+            cfg = getattr(self.config_manager, "config_xbridge", None)
+            cfg_timeout = getattr(cfg, "rpc_timeout", None) if cfg else None
+            if isinstance(cfg_timeout, (int, float)) and cfg_timeout > 0:
+                return int(cfg_timeout)
+        except Exception:
+            pass
+        return fallback if fallback else DEFAULT_RPC_TIMEOUT
+
     async def ccxt_call_fetch_tickers(
         self, ccxt_o: Any, symbols_list: list[str], proxy: bool = True
     ) -> dict[str, Any] | None:
@@ -185,7 +196,7 @@ class CCXTManager:
                         rpc_port=self.proxy_manager.get_port(),
                         debug=self.config_manager.config_ccxt.debug_level,
                         logger=self.config_manager.general_log,
-                        timeout=60,
+                        timeout=self._get_rpc_timeout(fallback=60),
                     )
                     used_proxy = True
                 else:
