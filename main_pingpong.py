@@ -1,8 +1,8 @@
 import argparse
 
-from definitions.cli_runner import run_cli, add_custom_help
+from definitions.cli_runner import add_custom_help, run_cli
 from definitions.config_manager import ConfigManager
-from definitions.starter import run_async_main  # Import run_async_main
+from definitions.run import run_async_main  # Import run_async_main
 
 
 def start():
@@ -12,7 +12,7 @@ def start():
         prog="main_pingpong",
         description="A market-making bot that places buy and sell orders around a CEX price feed.",
         formatter_class=argparse.RawTextHelpFormatter,
-        add_help=False
+        add_help=False,
     )
 
     add_custom_help(parser)
@@ -29,5 +29,5 @@ def start():
     run_async_main(config_manager, startup_tasks=startup_tasks)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     run_cli(start)

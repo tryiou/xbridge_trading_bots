@@ -1,7 +1,7 @@
 import asyncio
 import os
 import sys
-from unittest.mock import MagicMock, AsyncMock, PropertyMock, patch
+from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
 import pytest
 
@@ -10,7 +10,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 import threading
 
-from definitions.shutdown import wait_for_pending_rpcs, ShutdownCoordinator
+from definitions.shutdown import ShutdownCoordinator, wait_for_pending_rpcs
 from strategies.maker_strategy import MakerStrategy
 
 
@@ -19,11 +19,11 @@ async def test_wait_for_pending_rpcs_completes():
     """Tests that wait_for_pending_rpcs exits when the counter reaches zero."""
     config_manager = MagicMock()
     config_manager.general_log = MagicMock()
-    # Simulate counter dropping to 0 after two checks
     p = PropertyMock(side_effect=[2, 1, 0])
     type(config_manager.xbridge_manager).active_rpc_counter = p
 
-    await wait_for_pending_rpcs(config_manager, timeout=5)
+    with patch("asyncio.sleep", new_callable=AsyncMock):
+        await wait_for_pending_rpcs(config_manager, timeout=5)
 
     assert p.call_count == 3
 
@@ -33,14 +33,12 @@ async def test_wait_for_pending_rpcs_times_out():
     """Tests that wait_for_pending_rpcs times out if the counter never reaches zero."""
     config_manager = MagicMock()
     config_manager.general_log = MagicMock()
-    # Counter never reaches zero
     p = PropertyMock(return_value=1)
     type(config_manager.xbridge_manager).active_rpc_counter = p
 
-    # Use a short timeout for the test
-    await wait_for_pending_rpcs(config_manager, timeout=1.5)
+    with patch("definitions.shutdown.asyncio.sleep", new_callable=AsyncMock):
+        await wait_for_pending_rpcs(config_manager, timeout=1.5)
 
-    # The warning should be logged on timeout
     config_manager.general_log.warning.assert_called_once()
 
 
@@ -66,7 +64,9 @@ async def test_unified_shutdown_sequence():
     mock_cm.http_session.close = AsyncMock()
 
     # Patch wait_for pending RPCs
-    with patch('definitions.shutdown.wait_for_pending_rpcs', new_callable=AsyncMock) as mock_wait_rpc:
+    with patch(
+        "definitions.shutdown.wait_for_pending_rpcs", new_callable=AsyncMock
+    ) as mock_wait_rpc:
         # Act
         await ShutdownCoordinator.unified_shutdown(mock_cm)
 
@@ -76,3 +76,24 @@ async def test_unified_shutdown_sequence():
 
         # 2. Cancelled strategy orders
         mock_cm.strategy_instance.cancel_own_orders.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_unified_shutdown_flushes_order_pool():
+    """Shutdown persists the historic order-id pool (forced)."""
+    mock_cm = MagicMock()
+    mock_cm.resource_lock = threading.RLock()
+    mock_cm.general_log = MagicMock()
+    mock_cm.error_handler.handle_async = AsyncMock()
+    mock_cm.controller = MagicMock()
+    mock_cm.controller.shutdown_event = asyncio.Event()
+    mock_cm.strategy_instance = MagicMock(spec=MakerStrategy)
+    mock_cm.strategy_instance.cancel_own_orders = AsyncMock(return_value=0)
+    type(mock_cm.xbridge_manager).active_rpc_counter = PropertyMock(return_value=0)
+    mock_pool = MagicMock()
+    mock_pool.flush.return_value = True
+    mock_cm.xbridge_manager.order_pool = mock_pool
+
+    await ShutdownCoordinator.unified_shutdown(mock_cm)
+
+    mock_pool.flush.assert_called_once_with(force=True)

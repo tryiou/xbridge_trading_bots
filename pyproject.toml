@@ -1,0 +1,79 @@
+[tool.ruff]
+# Exclude directories
+exclude = [
+    ".git",
+    ".venv",
+    "venv",
+    "__pycache__",
+    "build",
+    "dist",
+    ".eggs",
+    "*.egg",
+]
+
+# Line length
+line-length = 88
+
+# Python version
+target-version = "py310"
+
+# Indentation
+indent-width = 4
+
+[tool.ruff.lint]
+# Enable rules
+select = [
+    "E",     # pycodestyle errors
+    "W",     # pycodestyle warnings
+    "F",     # Pyflakes
+    "I",     # isort
+    "B",     # flake8-bugbear
+    "C4",    # flake8-comprehensions
+    "UP",    # pyupgrade
+    "ARG",   # flake8-unused-arguments
+    "SIM",   # flake8-simplify
+    "PL",    # Pylint
+    "RUF",   # Ruff-specific rules
+]
+
+# Ignore specific rules
+ignore = [
+    "E501",  # Line too long
+    "PLC0415",  # Imports in functions - valid for optional GUI deps
+    "PLR2004",  # Magic values - style suggestion only
+    "RUF012",  # Mutable defaults - false positives for class constants
+    "PLR0912",  # Too many branches - subjective
+    "PLR0915",  # Too many statements - subjective
+    "PLR0911",  # Too many returns - subjective
+    "PLR0913",  # Too many arguments - subjective
+    "ARG001",  # Unused function argument - risky to fix
+    "ARG002",  # Unused method argument - risky to fix
+    "ARG005",  # Unused lambda argument - risky to fix
+    "PLW0603",  # Global statement - valid for module-level singletons
+    "B904",  # Exception raise style - subjective
+]
+
+# Allow fix for all enabled rules
+fixable = ["ALL"]
+unfixable = []
+
+# Allow unused variables when underscore-prefixed
+dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+
+[tool.ruff.lint.isort]
+# Import sorting configuration
+known-first-party = []  # No custom package, flat structure
+combine-as-imports = true
+split-on-trailing-comma = true
+
+[tool.ruff.format]
+# Format configuration
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+
+[tool.ruff.lint.per-file-ignores]
+# Ignore specific rules in specific files
+"__init__.py" = ["F401"]  # Ignore unused imports in __init__.py
+"tests/**/*.py" = ["S101"]  # Allow assert in tests

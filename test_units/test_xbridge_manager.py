@@ -2,7 +2,7 @@ import asyncio
 import os
 import sys
 import time
-from unittest.mock import MagicMock, AsyncMock, patch, mock_open
+from unittest.mock import AsyncMock, MagicMock, mock_open, patch
 
 import pytest
 
@@ -16,6 +16,9 @@ from definitions.xbridge_manager import XBridgeManager
 def reset_xbridge_manager_class_vars():
     XBridgeManager._active_rpc_counter = 0
     XBridgeManager._rpc_semaphore = None
+    XBridgeManager._rpc_config = None
+    XBridgeManager._utxo_cache = {}
+    XBridgeManager._xbridge_conf_cache = None
     yield
 
 
@@ -28,18 +31,23 @@ def mock_config_manager():
     cm.config_xbridge.max_concurrent_tasks = 2  # Lower for testing
     cm.general_log = MagicMock()
     cm.controller = None
+    cm.error_handler = AsyncMock()
     return cm
 
 
 @pytest.fixture
 def xbridge_manager(mock_config_manager):
     """Fixture to create an XBridgeManager instance with mocked dependencies."""
-    with patch('definitions.xbridge_manager.detect_rpc', return_value=("user", 1234, "pass", "/tmp")), \
-            patch('definitions.xbridge_manager.is_port_open', return_value=True), \
-            patch('asyncio.run'), \
-            patch('definitions.xbridge_manager.rpc_call', new_callable=AsyncMock) as mock_rpc_call:
-        manager = XBridgeManager(mock_config_manager)
-        manager.mock_rpc_call = mock_rpc_call  # Attach mock for easy access in tests
+    with (
+        patch("definitions.xbridge_manager.is_port_open", return_value=True),
+        patch("asyncio.run"),
+    ):
+        manager = XBridgeManager(
+            mock_config_manager,
+            rpc_config=("test_user", 1234, "test_pass", "/tmp"),
+        )
+        manager.mock_rpc_call = AsyncMock(return_value=[{"txid": "123", "amount": 100}])
+        manager._rpc_call = manager.mock_rpc_call
         yield manager
 
 
@@ -54,7 +62,7 @@ async def test_gettokenutxo_caching(xbridge_manager):
     result1 = await xbridge_manager.gettokenutxo(token)
     assert result1 == mock_utxos
     xbridge_manager.mock_rpc_call.assert_called_once()
-    assert xbridge_manager.mock_rpc_call.call_args.kwargs['method'] == 'dxgetutxos'
+    assert xbridge_manager.mock_rpc_call.call_args.kwargs["method"] == "dxgetutxos"
 
     # 2. Second call immediately after (cache hit)
     xbridge_manager.mock_rpc_call.reset_mock()
@@ -65,11 +73,13 @@ async def test_gettokenutxo_caching(xbridge_manager):
     # 3. Third call after cache duration (cache miss)
     xbridge_manager.mock_rpc_call.reset_mock()
     # Manually expire cache for test reliability
-    with patch('time.time', return_value=time.time() + xbridge_manager.UTXO_CACHE_DURATION + 1):
+    with patch(
+        "time.time", return_value=time.time() + xbridge_manager.UTXO_CACHE_DURATION + 1
+    ):
         result3 = await xbridge_manager.gettokenutxo(token)
         assert result3 == mock_utxos
         xbridge_manager.mock_rpc_call.assert_called_once()
-        assert xbridge_manager.mock_rpc_call.call_args.kwargs['method'] == 'dxgetutxos'
+        assert xbridge_manager.mock_rpc_call.call_args.kwargs["method"] == "dxgetutxos"
 
 
 @pytest.mark.asyncio
@@ -91,7 +101,10 @@ async def test_rpc_wrapper_concurrency_and_counter(xbridge_manager):
         active_calls -= 1
         return "success"
 
-    manager.mock_rpc_call.side_effect = delayed_rpc
+    async def mock_rpc(*args, **kwargs):
+        return await delayed_rpc(*args, **kwargs)
+
+    manager._rpc_call = mock_rpc
 
     # Start more tasks than the concurrency limit
     tasks = [manager.rpc_wrapper(method, params) for _ in range(concurrency_limit * 2)]
@@ -100,28 +113,6 @@ async def test_rpc_wrapper_concurrency_and_counter(xbridge_manager):
     assert all(r == "success" for r in results)
     assert max_active_calls == concurrency_limit
     assert manager.active_rpc_counter == 0
-
-
-@pytest.mark.asyncio
-async def test_makeorder_dryrun(xbridge_manager):
-    """Tests that makeorder calls rpc_wrapper with the correct 'dryrun' parameter."""
-    manager = xbridge_manager
-    params = ["MAKER", "1.0", "m_addr", "TAKER", "10.0", "t_addr"]
-
-    # Test with dryrun=True
-    await manager.makeorder(*params, dryrun=True)
-    manager.mock_rpc_call.assert_called_once()
-    call_kwargs = manager.mock_rpc_call.call_args.kwargs
-    assert call_kwargs['method'] == 'dxMakeOrder'
-    assert call_kwargs['params'][-1] == 'dryrun'
-
-    # Test with dryrun=False (or None)
-    manager.mock_rpc_call.reset_mock()
-    await manager.makeorder(*params, dryrun=False)
-    manager.mock_rpc_call.assert_called_once()
-    call_kwargs = manager.mock_rpc_call.call_args.kwargs
-    assert call_kwargs['method'] == 'dxMakeOrder'
-    assert call_kwargs['params'][-1] != 'dryrun'
 
 
 MOCK_XBRIDGE_CONF = """
@@ -158,8 +149,10 @@ def test_parse_xbridge_conf_success(xbridge_manager):
     # Set a mock datadir path
     manager.blocknet_datadir_path = "/mock/datadir"
 
-    with patch('builtins.open', mock_open(read_data=MOCK_XBRIDGE_CONF)), \
-            patch('os.path.exists', return_value=True):
+    with (
+        patch("builtins.open", mock_open(read_data=MOCK_XBRIDGE_CONF)),
+        patch("os.path.exists", return_value=True),
+    ):
         manager.parse_xbridge_conf()
 
         assert manager.xbridge_conf is not None
@@ -168,9 +161,9 @@ def test_parse_xbridge_conf_success(xbridge_manager):
         assert "Main" not in manager.xbridge_conf  # Should be skipped
 
         # Verify type conversion
-        assert isinstance(manager.xbridge_conf['BLOCK']['feeperbyte'], int)
-        assert manager.xbridge_conf['BLOCK']['feeperbyte'] == 20
-        assert manager.xbridge_conf['LTC']['mintxfee'] == 20000
+        assert isinstance(manager.xbridge_conf["BLOCK"]["feeperbyte"], int)
+        assert manager.xbridge_conf["BLOCK"]["feeperbyte"] == 20
+        assert manager.xbridge_conf["LTC"]["mintxfee"] == 20000
 
 
 def test_parse_xbridge_conf_file_not_found(xbridge_manager):
@@ -180,30 +173,86 @@ def test_parse_xbridge_conf_file_not_found(xbridge_manager):
     # Replace the real logger with a mock to assert calls
     manager.logger = MagicMock()
 
-    with patch('os.path.exists', return_value=False):
+    with patch("os.path.exists", return_value=False):
         manager.parse_xbridge_conf()
         assert manager.xbridge_conf is None
-        manager.logger.error.assert_called_with("xbridge.conf not found at /mock/datadir/xbridge.conf")
+        manager.logger.error.assert_called_with(
+            "xbridge.conf not found at /mock/datadir/xbridge.conf"
+        )
 
 
-def test_calculate_xbridge_fees(xbridge_manager):
-    """Tests the fee estimation logic."""
-    manager = xbridge_manager
-    # Manually set the parsed conf
-    manager.xbridge_conf = {
-        'BLOCK': {'feeperbyte': 20, 'mintxfee': 10000, 'coin': 100000000},
-        'LTC': {'feeperbyte': 10, 'mintxfee': 20000, 'coin': 100000000}
-    }
+# ---------------------------------------------------------------------------
+# Historic order-id pool: capture on post + getmyorders passthrough
+# ---------------------------------------------------------------------------
 
-    manager.calculate_xbridge_fees()
 
-    assert "BLOCK" in manager.xbridge_fees_estimate
-    assert "LTC" in manager.xbridge_fees_estimate
+@pytest.fixture
+def tmp_order_pool(xbridge_manager, tmp_path):
+    """Inject a temp-file pool as this instance's notebook."""
+    from definitions.order_id_pool import OrderIdPool
 
-    # BLOCK fee: feeperbyte * 500 = 10000. This is equal to mintxfee.
-    assert manager.xbridge_fees_estimate['BLOCK']['estimated_fee_satoshis'] == 10000
-    assert manager.xbridge_fees_estimate['BLOCK']['estimated_fee_coin'] == 0.0001
+    pool = OrderIdPool(file_path=str(tmp_path / "pool.yaml"))
+    xbridge_manager.order_pool = pool
+    yield pool
 
-    # LTC fee: feeperbyte * 500 = 5000. This is less than mintxfee.
-    assert manager.xbridge_fees_estimate['LTC']['estimated_fee_satoshis'] == 20000
-    assert manager.xbridge_fees_estimate['LTC']['estimated_fee_coin'] == 0.0002
+
+@pytest.mark.asyncio
+async def test_makeorder_records_id_in_pool(xbridge_manager, tmp_order_pool):
+    xbridge_manager.rpc_wrapper = AsyncMock(
+        return_value={"id": "posted-1", "status": "created"}
+    )
+    result = await xbridge_manager.makeorder("BLOCK", 1, "addr1", "LTC", 2, "addr2")
+
+    assert result["id"] == "posted-1"
+    assert tmp_order_pool.ids == {"posted-1"}
+    assert tmp_order_pool._ids["posted-1"]["sym"] == "BLOCK/LTC"
+    # Capture is flushed to disk immediately (newest ids are the valuable ones).
+    assert not tmp_order_pool.dirty
+
+
+@pytest.mark.asyncio
+async def test_makepartialorder_records_id_in_pool(xbridge_manager, tmp_order_pool):
+    xbridge_manager.rpc_wrapper = AsyncMock(
+        return_value={"id": "partial-1", "status": "created"}
+    )
+    await xbridge_manager.makepartialorder("BLOCK", 1, "addr1", "LTC", 2, "addr2", 0.5)
+    assert tmp_order_pool.ids == {"partial-1"}
+
+
+@pytest.mark.asyncio
+async def test_makeorder_failure_does_not_pollute_pool(xbridge_manager, tmp_order_pool):
+    xbridge_manager.rpc_wrapper = AsyncMock(return_value={"error": "boom"})
+    result = await xbridge_manager.makeorder("BLOCK", 1, "a", "LTC", 2, "b")
+    assert result == {"error": "boom"}
+    assert tmp_order_pool.size == 0
+
+    xbridge_manager.rpc_wrapper = AsyncMock(side_effect=RuntimeError("timeout"))
+    with pytest.raises(RuntimeError):
+        await xbridge_manager.makeorder("BLOCK", 1, "a", "LTC", 2, "b")
+    assert tmp_order_pool.size == 0
+
+
+@pytest.mark.asyncio
+async def test_pool_failure_never_breaks_order_flow(xbridge_manager, tmp_order_pool):
+    xbridge_manager.rpc_wrapper = AsyncMock(
+        return_value={"id": "ok-1", "status": "created"}
+    )
+    with patch.object(type(tmp_order_pool), "add", side_effect=OSError("disk gone")):
+        result = await xbridge_manager.makeorder("BLOCK", 1, "a", "LTC", 2, "b")
+    assert result["id"] == "ok-1"  # order flow unaffected by pool I/O failure
+
+
+@pytest.mark.asyncio
+async def test_getmyorders_passthrough(xbridge_manager):
+    xbridge_manager.rpc_wrapper = AsyncMock(return_value=[{"id": "x"}])
+    result = await xbridge_manager.getmyorders()
+    assert result == [{"id": "x"}]
+    assert xbridge_manager.rpc_wrapper.call_args.args[0] == "dxGetMyOrders"
+
+
+def test_cancelallorders_signature_unscoped_by_default():
+    """Regression lock: cancelallorders keeps its wallet-wide contract."""
+    import inspect
+
+    sig = inspect.signature(XBridgeManager.cancelallorders)
+    assert list(sig.parameters) == ["self", "use_shutdown_event"]

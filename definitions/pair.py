@@ -1,159 +1,166 @@
+from __future__ import annotations
+
+import logging
 import math
+import re
 import time
+from enum import Enum, auto
+from typing import TYPE_CHECKING, Any
 
-import yaml
+from definitions.constants import XBridgeErrorCode
+from definitions.price_update_handler import PriceUpdateHandler
+from definitions.yaml_utils import load_yaml, save_yaml
 
-from definitions.errors import OperationalError
-from definitions.token import Token
+if TYPE_CHECKING:
+    from definitions.config_manager import ConfigManager
+    from definitions.token import Token
+
+
+class RecoverState(Enum):
+    """Return state for bad-address recovery attempt."""
+
+    NORMAL = auto()
+    RECOVERED = auto()
+    ALREADY_DISABLED = auto()
 
 
 class Pair:
-    """Represents a trading pair between two tokens.
-    
-    Manages both DEX and CEX trading operations.
-    
-    Attributes:
-        cfg: Pair configuration dictionary
-        name: Unique name identifier
-        strategy: Trading strategy name
-        t1: First token in pair
-        t2: Second token in pair
-        symbol: Trading symbol (e.g., 'BTC/BLOCK')
-        disabled: Flag if pair is disabled
-        variation: Price variation threshold
-        dex_enabled: Flag if DEX trading is enabled
-        amount_token_to_sell: Sell amount for token
-        min_sell_price_usd: Minimum USD sell price
-        sell_price_offset: Fractional offset for sell price
-        config_manager: Master configuration manager
-        dex: DexPair instance for DEX operations
-        cex: CexPair instance for CEX operations
-    """
-
-    def __init__(self, token1: Token, token2: Token, config_manager, cfg: dict, amount_token_to_sell: float = None,
-                 min_sell_price_usd: float = None, sell_price_offset: float = None, strategy: str = None,
-                 dex_enabled: bool = True, partial_percent: float = None):
+    def __init__(
+        self,
+        token1: Token,
+        token2: Token,
+        config_manager: ConfigManager | None,
+        cfg: dict[str, Any],
+        amount_token_to_sell: float | None = None,
+        min_sell_price_usd: float | None = None,
+        sell_price_offset: float | None = None,
+        strategy: str | None = None,
+        dex_enabled: bool = True,
+        partial_percent: float | None = None,
+        xbridge_manager: Any | None = None,
+        ccxt_manager: Any | None = None,
+        error_handler: Any | None = None,
+        logger: logging.Logger | None = None,
+    ) -> None:
         self.cfg = cfg
-        self.name = cfg['name']
-        self.strategy = strategy  # e.g.,  pingpong, basic_seller
+        self.name = cfg["name"]
+        self.strategy = strategy
         self.t1 = token1
         self.t2 = token2
-        self.symbol = f'{self.t1.symbol}/{self.t2.symbol}'
+        self.symbol = f"{self.t1.symbol}/{self.t2.symbol}"
         self.disabled = False
-        self.variation = None
+        self.variation: float | list | None = None
         self.dex_enabled = dex_enabled
         self.amount_token_to_sell = amount_token_to_sell
         self.min_sell_price_usd = min_sell_price_usd
-        if 'sell_price_offset' in self.cfg:
-            offset = self.cfg['sell_price_offset']
-        else:
-            offset = sell_price_offset
-        self.sell_price_offset = offset
-        self.config_manager = config_manager
+        self.sell_price_offset = self.cfg.get("sell_price_offset", sell_price_offset)
+
+        self._config_manager = config_manager
+        self.xbridge_manager = xbridge_manager or getattr(
+            config_manager, "xbridge_manager", None
+        )
+        self.ccxt_manager = ccxt_manager or getattr(
+            config_manager, "ccxt_manager", None
+        )
+        self.error_handler = error_handler or getattr(
+            config_manager, "error_handler", None
+        )
+        self.logger = logger or getattr(
+            config_manager, "general_log", logging.getLogger(__name__)
+        )
+
         self.dex = DexPair(self, partial_percent)
         self.cex = CexPair(self)
 
+    @property
+    def config_manager(self):
+        """Deprecated property for backward compatibility."""
+        return self._config_manager
+
 
 class DexPair:
-    """Handles DEX trading operations for a token pair.
-    
-    Implements order creation, cancellation, and tracking.
-    
-    Class Constants:
-        STATUS_OPEN (0): Order is open
-        STATUS_FINISHED (1): Order is finished
-        STATUS_OTHERS (2): Order is in other state
-        STATUS_ERROR_SWAP (-1): Swap error occurred
-        STATUS_CANCELLED_WITHOUT_CALL (-2): Order cancelled without explicit call
-        
-    Attributes:
-        pair: Parent Pair object
-        t1: First token in pair
-        t2: Second token in pair
-        symbol: Trading symbol
-        order_history: Last completed order details
-        current_order: Current virtual order
-        disabled: Flag if DEX operations disabled
-        variation: Current price variation
-        partial_percent: Partial order percentage
-        orderbook: Current DEX orderbook
-        orderbook_timer: Last orderbook update timestamp
-        order: Active order on DEX
-    """
-
-    # Constants for status codes
     STATUS_OPEN = 0
     STATUS_FINISHED = 1
     STATUS_OTHERS = 2
     STATUS_ERROR_SWAP = -1
     STATUS_CANCELLED_WITHOUT_CALL = -2
-
     PRICE_VARIATION_TOLERANCE_DEFAULT = 0.01
 
-    def __init__(self, pair: Pair, partial_percent: float):
+    def __init__(self, pair: Pair, partial_percent: float | None) -> None:
         self.pair = pair
         self.t1 = pair.t1
         self.t2 = pair.t2
         self.symbol = pair.symbol
-        self.order_history = None
-        self.current_order = None  # Virtual order
+        self.order_history: dict[str, Any] | None = None
+        self.current_order: dict[str, Any] | None = None
         self.disabled = False
-        self.variation = None
+        self.disable_reason: str | None = None
+        self.variation: float | list | None = None
         self.partial_percent = partial_percent
-        self.orderbook = None
-        self.orderbook_timer = None
-        self.order = None
+        self.orderbook: dict[str, Any] | None = None
+        self.orderbook_timer: float | None = None
+        self.order: dict[str, Any] | None = None
+        self._bad_address_recovered = False
         self.read_last_order_history()
 
     async def update_dex_orderbook(self):
-        self.orderbook = await self.pair.config_manager.xbridge_manager.dxgetorderbook(detail=3, maker=self.t1.symbol,
-                                                                                       taker=self.t2.symbol)
-        self.orderbook.pop('detail', None)
+        self.orderbook = await self.pair.xbridge_manager.dxgetorderbook(
+            detail=3, maker=self.t1.symbol, taker=self.t2.symbol
+        )
+        self.orderbook.pop("detail", None)
 
     def _get_history_file_path(self):
-        return self.pair.config_manager.strategy_instance.get_dex_history_file_path(self.pair.name)
+        return self.pair.config_manager.strategy_instance.get_dex_history_file_path(
+            self.pair.name
+        )
 
     def read_last_order_history(self):
-        if not self.pair.dex_enabled:
-            return
-        # Skip if strategy_instance not set (common in tests)
-        if not self.pair.config_manager.strategy_instance:
+        if not self.pair.dex_enabled or not self.pair.config_manager.strategy_instance:
             return
         file_path = self._get_history_file_path()
         try:
-            with open(file_path, 'r') as fp:
-                self.order_history = yaml.safe_load(fp)
+            self.order_history = load_yaml(file_path)
         except FileNotFoundError:
-            self.pair.config_manager.general_log.info(f"File not found: {file_path}")
+            self.pair.logger.info("File not found: %s", file_path)
         except Exception as e:
-            self.pair.config_manager.error_handler.handle(
+            # Re-added file_path to context for better observability
+            self.pair.error_handler.handle(
                 e,
-                context={"pair": self.pair.name, "stage": "read_last_order_history", "file_path": file_path}
+                context={
+                    "pair": self.pair.name,
+                    "stage": "read_last_order_history",
+                    "file_path": file_path,
+                },
             )
             self.order_history = None
 
     def write_last_order_history(self):
-        # Get exact USD amount from our specific config entry # TODO: This comment seems misplaced.
-
         file_path = self._get_history_file_path()
         try:
-            with open(file_path, 'w') as fp:
-                yaml.safe_dump(self.order_history, fp)
+            if self.order_history is not None:
+                save_yaml(file_path, self.order_history)
         except Exception as e:
-            self.pair.config_manager.error_handler.handle(
+            # Re-added file_path to context to satisfy the test and improve debugging
+            self.pair.error_handler.handle(
                 e,
-                context={"pair": self.pair.name, "stage": "write_last_order_history", "file_path": file_path}
+                context={
+                    "pair": self.pair.name,
+                    "stage": "write_last_order_history",
+                    "file_path": file_path,
+                },
             )
 
     def _log_virtual_order(self, side: str, maker_symbol: str, taker_symbol: str):
-        self.pair.config_manager.general_log.info(
-            f"Virtual {side} order created for {self.pair.name} | "
-            f"Symbol: {self.symbol} | "
-            f"Maker: {maker_symbol} | "
-            f"Taker: {taker_symbol} | "
-            f"Maker size: {self.current_order['maker_size']:.6f} | "
-            f"Taker size: {self.current_order['taker_size']:.6f} | "
-            f"Price: {self.current_order['dex_price']:.8f}"
+        self.pair.logger.info(
+            "Virtual %s order created for %s | Symbol: %s | Maker: %s | Taker: %s | Maker size: %.6f | Taker size: %.6f | Price: %.8f",
+            side,
+            self.pair.name,
+            self.symbol,
+            maker_symbol,
+            taker_symbol,
+            self.current_order["maker_size"],
+            self.current_order["taker_size"],
+            self.current_order["dex_price"],
         )
 
     def create_virtual_sell_order(self):
@@ -172,270 +179,472 @@ class DexPair:
 
     @staticmethod
     def truncate(value: float, digits: int = 8) -> float:
-        """
-        Truncates a float to a specified number of decimal places without rounding.
-        """
         if not isinstance(value, (int, float)):
             return value
-        stepper = 10.0 ** digits
+        stepper = 10.0**digits
         return math.trunc(stepper * value) / stepper
 
-    def _construct_order_dict(self, side, maker_token, taker_token, maker_size, taker_size, original_price,
-                              final_price):
-        """A helper to construct the common order dictionary structure."""
-        # Determine order type
-        order_type = 'exact'
-        if side == 'SELL' and self.partial_percent is not None:
-            if isinstance(self.partial_percent, (int, float)):
-                if 0 < self.partial_percent < 1:
-                    order_type = 'partial'
+    def _construct_order_dict(
+        self,
+        side,
+        maker_token,
+        taker_token,
+        maker_size,
+        taker_size,
+        original_price,
+        final_price,
+    ):
+        order_type = "exact"
+        if (
+            side == "SELL"
+            and isinstance(self.partial_percent, (int, float))
+            and 0 < self.partial_percent < 1
+        ):
+            order_type = "partial"
         order = {
-            'symbol': self.symbol,
-            'side': side,
-            'maker': maker_token.symbol,
-            'maker_address': maker_token.dex.address,
-            'taker': taker_token.symbol,
-            'taker_address': taker_token.dex.address,
-            'type': order_type,
-            'maker_size': DexPair.truncate(maker_size),
-            'taker_size': DexPair.truncate(taker_size),
-            'dex_price': DexPair.truncate(final_price),  # The effective price of the order
-            'org_pprice': DexPair.truncate(original_price),
-            'org_t1price': DexPair.truncate(self.t1.cex.cex_price),
-            'org_t2price': DexPair.truncate(self.t2.cex.cex_price),
+            "symbol": self.symbol,
+            "side": side,
+            "maker": maker_token.symbol,
+            "maker_address": maker_token.dex.address,
+            "taker": taker_token.symbol,
+            "taker_address": taker_token.dex.address,
+            "type": order_type,
+            "maker_size": DexPair.truncate(maker_size),
+            "taker_size": DexPair.truncate(taker_size),
+            "dex_price": DexPair.truncate(final_price),
+            "org_pprice": DexPair.truncate(original_price),
+            "org_t1price": DexPair.truncate(self.t1.cex.cex_price),
+            "org_t2price": DexPair.truncate(self.t2.cex.cex_price),
         }
-        if self.partial_percent and side == 'SELL':
-            order['minimum_size'] = maker_size * self.partial_percent
+        if self.partial_percent and side == "SELL":
+            order["minimum_size"] = maker_size * self.partial_percent
         return order
 
     def _build_sell_order(self):
-        original_price = self.pair.config_manager.strategy_instance.calculate_sell_price(self)
-        maker_size, offset = self.pair.config_manager.strategy_instance.build_sell_order_details(self)
-
+        original_price = (
+            self.pair.config_manager.strategy_instance.calculate_sell_price(self)
+        )
+        maker_size, offset = (
+            self.pair.config_manager.strategy_instance.build_sell_order_details(self)
+        )
         final_price = original_price * (1 + offset)
         taker_size = maker_size * final_price
-
         return self._construct_order_dict(
-            side='SELL', maker_token=self.t1, taker_token=self.t2,
-            maker_size=maker_size, taker_size=taker_size,
-            original_price=original_price, final_price=final_price
+            "SELL",
+            self.t1,
+            self.t2,
+            maker_size,
+            taker_size,
+            original_price,
+            final_price,
         )
 
     def _build_buy_order(self):
-        original_price = self.pair.config_manager.strategy_instance.determine_buy_price(self)
-        taker_size, spread = self.pair.config_manager.strategy_instance.build_buy_order_details(self)
-
+        original_price = self.pair.config_manager.strategy_instance.determine_buy_price(
+            self
+        )
+        taker_size, spread = (
+            self.pair.config_manager.strategy_instance.build_buy_order_details(self)
+        )
         final_price = original_price * (1 - spread)
         maker_size = taker_size * final_price
-
         return self._construct_order_dict(
-            side='BUY', maker_token=self.t2, taker_token=self.t1,
-            maker_size=maker_size, taker_size=taker_size,
-            original_price=original_price, final_price=final_price
+            "BUY", self.t2, self.t1, maker_size, taker_size, original_price, final_price
         )
 
     def check_price_in_range(self, display=False):
-        price_variation_tolerance = self.pair.config_manager.strategy_instance.get_price_variation_tolerance(self)
-
-        # The strategy now returns a tuple: (variation, is_locked)
+        price_variation_tolerance = (
+            self.pair.config_manager.strategy_instance.get_price_variation_tolerance(
+                self
+            )
+        )
         var_result = self.pair.config_manager.strategy_instance.calculate_variation_based_on_side(
             self,
-            self.current_order.get('side'),
+            self.current_order.get("side"),
             self.pair.cex.price,
-            self.current_order['org_pprice']
+            self.current_order["org_pprice"],
         )
 
-        # Handle different return types for backward compatibility and new explicit style
         if isinstance(var_result, tuple):
             variation, is_locked = var_result
-        else:  # Legacy support for float or list returns
+        else:
             variation = var_result[0] if isinstance(var_result, list) else var_result
             is_locked = isinstance(var_result, list)
 
         self._set_variation(variation, is_locked)
-
         if display:
             self._log_price_check(variation)
-
         if is_locked:
-            return True  # Price is "in range" because the order is locked.
-
-        return self._is_price_in_range(variation, price_variation_tolerance)
+            return True
+        return 1 - price_variation_tolerance < variation < 1 + price_variation_tolerance
 
     def _set_variation(self, variation_value, is_locked):
-        # Store as a list if locked, for GUI display purposes.
         truncated_var = self.truncate(variation_value, 3)
         self.variation = [truncated_var] if is_locked else truncated_var
 
     def _log_price_check(self, var):
-        self.pair.config_manager.general_log.info(
-            f"Price variation check for {self.symbol}: "
-            f"Variation: {var:.4f}, Stored variation: {self.variation:.4f}, "
-            f"Live price: {self.pair.cex.price:.8f}, Original price: {self.current_order['org_pprice']:.8f}, "
-            f"Price ratio: {self.pair.cex.price / self.current_order['org_pprice']:.4f}"
+        self.pair.logger.info(
+            "Price variation check for %s: Variation: %.4f, Stored: %.4f, Live price: %.8f, Original price: %.8f, Ratio: %.4f",
+            self.symbol,
+            var,
+            self.variation[0] if isinstance(self.variation, list) else self.variation,
+            self.pair.cex.price,
+            self.current_order["org_pprice"],
+            self.pair.cex.price / self.current_order["org_pprice"],
         )
 
-    def _is_price_in_range(self, var, price_variation_tolerance):
-        return 1 - price_variation_tolerance < var < 1 + price_variation_tolerance
-
-    def init_virtual_order(self, disabled_coins=None, display=True):
-        if self._is_pair_disabled(disabled_coins):
+    def init_virtual_order(self, display=True):
+        disabled_coins = self.pair.config_manager.disabled_coins
+        if disabled_coins and (
+            self.t1.symbol in disabled_coins or self.t2.symbol in disabled_coins
+        ):
             self.disabled = True
-            self.pair.config_manager.general_log.info(f"{self.symbol} disabled due to cc checks: {disabled_coins}")
+            self.pair.logger.info(
+                "%s disabled due to cc checks: %s", self.symbol, disabled_coins
+            )
             return
 
         if not self.disabled:
-            self.pair.config_manager.strategy_instance.init_virtual_order_logic(self, self.order_history)
+            self.pair.config_manager.strategy_instance.init_virtual_order_logic(
+                self, self.order_history
+            )
             if display:
-                self._log_virtual_order_price()
-
-    def _is_pair_disabled(self, disabled_coins):  # Moved here from _initialize_order
-        return disabled_coins and (self.t1.symbol in disabled_coins or self.t2.symbol in disabled_coins)
-
-    def _log_virtual_order_price(self):
-        self.pair.config_manager.general_log.info(
-            f"live pair prices : {DexPair.truncate(self.pair.cex.price)} {self.symbol} | "
-            f"{self.t1.symbol}/USD: {DexPair.truncate(self.t1.cex.usd_price, 3)} | "
-            f"{self.t2.symbol}/USD: {DexPair.truncate(self.t2.cex.usd_price, 3)}"
-        )
-        self.pair.config_manager.general_log.info(f"Current virtual order details: {self.current_order}")
+                self.pair.logger.info(
+                    "live pair prices : %s %s | %s/USD: %s | %s/USD: %s",
+                    DexPair.truncate(self.pair.cex.price),
+                    self.symbol,
+                    self.t1.symbol,
+                    DexPair.truncate(self.t1.cex.usd_price, 3),
+                    self.t2.symbol,
+                    DexPair.truncate(self.t2.cex.usd_price, 3),
+                )
 
     async def cancel_myorder_async(self):
-        if self.order and 'id' in self.order and self.order['id'] is not None:
-            await self.pair.config_manager.xbridge_manager.cancelorder(self.order['id'])
+        if self.order and self.order.get("id"):
+            await self.pair.xbridge_manager.cancelorder(self.order["id"])
         self.order = None
 
     async def create_order(self, dry_mode=False):
-        # First check if pair is already disabled                                                                                                                                               
         if self.disabled:
             return
 
-            # Check the global shutdown state
         if self._is_shutting_down():
-            self.pair.config_manager.general_log.warning(
-                f"Skipping order creation for {self.symbol} - shutdown in progress"
+            self.pair.logger.warning(
+                "Skipping order creation for %s - shutdown in progress", self.symbol
             )
             return
 
         self.order = None
-
         maker_size = f"{self.current_order['maker_size']:.6f}"
-        bal = self._get_balance()
+        bal = (
+            self.t2.dex.free_balance
+            if self.current_order["side"] == "BUY"
+            else self.t1.dex.free_balance
+        )
 
-        if self._is_balance_valid(bal, maker_size) and float(bal) >= float(maker_size):
+        if (
+            bal is not None
+            and maker_size.replace(".", "").isdigit()
+            and float(bal) >= float(maker_size)
+        ):
             await self._create_order(dry_mode, maker_size)
         else:
-            self.pair.config_manager.general_log.error(
-                f"dex_create_order, balance too low: {bal}, need: {maker_size} {self.current_order['maker']}")
-
-    def _get_balance(self):
-        return self.t2.dex.free_balance if self.current_order['side'] == "BUY" else self.t1.dex.free_balance
-
-    def _is_balance_valid(self, bal, maker_size):
-        return bal is not None and maker_size.replace('.', '').isdigit()
+            self.pair.logger.error(
+                "dex_create_order, balance too low: %s, need: %s %s",
+                bal,
+                maker_size,
+                self.current_order["maker"],
+            )
 
     async def _create_order(self, dry_mode, maker_size):
         try:
-            order = await self._generate_order(dry_mode)
-            if dry_mode:
-                self._log_dry_mode_order(order)
-                return
+            await self._do_make_order(dry_mode)
 
-            self.order = order
-            if self.order and 'error' in self.order:
-                # Let the existing error handling logic for specific codes take place
+            if self.order and "error" in self.order:
                 await self._handle_order_error()
-            # If there's no error, we're done. If there was an error, _handle_order_error
-            # has already logged it and set the state appropriately.
+
         except Exception as e:
-            self.pair.config_manager.general_log.error(
-                f"Unhandled exception creating order: {str(e)}",
-                exc_info=True
+            self.pair.logger.debug(
+                "[RECOVERY] Pair %s - order creation failed: %s: %s",
+                self.symbol,
+                type(e).__name__,
+                e,
             )
-            context = {"pair": self.pair.symbol, "stage": "order_creation", "error": str(e)}
-            # We trust the error handler to classify and act on the error
-            retry_or_continue = await self.pair.config_manager.error_handler.handle_async(e, context)
-            # Only disable the pair when error is critical or retries exhausted
-            if not retry_or_continue:
-                self.disabled = True
-
-    async def _generate_order(self, dry_mode):
-        try:
-            maker = self.current_order['maker']
-            maker_size = f"{self.current_order['maker_size']:.6f}"
-            maker_address = self.current_order['maker_address']
-            taker = self.current_order['taker']
-            taker_size = f"{self.current_order['taker_size']:.6f}"
-            taker_address = self.current_order['taker_address']
-
-            if self.partial_percent:
-                minimum_size = f"{self.current_order['minimum_size']:.6f}"
-                return await self.pair.config_manager.xbridge_manager.makepartialorder(
-                    maker, maker_size, maker_address, taker, taker_size, taker_address, minimum_size
+            recovered = await self._try_recover_bad_address(e)
+            if recovered is RecoverState.ALREADY_DISABLED:
+                self.pair.logger.debug(
+                    "[RECOVERY] Pair %s - ALREADY_DISABLED, aborting", self.symbol
                 )
-            return await self.pair.config_manager.xbridge_manager.makeorder(
-                maker, maker_size, maker_address, taker, taker_size, taker_address
-            )
-        except Exception as e:
-            # Convert to operational error with context
-            raise OperationalError(
-                f"Failed to generate order: {str(e)}",
-                context={
-                    "maker": maker,
-                    "maker_size": maker_size,
-                    "taker": taker,
-                    "taker_size": taker_size
+                return
+            if recovered is RecoverState.RECOVERED:
+                self.pair.logger.info(
+                    "[RECOVERY] Pair %s - address regenerated, retrying order...",
+                    self.symbol,
+                )
+                try:
+                    await self._do_make_order(dry_mode)
+                    if self.order and "error" in self.order:
+                        await self._handle_order_error()
+                except Exception as retry_exc:
+                    self.pair.logger.debug(
+                        "[RECOVERY] Pair %s - retry failed: %s: %s",
+                        self.symbol,
+                        type(retry_exc).__name__,
+                        retry_exc,
+                    )
+                    recovered = await self._try_recover_bad_address(retry_exc)
+                    if recovered is RecoverState.NORMAL:
+                        context = {
+                            "pair": self.pair.symbol,
+                            "stage": "order_creation_retry",
+                            "error": str(retry_exc),
+                        }
+                        should_continue = await self.pair.error_handler.handle_async(
+                            retry_exc, context
+                        )
+                        if not should_continue:
+                            self.disabled = True
+                            self.disable_reason = str(retry_exc)
+            else:
+                self.pair.logger.debug(
+                    "[RECOVERY] Pair %s - not a bad-address error, passing to error handler",
+                    self.symbol,
+                )
+                context = {
+                    "pair": self.pair.symbol,
+                    "stage": "order_creation",
+                    "error": str(e),
                 }
-            ) from e
+                retry_or_continue = await self.pair.error_handler.handle_async(
+                    e, context
+                )
+                if not retry_or_continue:
+                    self.disabled = True
+                    self.disable_reason = str(e)
+
+    async def _do_make_order(self, dry_mode):
+        """Execute the actual XBridge makeorder/makepartialorder RPC call."""
+        maker, maker_address = (
+            self.current_order["maker"],
+            self.current_order["maker_address"],
+        )
+        taker, taker_address = (
+            self.current_order["taker"],
+            self.current_order["taker_address"],
+        )
+        maker_size = f"{self.current_order['maker_size']:.6f}"
+        taker_size = f"{self.current_order['taker_size']:.6f}"
+
+        self.pair.logger.debug(
+            "[RECOVERY] Pair %s - making order: maker=%s (%s), taker=%s (%s)",
+            self.symbol,
+            maker,
+            maker_address,
+            taker,
+            taker_address,
+        )
+
+        if dry_mode:
+            self.pair.logger.info(
+                "dex_create_order, Dry mode. xb.makeorder(%s, %s, %s, %s, %s, %s)",
+                maker,
+                maker_size,
+                maker_address,
+                taker,
+                taker_size,
+                taker_address,
+            )
+            return
+
+        if self.partial_percent:
+            min_size = f"{self.current_order['minimum_size']:.6f}"
+            self.order = await self.pair.xbridge_manager.makepartialorder(
+                maker,
+                f"{self.current_order['maker_size']:.6f}",
+                maker_address,
+                taker,
+                taker_size,
+                taker_address,
+                min_size,
+            )
+        else:
+            self.order = await self.pair.xbridge_manager.makeorder(
+                maker,
+                f"{self.current_order['maker_size']:.6f}",
+                maker_address,
+                taker,
+                taker_size,
+                taker_address,
+            )
+
+    async def _try_recover_bad_address(self, exc: Exception) -> RecoverState:
+        """Detect bad-address errors and regenerate the affected token's address.
+
+        Returns RecoverState.NORMAL if not a bad-address error (caller handles normally).
+        Returns RecoverState.RECOVERED if address was regenerated (caller should retry).
+        Returns RecoverState.ALREADY_DISABLED if pair is now disabled (caller returns).
+        """
+        error_str = str(exc)
+        is_bad_addr = "bad address" in error_str.lower()
+        self.pair.logger.debug(
+            "[RECOVERY] Pair %s - checking exception %s: is_bad_address=%s",
+            self.symbol,
+            type(exc).__name__,
+            is_bad_addr,
+        )
+        if not is_bad_addr:
+            return RecoverState.NORMAL
+
+        if self._bad_address_recovered:
+            self.disabled = True
+            self.disable_reason = f"Bad address persists after regeneration: {exc}"
+            self.pair.logger.warning(
+                "[RECOVERY] Pair %s - already recovered once, disabling (second bad address)",
+                self.symbol,
+            )
+            return RecoverState.ALREADY_DISABLED
+
+        self.pair.logger.info(
+            "[RECOVERY] Pair %s - regenerating bad address...", self.symbol
+        )
+        try:
+            await self._regenerate_bad_address(error_str)
+        except RuntimeError as regen_err:
+            # Recovery is impossible (unextractable/unmatched address):
+            # terminate loudly instead of escaping and looping forever.
+            self.disabled = True
+            self.disable_reason = str(regen_err)
+            return RecoverState.ALREADY_DISABLED
+        return RecoverState.RECOVERED
+
+    @staticmethod
+    def _extract_bad_address(error_str):
+        """Extract the wallet address from a 'Bad address <addr>' error string.
+
+        The capture stops at the first non-word character, which naturally
+        excludes trailing punctuation from repr/str() of Python dicts.
+        """
+        match = re.search(r"bad\s+address\s+([\w]+)", error_str, re.IGNORECASE)
+        if match:
+            return match.group(1)
+        return ""
+
+    async def _regenerate_bad_address(self, error_str: str) -> None:
+        """Regenerate the token whose address appears in the bad-address error.
+
+        Updates the current_order slot(s) that held the bad address regardless
+        of order side (BUY maps maker->t2 / taker->t1, SELL the reverse).
+        Raises RuntimeError if the extracted address matches neither token.
+        """
+        bad_addr = self._extract_bad_address(error_str)
+        if not bad_addr:
+            self.pair.logger.critical(
+                "[RECOVERY] Pair %s - FAILED to extract bad address from: %s",
+                self.symbol,
+                error_str[:300],
+            )
+            raise RuntimeError(f"Could not extract bad address from: {error_str}")
+
+        token = None
+        if bad_addr == self.t1.dex.address:
+            token = self.t1
+        elif bad_addr == self.t2.dex.address:
+            token = self.t2
+        else:
+            self.pair.logger.critical(
+                "[RECOVERY] Pair %s - bad address %s matched neither token",
+                self.symbol,
+                bad_addr,
+            )
+            raise RuntimeError(
+                f"Bad address {bad_addr} matched neither token for {self.symbol}"
+            )
+
+        await token.dex.request_addr()
+        for slot in ("maker_address", "taker_address"):
+            if self.current_order[slot] == bad_addr:
+                self.current_order[slot] = token.dex.address
+        self._bad_address_recovered = True
 
     async def _handle_order_error(self):
-        # Store the original error object before it's potentially modified
-        original_order_error = self.order
+        original_error = self.order
+        error_code = original_error.get("code")
 
-        if 'code' in original_order_error and original_order_error['code'] not in {1019, 1018, 1026, 1032}:
-            self.disabled = True  # This line was already here, keep it.
+        if error_code == XBridgeErrorCode.BAD_ADDRESS:
+            recovered = await self._try_recover_bad_address_from_response(
+                original_error
+            )
+            if recovered is RecoverState.RECOVERED:
+                # Drop the id-less error dict so the next cycle places a fresh order.
+                self.order = None
+            return
 
-        # This call sets self.order to None in some strategies
-        # Only call strategy handler if it's available
-        strategy_handler = getattr(self.pair.config_manager.strategy_instance, 'handle_order_status_error', None)
+        strategy_handler = getattr(
+            self.pair.config_manager.strategy_instance,
+            "handle_order_status_error",
+            None,
+        )
         if strategy_handler:
             await strategy_handler(self)
 
-        # Log the original error object for better debugging
-        self.pair.config_manager.general_log.error(
-            f"Error making order on Pair: {self.pair.name} | "
-            f"Symbol: {self.symbol} | "
-            f"disabled: {self.disabled} | "
-            f"Details: {original_order_error}")
+        self.pair.logger.error(
+            "Error making order on Pair: %s | Symbol: %s | Details: %s",
+            self.pair.name,
+            self.symbol,
+            original_error,
+        )
 
-    def _log_dry_mode_order(self, order):
-        msg = (f"xb.makeorder({self.current_order['maker']}, {self.current_order['maker_size']:.6f}, "
-               f"{self.current_order['maker_address']}, {self.current_order['taker']}, "
-               f"{self.current_order['taker_size']:.6f}, {self.current_order['taker_address']})")
-        self.pair.config_manager.general_log.info(f"dex_create_order, Dry mode enabled. {msg}")
+    async def _try_recover_bad_address_from_response(
+        self, order_error: dict
+    ) -> RecoverState:
+        """Recovery path for response-based bad-address errors (code 1026)."""
+        if self._bad_address_recovered:
+            self.disabled = True
+            self.disable_reason = (
+                f"Bad address persists after regeneration: {order_error}"
+            )
+            self.pair.logger.warning(
+                "[RECOVERY] Pair %s - already recovered once, disabling (second bad address, response path)",
+                self.symbol,
+            )
+            return RecoverState.ALREADY_DISABLED
+
+        error_msg = str(order_error)
+        self.pair.logger.info(
+            "[RECOVERY] Pair %s - regenerating bad address (response path)...",
+            self.symbol,
+        )
+        try:
+            await self._regenerate_bad_address(error_msg)
+        except RuntimeError as regen_err:
+            self.disabled = True
+            self.disable_reason = str(regen_err)
+            return RecoverState.ALREADY_DISABLED
+        return RecoverState.RECOVERED
 
     async def check_order_status(self) -> int:
         try:
-            local_dex_order = await self.pair.config_manager.xbridge_manager.getorderstatus(self.order['id'])
-            # The rpc_wrapper will return None if it fails after all retries
-            if local_dex_order and 'status' in local_dex_order:
+            local_dex_order = await self.pair.xbridge_manager.getorderstatus(
+                self.order["id"]
+            )
+            if local_dex_order and "status" in local_dex_order:
                 self.order = local_dex_order
                 return self._map_order_status()
-
-            # This case handles if getorderstatus returns None or a malformed response.
-            # The error would have been logged by the rpc_wrapper's handler.
-            self.pair.config_manager.general_log.warning(
-                f"Could not get valid status for order {self.order.get('id')}. Response: {local_dex_order}"
+            self.pair.logger.warning(
+                "Could not get valid status for order %s. Response: %s",
+                self.order.get("id"),
+                local_dex_order,
             )
-
         except Exception as e:
-            # This catches exceptions if getorderstatus itself fails after retries (e.g., RpcTimeoutError)
-            await self.pair.config_manager.error_handler.handle_async(
+            await self.pair.error_handler.handle_async(
                 e,
-                context={"pair": self.pair.name, "stage": "check_order_status", "order": self.order}
+                context={
+                    "pair": self.pair.name,
+                    "stage": "check_order_status",
+                    "order": self.order,
+                },
             )
 
-        # If we reach here, the status check failed.
         self._handle_order_status_error()
         return self.STATUS_CANCELLED_WITHOUT_CALL
 
@@ -452,212 +661,99 @@ class DexPair:
             "canceled": self.STATUS_CANCELLED_WITHOUT_CALL,
             "invalid": self.STATUS_ERROR_SWAP,
             "rolled back": self.STATUS_ERROR_SWAP,
-            "rollback failed": self.STATUS_ERROR_SWAP
+            "rollback failed": self.STATUS_ERROR_SWAP,
         }
-        return status_mapping.get(self.order.get('status'), self.STATUS_OPEN)
+        return status_mapping.get(self.order.get("status"), self.STATUS_OPEN)
 
     def _handle_order_status_error(self):
-        self.pair.config_manager.general_log.error(
-            f"Error in dex_check_order_status: 'status' not in order. {self.order}")
-        if self.pair.strategy in ['pingpong', 'basic_seller']:
+        self.pair.logger.error(
+            "Error in dex_check_order_status: 'status' not in order. %s", self.order
+        )
+        if self.pair.strategy in ["pingpong", "basic_seller"]:
             self.order = None
 
-    async def check_price_variation(self, disabled_coins, display=False):
-        if 'side' in self.current_order and not self.check_price_in_range(display=display):
-            self._log_price_variation()
-            if self.order:
+    async def check_price_variation(self, display=False):
+        if "side" in self.current_order and not self.check_price_in_range(
+            display=display
+        ):
+            self.pair.logger.warning(
+                "check_price_variation, %s, variation: %s, %s, live_price: %.8f, order_price: %.8f",
+                self.symbol,
+                self.variation,
+                self.order["status"],
+                self.pair.cex.price,
+                self.current_order["dex_price"],
+            )
+            if self.order and self.order.get("id"):
+                self.pair.logger.warning(
+                    "check_price_variation, dex cancel: %s", self.order["id"]
+                )
                 await self.cancel_myorder_async()
-            await self._reinit_virtual_order(disabled_coins)
-
-    def _log_price_variation(self):
-        msg = (f"check_price_variation, {self.symbol}, variation: {self.variation}, "
-               f"{self.order['status']}, live_price: {self.pair.cex.price:.8f}, "
-               f"order_price: {self.current_order['dex_price']:.8f}")
-        self.pair.config_manager.general_log.warning(msg)
-        if self.order and 'id' in self.order and self.order['id'] is not None:
-            msg = f"check_price_variation, dex cancel: {self.order['id']}"
-            self.pair.config_manager.general_log.warning(msg)
-
-    async def _reinit_virtual_order(self, disabled_coins):
-        await self.pair.config_manager.strategy_instance.reinit_virtual_order_after_price_variation(self,
-                                                                                                    disabled_coins)
-
-    async def status_check(self, disabled_coins=None, display=False, partial_percent=None):
-        await self.pair.cex.update_pricing(display)
-        if self.disabled:
-            self.pair.config_manager.general_log.info(f"Pair {self.symbol} Disabled, error: {self.order}")
-            return
-
-        status = await self._check_order_status(disabled_coins)
-        await self._handle_status(status, disabled_coins, display)
-
-    async def _check_order_status(self, disabled_coins):
-        if self.order and 'id' in self.order and self.order['id'] is not None:
-            return await self.check_order_status()
-        if not self.disabled and self.current_order:
-            self.init_virtual_order(disabled_coins)
-            if self.order and "id" in self.order:
-                return await self.check_order_status()
-        return None
-
-    async def _handle_status(self, status, disabled_coins, display):
-        if status == self.STATUS_OPEN:
-            await self.handle_status_open(disabled_coins, display)
-        elif status == self.STATUS_FINISHED:
-            await self.at_order_finished(disabled_coins)
-        elif status == self.STATUS_OTHERS:
-            self.check_price_in_range(display=display)
-        elif status == self.STATUS_ERROR_SWAP:
-            await self.handle_status_error_swap()
-        else:
-            await self.handle_status_default(disabled_coins)
-
-    async def handle_status_open(self, disabled_coins, display):
-        if self._is_pair_disabled(disabled_coins):
-            await self._cancel_order_due_to_disabled_coins(disabled_coins)
-        else:
-            await self.check_price_variation(disabled_coins, display=display)
-
-    async def _cancel_order_due_to_disabled_coins(self, disabled_coins):
-        if self.order:
-            self.pair.config_manager.general_log.info(
-                f"Disabled pairs due to cc_height_check {self.symbol}, {disabled_coins}")
-            self.pair.config_manager.general_log.info(f"status_check, dex cancel {self.order['id']}")
-            await self.cancel_myorder_async()
-
-    async def handle_status_error_swap(self):
-        await self.pair.config_manager.strategy_instance.handle_error_swap_status(self)
-
-    async def handle_status_default(self, disabled_coins=None):
-        # This handles statuses like 'canceled' and 'expired'
-        if not self.disabled:
-            if self.order:
-                self.pair.config_manager.general_log.info(
-                    f"Order {self.order.get('id')} is {self.order.get('status')}. Re-initializing order for {self.symbol}.")
-            else:
-                self.pair.config_manager.general_log.info(
-                    f"No active order found for {self.symbol}. Re-initializing order.")
-            self.order = None  # Clear the completed/cancelled/expired order
-            self.init_virtual_order(disabled_coins)  # Re-create the virtual order based on history
-            await self.create_order()  # Attempt to place it again
-
-    async def at_order_finished(self, disabled_coins):
-        """Handle order completion workflow."""
-        # Log the order success
-        side = self._determine_order_side()
-        self._log_finished_order_details(side)
-
-        # Write final trade history for recovery/display
-        self.order_history = self.current_order
-        self.write_last_order_history()
-        # Update critical addresses
-        await self._update_taker_address()
-        await self.pair.config_manager.strategy_instance.handle_finished_order(self, disabled_coins)
-
-    def _determine_order_side(self) -> str:
-        """Determine order side based on maker token."""
-        if self.current_order['maker'] == self.pair.t1.symbol:
-            return 'SELL'
-        return 'BUY'
-
-    def _construct_order_summary(self, side: str) -> dict:
-        """Construct order summary dictionary for logging."""
-        return {
-            "name": self.pair.cfg['name'],
-            "pair": self.pair.symbol,
-            "side": side,
-            "orderid": self.order['id']
-        }
-
-    def _log_finished_order_details(self, side: str):
-        """Log detailed information about finished orders."""
-        order_summary = self._construct_order_summary(side)
-
-        self.pair.config_manager.general_log.info(f"order FINISHED: {order_summary}")
-        self.pair.config_manager.trade_log.info(f"order FINISHED: {order_summary}")
-        self.pair.config_manager.trade_log.info(f"virtual order: {self.current_order}")
-        self.pair.config_manager.trade_log.info(f"xbridge order: {self.order}")
-
-    async def _update_taker_address(self):
-        """Request address update for taker token."""
-        if not self.order or 'taker' not in self.order:
-            return
-
-        # Use safe attribute access to avoid threading issues
-        taker_symbol = self.order.get('taker')
-        # Avoid asynchronous operations during teardown
-        if self._is_shutting_down():
-            return
-
-        try:
-            if taker_symbol == self.t1.symbol:
-                await self.t1.dex.request_addr()
-            elif taker_symbol == self.t2.symbol:
-                await self.t2.dex.request_addr()
-        except RuntimeError as e:
-            # Silently skip during application shutdown
-            if "cannot schedule new futures after shutdown" not in str(e):
-                raise
+            await self.pair.config_manager.strategy_instance.reinit_virtual_order_after_price_variation(
+                self
+            )
 
     def _is_shutting_down(self) -> bool:
-        """Check if shutdown has been requested"""
         try:
-            if (self.pair.config_manager and
-                    self.pair.config_manager.controller and
-                    self.pair.config_manager.controller.shutdown_event and
-                    self.pair.config_manager.controller.shutdown_event.is_set()):
-                return True
-        except Exception as e:
-            self.pair.config_manager.general_log.error(
-                f"Error checking shutdown status: {e}"
+            return bool(
+                self.pair.config_manager
+                and self.pair.config_manager.controller
+                and self.pair.config_manager.controller.shutdown_event.is_set()
             )
-        return False
+        except Exception:
+            return False
 
 
 class CexPair:
-    def __init__(self, pair):
+    def __init__(self, pair: Pair) -> None:
         self.pair = pair
-        self.t1 = pair.t1
-        self.t2 = pair.t2
-        self.symbol = pair.symbol
-        self.price = None
-        self.cex_orderbook = None
-        self.cex_orderbook_timer = None
+        self.t1, self.t2, self.symbol = pair.t1, pair.t2, pair.symbol
+        self.price: float | None = None
+        self.cex_orderbook: dict[str, Any] | None = None
+        self.cex_orderbook_timer: float | None = None
 
     async def update_pricing(self, display=False):
-        await self._update_token_prices()
-        if self.t1.cex.cex_price is not None and self.t2.cex.cex_price is not None and self.t2.cex.cex_price != 0:
+        if not hasattr(self.pair, "_price_update_handler"):
+            self.pair._price_update_handler = PriceUpdateHandler(
+                self.pair.ccxt_manager, self.pair.config_manager
+            )
+        price_handler = self.pair._price_update_handler
+        if self.t1.cex.cex_price is None:
+            await price_handler.update(self.t1.cex)
+        if self.t2.cex.cex_price is None:
+            await price_handler.update(self.t2.cex)
+        if self.t1.cex.cex_price is not None and self.t2.cex.cex_price:
             self.price = self.t1.cex.cex_price / self.t2.cex.cex_price
         else:
             self.price = None
         if display:
-            self.pair.config_manager.general_log.info(
-                f"update_pricing: {self.t1.symbol} btc_p: {self.t1.cex.cex_price}, "
-                f"{self.t2.symbol} btc_p: {self.t2.cex.cex_price}, "
-                f"{self.symbol} price: {self.price}"
+            self.pair.logger.info(
+                "update_pricing: %s btc_p: %s, %s btc_p: %s, %s price: %s",
+                self.t1.symbol,
+                self.t1.cex.cex_price,
+                self.t2.symbol,
+                self.t2.cex.cex_price,
+                self.symbol,
+                self.price,
             )
 
-    async def _update_token_prices(self):
-        if self.t1.cex.cex_price is None:
-            await self.t1.cex.update_price()
-        if self.t2.cex.cex_price is None:
-            await self.t2.cex.update_price()
-
     async def update_orderbook(self, limit=25, ignore_timer=False):
-        update_cex_orderbook_timer_delay = 2
-        if ignore_timer or not self.cex_orderbook_timer or time.time() - self.cex_orderbook_timer > update_cex_orderbook_timer_delay:
+        if (
+            ignore_timer
+            or not self.cex_orderbook_timer
+            or time.time() - self.cex_orderbook_timer > 2
+        ):
             try:
-                self.cex_orderbook = await self.pair.config_manager.ccxt_manager.ccxt_call_fetch_order_book(
-                    self.pair.config_manager.my_ccxt, self.symbol, self.symbol)
+                self.cex_orderbook = (
+                    await self.pair.ccxt_manager.ccxt_call_fetch_order_book(
+                        self.pair.config_manager.ccxt_manager.my_ccxt,
+                        self.symbol,
+                        limit,
+                    )
+                )
                 self.cex_orderbook_timer = time.time()
             except Exception as e:
-                # Error handler ensures graceful recovery
-                await self.pair.config_manager.error_handler.handle_async(
-                    e,
-                    context={
-                        "pair": self.symbol,
-                        "stage": "update_orderbook"
-                    }
+                await self.pair.error_handler.handle_async(
+                    e, context={"pair": self.symbol, "stage": "update_orderbook"}
                 )
-                # Leave orderbook unchanged but reset timer for retry
                 self.cex_orderbook_timer = None
