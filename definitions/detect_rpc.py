@@ -1,13 +1,11 @@
 import logging
 import os
 import platform
-from typing import Optional, Tuple
-
-import yaml
 
 from definitions.errors import RPCConfigError
+from definitions.yaml_utils import load_yaml, save_yaml
 
-debug_level = 2
+debug_level: int = 2
 
 autoconf_rpc_log = logging.getLogger("autoconf_rpc_log")
 autoconf_rpc_log.setLevel(logging.DEBUG)
@@ -22,19 +20,27 @@ def get_default_config_path() -> str:
     """
     # Define default config file paths based on the operating system
     config_paths = {
-        'windows': os.path.join(os.getenv('APPDATA') or '', 'Blocknet', 'blocknet.conf'),
-        'darwin': os.path.join(os.path.expanduser('~'), 'Library', 'Application Support', 'Blocknet', 'blocknet.conf'),
-        'linux': os.path.join(os.path.expanduser('~'), '.blocknet', 'blocknet.conf')
+        "windows": os.path.join(
+            os.getenv("APPDATA") or "", "Blocknet", "blocknet.conf"
+        ),
+        "darwin": os.path.join(
+            os.path.expanduser("~"),
+            "Library",
+            "Application Support",
+            "Blocknet",
+            "blocknet.conf",
+        ),
+        "linux": os.path.join(os.path.expanduser("~"), ".blocknet", "blocknet.conf"),
     }
 
     # Check if the config file exists in the default paths
-    default_path = config_paths.get(platform.system().lower(), '')
+    default_path = config_paths.get(platform.system().lower(), "")
     if os.path.exists(default_path):
-        autoconf_rpc_log.debug(f'Using default config path: {default_path}')
+        autoconf_rpc_log.debug(f"Using default config path: {default_path}")
         return default_path
     else:
-        autoconf_rpc_log.warning(f'Default config path does not exist: {default_path}')
-        return ''
+        autoconf_rpc_log.warning(f"Default config path does not exist: {default_path}")
+        return ""
 
 
 def _prompt_with_dialog() -> str:
@@ -44,8 +50,11 @@ def _prompt_with_dialog() -> str:
     Returns:
         str: The path selected by the user, or an empty string if cancelled.
     """
-    from tkinter import filedialog, Tk
+    from tkinter import Tk, filedialog
+
     import ttkbootstrap
+
+    style_created_by_dialog = ttkbootstrap.Style.instance is None
     root = Tk()
     style = ttkbootstrap.Style(theme="darkly")
     root.style = style
@@ -53,10 +62,13 @@ def _prompt_with_dialog() -> str:
     config_path = filedialog.askopenfilename(
         title="Select blocknet.conf",
         filetypes=[("Config files", "blocknet.conf"), ("All files", "*.*")],
-        parent=root
+        parent=root,
     )
     root.destroy()
-    ttkbootstrap.Style.instance = None
+    if style_created_by_dialog:
+        # Only discard the Style singleton if this dialog created it;
+        # otherwise the application's live Style instance would be lost.
+        ttkbootstrap.Style.instance = None
 
     return config_path
 
@@ -86,16 +98,20 @@ def prompt_user_for_config_path() -> str:
         config_path = _prompt_on_console()
 
     if config_path:
-        autoconf_rpc_log.debug(f'User selected config path: {config_path}')
-        if not os.path.basename(config_path) == 'blocknet.conf':
-            autoconf_rpc_log.warning('Selected file is not named blocknet.conf. Please ensure it is the correct file.')
+        autoconf_rpc_log.debug(f"User selected config path: {config_path}")
+        if os.path.basename(config_path) != "blocknet.conf":
+            autoconf_rpc_log.warning(
+                "Selected file is not named blocknet.conf. Please ensure it is the correct file."
+            )
     else:
-        autoconf_rpc_log.warning('No valid path provided.')
+        autoconf_rpc_log.warning("No valid path provided.")
 
     return config_path
 
 
-def read_config_file(config_path: str) -> Tuple[Optional[str], Optional[str], Optional[int]]:
+def read_config_file(
+    config_path: str,
+) -> tuple[str | None, str | None, int | None]:
     """
     Reads RPC credentials and port from the blocknet.conf file.
 
@@ -110,7 +126,7 @@ def read_config_file(config_path: str) -> Tuple[Optional[str], Optional[str], Op
         RPCConfigError: If the config path is empty or keys are missing.
     """
     if not config_path:
-        autoconf_rpc_log.error('Config path is empty.')
+        autoconf_rpc_log.error("Config path is empty.")
         raise RPCConfigError("Empty configuration path", context={})
 
     rpc_user = None
@@ -118,81 +134,69 @@ def read_config_file(config_path: str) -> Tuple[Optional[str], Optional[str], Op
     rpc_port = None
 
     if os.path.exists(config_path):
-        autoconf_rpc_log.debug(f'Reading config file: {config_path}')
-        with open(config_path, 'r') as file:
+        autoconf_rpc_log.debug(f"Reading config file: {config_path}")
+        with open(config_path) as file:
             lines = file.readlines()
 
-        config_content = [line.strip() for line in
-                          lines]  # Remove leading/trailing whitespace and newline characters from each line
+        config_content = [
+            line.strip() for line in lines
+        ]  # Remove leading/trailing whitespace and newline characters from each line
 
         rpc_user = None
         rpc_password = None
         rpc_port = None
 
         for line in config_content:
-            if '=' in line:
-                key, value = map(str.strip, line.split('=', 1))
-                if key == 'rpcuser':
+            if "=" in line:
+                key, value = map(str.strip, line.split("=", 1))
+                if key == "rpcuser":
                     rpc_user = value
-                elif key == 'rpcpassword':
+                elif key == "rpcpassword":
                     rpc_password = value
-                elif key == 'rpcport':
+                elif key == "rpcport":
                     try:
                         rpc_port = int(value)
                     except ValueError:
-                        autoconf_rpc_log.warning(f'Invalid rpcport value: {value}')
+                        autoconf_rpc_log.warning(f"Invalid rpcport value: {value}")
 
         if all([rpc_user, rpc_password, rpc_port]):
-            autoconf_rpc_log.debug('Read config successfully')
+            autoconf_rpc_log.debug("Read config successfully")
         else:
             missing_config_keys = []
             if not rpc_user:
-                missing_config_keys.append('rpcuser')
+                missing_config_keys.append("rpcuser")
             if not rpc_password:
-                missing_config_keys.append('rpcpassword')
+                missing_config_keys.append("rpcpassword")
             if not rpc_port:
-                missing_config_keys.append('rpcport')
+                missing_config_keys.append("rpcport")
 
-            autoconf_rpc_log.error(f'Missing keys in config file: {", ".join(missing_config_keys)}. Exiting.')
-            raise RPCConfigError(f'Missing keys in config file: {", ".join(missing_config_keys)}', context={})
+            autoconf_rpc_log.error(
+                f"Missing keys in config file: {', '.join(missing_config_keys)}. Exiting."
+            )
+            raise RPCConfigError(
+                f"Missing keys in config file: {', '.join(missing_config_keys)}",
+                context={},
+            )
 
     else:
-        autoconf_rpc_log.warning(f'Config file not found: {config_path}')
+        autoconf_rpc_log.warning(f"Config file not found: {config_path}")
 
     return rpc_user, rpc_password, rpc_port
 
 
-def load_config_path_from_yaml(yaml_path: str) -> Optional[str]:
-    """
-    Loads the blocknet.conf path stored in a YAML file.
-
-    Args:
-        yaml_path (str): The path to the YAML configuration file.
-
-    Returns:
-        Optional[str]: The stored path, or None if not found.
-    """
+def load_config_path_from_yaml(yaml_path: str) -> str | None:
     if os.path.exists(yaml_path):
-        with open(yaml_path, 'r') as file:
-            config = yaml.safe_load(file)
-            return config.get('blocknet_path')
+        config = load_yaml(yaml_path)
+        return config.get("blocknet_path")
     return None
 
 
 def save_config_path_to_yaml(yaml_path: str, config_path: str) -> None:
-    """
-    Saves a given blocknet.conf path to a YAML file.
-
-    Args:
-        yaml_path (str): The path to the YAML file where the path will be stored.
-        config_path (str): The blocknet.conf path to store.
-    """
-    config = {'blocknet_path': config_path}
-    with open(yaml_path, 'w') as file:
-        yaml.safe_dump(config, file)
+    config = {"blocknet_path": config_path}
+    save_yaml(yaml_path, config)
 
 
-def detect_rpc() -> Tuple[str, int, str, str]:
+def detect_rpc() -> tuple[str, int, str, str]:
     """
     Detects Blocknet RPC configuration by searching in standard locations,
     and prompts the user if necessary.
@@ -209,7 +213,12 @@ def detect_rpc() -> Tuple[str, int, str, str]:
     Raises:
         RPCConfigError: If no valid configuration can be found.
     """
-    yaml_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'config', 'config_blocknet.yaml')
+    yaml_path = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        "..",
+        "config",
+        "config_blocknet.yaml",
+    )
 
     # 1. Check if "config_blocknet.yaml" exists
     config_path = load_config_path_from_yaml(yaml_path)

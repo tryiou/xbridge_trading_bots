@@ -1,9 +1,12 @@
 # gui/components/logging_components.py
+import contextlib
 import logging
 import queue
 import time
 import tkinter as tk
 from tkinter import ttk
+
+from gui.utils.theming import attach_log_theme_listener
 
 logger = logging.getLogger(__name__)
 
@@ -25,44 +28,40 @@ class LogFrame(ttk.Frame):
         self.log_update_queue = queue.Queue()
         self.after(250, self._process_log_updates)
 
-        self.log_text = tk.Text(self, wrap='word', state='disabled', height=10, background="#222", foreground="white")
+        self.log_text = tk.Text(
+            self,
+            wrap="word",
+            state="disabled",
+            height=10,
+        )
+        attach_log_theme_listener(self.log_text)
         scrollbar = ttk.Scrollbar(self, orient="vertical", command=self.log_text.yview)
         self.log_text.configure(yscrollcommand=scrollbar.set)
 
-        self.log_text.grid(row=0, column=0, sticky='nsew')
-        scrollbar.grid(row=0, column=1, sticky='ns')
-
-        # Configure tags for different log levels
-        self.log_text.tag_config("INFO", foreground="white")
-        self.log_text.tag_config("DEBUG", foreground="gray")
-        self.log_text.tag_config("WARNING", foreground="orange")
-        self.log_text.tag_config("ERROR", foreground="red")
-        self.log_text.tag_config("CRITICAL", foreground="red", underline=1)
+        self.log_text.grid(row=0, column=0, sticky="nsew")
+        scrollbar.grid(row=0, column=1, sticky="ns")
 
     def add_log(self, message: str, level: str):
         """
         Thread-safe entry point to add a log message to the queue.
         """
-        try:
+        with contextlib.suppress(RuntimeError):
             self.log_update_queue.put((message, level))
-        except RuntimeError:
-            # LogFrame being destroyed - ignore
-            pass
 
     def _safe_add_log(self, message: str, level: str):
         """
         Adds a pre-formatted log message to the text widget.
         This method should only be called from the main Tkinter thread.
         """
-        self.log_text.config(state='normal')
+        self.log_text.config(state="normal")
 
         # Store current line count before adding
-        line_count = int(self.log_text.index('end-1c').split('.')[0])
+        line_count = int(self.log_text.index("end-1c").split(".")[0])
 
         # Add new log with timestamp
         self.log_text.insert(tk.END, message, (level,))
-        if not message.endswith('\n'):
-            self.log_text.insert(tk.END, '\n')
+        if not message.endswith("\n"):
+            self.log_text.insert(tk.END, "\n")
 
         # Record entry time and line numbers
         now = time.time()
@@ -70,11 +69,11 @@ class LogFrame(ttk.Frame):
 
         # Keep text widget manageable
         if len(self.log_entries) > MAX_LOG_ENTRIES:  # Safety valve
-            self.log_text.delete(1.0, f'{len(self.log_entries) - PRUNE_TO_ENTRIES}.0')
+            self.log_text.delete(1.0, f"{len(self.log_entries) - PRUNE_TO_ENTRIES}.0")
             self.log_entries = self.log_entries[-PRUNE_TO_ENTRIES:]
 
         self.log_text.see(tk.END)
-        self.log_text.config(state='disabled')
+        self.log_text.config(state="disabled")
 
     def _process_log_updates(self):
         """
@@ -90,7 +89,9 @@ class LogFrame(ttk.Frame):
         except queue.Empty:
             pass  # No updates yet
         except Exception as e:
-            logger.error(f"Error processing log updates in main thread: {e}", exc_info=True)
+            logger.error(
+                f"Error processing log updates in main thread: {e}", exc_info=True
+            )
         finally:
             if self.winfo_exists():
                 self.after(250, self._process_log_updates)  # Schedule next check

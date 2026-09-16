@@ -3,20 +3,20 @@
 import asyncio
 import os
 
+from definitions.detect_rpc import detect_rpc
 from definitions.logger import setup_logger
 from definitions.xbridge_manager import XBridgeManager
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     """
     A simple script to cancel all open XBridge orders.
     It initializes the necessary components to communicate with the Blocknet daemon.
     """
 
-
     class MinimalXBridgeConfig:
         """A minimal mock for the xbridge config to provide a debug_level."""
-        debug_level = 3  # Default debug level for this script
 
+        debug_level = 3  # Default debug level for this script
 
     class MinimalConfig:
         def __init__(self, logger):
@@ -24,13 +24,13 @@ if __name__ == '__main__':
             self.config_xbridge = MinimalXBridgeConfig()
             self.controller = None
 
-
     # Setup a basic logger for this script
     ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
     general_log, _, _ = setup_logger(strategy="cancel_script", ROOT_DIR=ROOT_DIR)
 
     general_log.info("Initializing to cancel all orders...")
-    xbridge_manager = XBridgeManager(MinimalConfig(general_log))
+    rpc_config = detect_rpc()
+    xbridge_manager = XBridgeManager(MinimalConfig(general_log), rpc_config=rpc_config)
     general_log.info("Sending cancel all orders command...")
     successful = asyncio.run(xbridge_manager.cancelallorders())
     if successful:

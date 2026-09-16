@@ -16,11 +16,12 @@ def signal_handler(sig, frame):
     if app and app.root:
         app.root.after(0, app.on_closing)
     else:
-        sys.exit(0)  # Fallback if root is somehow already destroyed (unlikely during normal operation)
+        sys.exit(
+            0
+        )  # Fallback if root is somehow already destroyed (unlikely during normal operation)
 
 
-if __name__ == '__main__':
-
+if __name__ == "__main__":
     # Set up signal handler for Ctrl+C
     signal.signal(signal.SIGINT, signal_handler)
     set_gui_mode(True)

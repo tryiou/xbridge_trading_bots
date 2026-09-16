@@ -1,8 +1,9 @@
 import asyncio
+import contextlib
 import logging
 import os
 import sys
-from unittest.mock import patch, AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import aiohttp
 import ccxt
@@ -28,7 +29,7 @@ async def mock_price_fetcher():
         fetcher.ccxt_i.markets = {
             "BTC/USD": {"type": "spot"},
             "ETH/USD": {"type": "spot"},
-            "XRP/USD:SWAP": {"type": "swap"}
+            "XRP/USD:SWAP": {"type": "swap"},
         }
         yield fetcher
 
@@ -36,7 +37,7 @@ async def mock_price_fetcher():
 @pytest.mark.asyncio
 async def test_price_fetcher_initialization():
     """Test PriceFetcher initialization and market loading."""
-    with patch('proxy_ccxt.ccxt.kraken', new_callable=MagicMock) as mock_exchange:
+    with patch("proxy_ccxt.ccxt.kraken", new_callable=MagicMock) as mock_exchange:
         config = MagicMock()
         config.ccxt_exchange = "kraken"
         config.ccxt_hostname = None
@@ -52,11 +53,15 @@ async def test_price_fetcher_initialization():
             await fetcher.initialize()
 
             # Verify initialization steps
-            mock_exchange.assert_called_once_with({
-                "enableRateLimit": True,
-            })
+            mock_exchange.assert_called_once_with(
+                {
+                    "enableRateLimit": True,
+                }
+            )
             mock_exchange_instance.load_markets.assert_awaited()
-            assert isinstance(fetcher.ccxt_i, MagicMock), "CCXT instance not properly initialized"
+            assert isinstance(fetcher.ccxt_i, MagicMock), (
+                "CCXT instance not properly initialized"
+            )
 
 
 @pytest.mark.asyncio
@@ -66,7 +71,9 @@ async def test_ccxt_ticker_fetching(mock_price_fetcher):
     mock_ccxt = fetcher.ccxt_i
     all_tickers = {"BTC/USD": {"last": 50000}, "ETH/USD": {"last": 3000}}
 
-    async def mock_fetch_tickers(symbols, params={}):
+    async def mock_fetch_tickers(symbols, params=None):
+        if params is None:
+            params = {}
         return {s: all_tickers[s] for s in symbols if s in all_tickers}
 
     mock_ccxt.fetchTickers.side_effect = mock_fetch_tickers
@@ -112,8 +119,7 @@ async def test_block_ticker_fetching():
     price = await fetcher.get_block_ticker()
     assert price == 0.0015
     session.get.assert_called_with(
-        "https://min-api.cryptocompare.com/data/price?fsym=BLOCK&tsyms=BTC",
-        timeout=10
+        "https://min-api.cryptocompare.com/data/price?fsym=BLOCK&tsyms=BTC", timeout=10
     )
 
     # Second fetch (cache hit)
@@ -138,7 +144,7 @@ async def test_webserver_request_handling():
         return_value={
             "method": "ccxt_call_fetch_tickers",
             "params": ["BTC/USD"],
-            "id": 1
+            "id": 1,
         }
     )
     response = await server.handle_request(request)
@@ -146,17 +152,13 @@ async def test_webserver_request_handling():
     assert b"result" in response.body and b"BTC/USD" in response.body
 
     # Test valid BLOCK ticker
-    request.json = AsyncMock(
-        return_value={"method": "fetch_ticker_block", "id": 2}
-    )
+    request.json = AsyncMock(return_value={"method": "fetch_ticker_block", "id": 2})
     response = await server.handle_request(request)
     assert response.status == 200
     assert b"result" in response.body and b"0.0015" in response.body
 
     # Test unsupported method
-    request.json = AsyncMock(
-        return_value={"method": "unknown_method", "id": 3}
-    )
+    request.json = AsyncMock(return_value={"method": "unknown_method", "id": 3})
     response = await server.handle_request(request)
     assert response.status == 500
     assert b"Unsupported method" in response.body
@@ -223,10 +225,8 @@ async def test_periodic_refreshing():
     await asyncio.sleep(0.02)  # Let it run 2-3 cycles
 
     task.cancel()
-    try:
+    with contextlib.suppress(asyncio.CancelledError):
         await task
-    except asyncio.CancelledError:
-        pass  # Exception is expected but caught by production code
 
     assert fetcher.refresh_all_tickers.await_count >= 2
 
@@ -250,10 +250,8 @@ async def test_periodic_refreshing_resilience(caplog):
 
     # Cancel the task to stop it
     task.cancel()
-    try:
+    with contextlib.suppress(asyncio.CancelledError):
         await task
-    except asyncio.CancelledError:
-        pass  # Expected on cancellation
 
     # Check that error was logged
     assert "Error during ticker refresh" in caplog.text
@@ -267,7 +265,10 @@ async def test_invalid_symbol_handling(mock_price_fetcher):
     """Test handling of invalid symbols in get_ccxt_tickers."""
     fetcher = mock_price_fetcher
     mock_ccxt = fetcher.ccxt_i
-    mock_ccxt.fetchTickers.return_value = {"BTC/USD": {"last": 50000}, "ETH/USD": {"last": 3000}}
+    mock_ccxt.fetchTickers.return_value = {
+        "BTC/USD": {"last": 50000},
+        "ETH/USD": {"last": 3000},
+    }
 
     # Fetch with mix of valid and invalid symbols
     result = await fetcher.get_ccxt_tickers("BTC/USD", "ETH/USD", "INVALID")
@@ -321,15 +322,16 @@ async def test_block_ticker_error_handling():
     """Test BLOCK ticker returns error on API failure."""
     config = MagicMock()
 
-    # Create a mock session that returns an error
     session = AsyncMock(spec=aiohttp.ClientSession)
     session.get.return_value.__aenter__.side_effect = aiohttp.ClientError("API timeout")
 
     fetcher = PriceFetcher(config, session)
     fetcher.ccxt_i = AsyncMock()
 
-    # First fetch (API call fails)
-    with pytest.raises(aiohttp.ClientError, match="API timeout"):
+    with (
+        patch("asyncio.sleep", new_callable=AsyncMock),
+        pytest.raises(aiohttp.ClientError, match="API timeout"),
+    ):
         await fetcher.get_block_ticker()
 
 
@@ -342,7 +344,7 @@ async def test_grouped_ticker_refresh(mock_price_fetcher):
     # Set up mock return values for fetchTickers
     mock_ccxt.fetchTickers.side_effect = [
         {"BTC/USD": {}, "ETH/USD": {}},
-        {"XRP/USD:SWAP": {}}
+        {"XRP/USD:SWAP": {}},
     ]
 
     # Register symbols
@@ -369,12 +371,11 @@ async def test_rate_limiting_exception(mock_price_fetcher):
     mock_ccxt = fetcher.ccxt_i
     mock_ccxt.fetchTickers.side_effect = ccxt.RateLimitExceeded("Rate limit exceeded")
 
-    # This should trigger retries and eventually fail
-    with pytest.raises(ccxt.RateLimitExceeded):
-        await fetcher.get_ccxt_tickers("BTC/USD")
+    with patch("asyncio.sleep", new_callable=AsyncMock):
+        with pytest.raises(ccxt.RateLimitExceeded):
+            await fetcher.get_ccxt_tickers("BTC/USD")
 
-    # Should have retried 3 times (default retry count)
-    assert mock_ccxt.fetchTickers.await_count == 3
+        assert mock_ccxt.fetchTickers.await_count == 3
 
 
 @pytest.mark.asyncio
@@ -410,15 +411,20 @@ async def test_network_failure_scenarios(mock_price_fetcher):
     """Test handling of network failures and timeouts."""
     fetcher = mock_price_fetcher
     mock_ccxt = fetcher.ccxt_i
-    mock_ccxt.fetchTickers.side_effect = aiohttp.ClientConnectionError
 
-    # Test CCXT network failure
-    with pytest.raises(aiohttp.ClientConnectionError):
-        await fetcher.get_ccxt_tickers("BTC/USD")
+    with patch("asyncio.sleep", new_callable=AsyncMock):
+        mock_ccxt.fetchTickers.side_effect = aiohttp.ClientConnectionError
+        with pytest.raises(aiohttp.ClientConnectionError):
+            await fetcher.get_ccxt_tickers("BTC/USD")
 
-    # Test BLOCK API network failure
-    with patch('aiohttp.ClientSession.get', side_effect=aiohttp.ClientError("Simulated network failure")):
-        with pytest.raises(aiohttp.ClientError):
+        fetcher.custom_tickers = {}  # Clear cache
+        with (
+            patch(
+                "aiohttp.ClientSession.get",
+                side_effect=aiohttp.ClientError("Simulated network failure"),
+            ),
+            pytest.raises(aiohttp.ClientError),
+        ):
             await fetcher.get_block_ticker()
 
 

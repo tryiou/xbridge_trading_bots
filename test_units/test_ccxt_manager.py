@@ -1,91 +1,78 @@
+import asyncio
+import logging
 import sys
 from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import ccxt
+import pytest
 
 # Add parent directory to path to resolve the 'definitions' module
 project_root = Path(__file__).parent.parent
 sys.path.append(str(project_root))
 
-import asyncio
-import json
-import logging
-from unittest.mock import AsyncMock, MagicMock, patch, mock_open
-
-import ccxt
-import pytest
-
-# Note: We need to mock the environment where CCXTManager operates
-from definitions.ccxt_manager import CCXTManager
+from definitions.ccxt_manager import CCXTManager  # noqa: E402
+from definitions.proxy_manager import ProxyManager  # noqa: E402
 
 
 @pytest.fixture
 def mock_config_manager():
     manager = MagicMock()
-    manager.ROOT_DIR = '/fake/project/root'
+    manager.ROOT_DIR = "/fake/project/root"
     manager.ccxt_log = MagicMock(spec=logging.Logger)
     manager.general_log = MagicMock(spec=logging.Logger)
     manager.config_ccxt = MagicMock(debug_level=1)
     manager.config_xbridge = MagicMock(taker_fee_block=0.01)
+    manager.config_loader.secrets_manager = MagicMock()
+    manager.config_loader.secrets_manager.get_api_keys.return_value = {"api_info": []}
     return manager
 
 
 class TestCCXTManager:
-
     @pytest.fixture(autouse=True)
     def setup(self, mock_config_manager):
         self.mock_cm = mock_config_manager
         self.manager = CCXTManager(self.mock_cm)
-        # Reset class state before each test
-        CCXTManager._proxy_service_instance = None
-        CCXTManager._proxy_service_thread = None
-        CCXTManager._proxy_ref_count = 0
-        # Setup a mock for the proxy logger since it's used at class level
-        CCXTManager._proxy_logger = MagicMock(spec=logging.Logger)
 
-    def test_register_unregister_strategy(self):
-        assert CCXTManager._proxy_ref_count == 0
-        CCXTManager.register_strategy()
-        assert CCXTManager._proxy_ref_count == 1
-        CCXTManager.unregister_strategy()
-        assert CCXTManager._proxy_ref_count == 0
-        # Test multiple unregister calls safety
-        CCXTManager.unregister_strategy()
-        CCXTManager._proxy_logger.warning.assert_called()
+    def test_proxy_manager_register_unregister(self):
+        proxy = ProxyManager()
+        assert proxy._ref_count == 0
+        proxy.register()
+        assert proxy._ref_count == 1
+        proxy.unregister()
+        assert proxy._ref_count == 0
 
-    def test_proxy_cleanup_after_last_unregister(self):
-        CCXTManager.register_strategy()
+    def test_proxy_manager_cleanup_after_last_unregister(self):
+        proxy = ProxyManager()
+        proxy.register()
         # Create a fake proxy service instance and thread
         fake_service = MagicMock()
         fake_thread = MagicMock()
         # is_alive is checked before stop and after join.
         # First check should be True to proceed. After join, it should be False for success.
         fake_thread.is_alive.side_effect = [True, False]
-        CCXTManager._proxy_service_instance = fake_service
-        CCXTManager._proxy_service_thread = fake_thread
+        proxy._service_instance = fake_service
+        proxy._service_thread = fake_thread
 
-        # Manually decrement ref count to simulate unregistering without scheduling a real thread
-        CCXTManager._proxy_ref_count -= 1
-        # The unregister_strategy schedules a cleanup thread - we simulate it by calling _cleanup_proxy directly
-        CCXTManager._cleanup_proxy()
+        proxy.unregister()
 
         fake_service.stop.assert_called_once()
         fake_thread.join.assert_called_once_with(timeout=10.0)
-        CCXTManager._proxy_logger.warning.assert_not_called()
 
-    def test_proxy_cleanup_logs_warning_on_timeout(self):
-        CCXTManager.register_strategy()
+    def test_proxy_manager_logs_warning_on_timeout(self):
+        proxy = ProxyManager()
+        proxy.register()
         fake_service = MagicMock()
         fake_thread = MagicMock()
         # is_alive is always True, simulating a stuck thread
         fake_thread.is_alive.return_value = True
-        CCXTManager._proxy_service_instance = fake_service
-        CCXTManager._proxy_service_thread = fake_thread
+        proxy._service_instance = fake_service
+        proxy._service_thread = fake_thread
 
-        CCXTManager.unregister_strategy()
-        CCXTManager._cleanup_proxy()
+        proxy.unregister()
 
         fake_service.stop.assert_called_once()
         fake_thread.join.assert_called_once_with(timeout=10.0)
-        CCXTManager._proxy_logger.warning.assert_called_once()
 
     @patch("definitions.ccxt_manager.is_port_open")
     @patch.object(ccxt, "binance")
@@ -93,19 +80,21 @@ class TestCCXTManager:
         mock_is_port_open.return_value = True
         mock_exchange = MagicMock()
         mock_binance.return_value = mock_exchange
-        # Setup mock API keys
-        api_data = json.dumps({"api_info": [{"exchange": "binance", "api_key": "key1", "api_secret": "sec1"}]})
-        with patch("builtins.open", mock_open(read_data=api_data)):
-            instance = self.manager.init_ccxt_instance("binance", private_api=True)
+        self.mock_cm.config_loader.secrets_manager.get_api_keys.return_value = {
+            "api_info": [
+                {"exchange": "binance", "api_key": "key1", "api_secret": "sec1"}
+            ]
+        }
+        self.manager.init_ccxt_instance("binance", private_api=True)
 
-        # Check binance was initialized correctly with api_key and api_secret
-        mock_binance.assert_called_once_with({
-            'apiKey': 'key1',
-            'secret': 'sec1',
-            'enableRateLimit': True,
-            'rateLimit': 1000,
-        })
-        # Verify no error logging occurred
+        mock_binance.assert_called_once_with(
+            {
+                "apiKey": "key1",
+                "secret": "sec1",
+                "enableRateLimit": True,
+                "rateLimit": 1000,
+            }
+        )
         self.manager.logger.error.assert_not_called()
         self.mock_cm.ccxt_log.error.assert_not_called()
 
@@ -116,18 +105,20 @@ class TestCCXTManager:
         mock_exchange = MagicMock()
         mock_binance.return_value = mock_exchange
 
-        instance = self.manager.init_ccxt_instance("binance", hostname="global.binance.com")
+        self.manager.init_ccxt_instance("binance", hostname="global.binance.com")
 
         self.manager.logger.error.assert_not_called()
         self.mock_cm.ccxt_log.error.assert_not_called()
         # Check binance was initialized correctly with hostname in the config
-        mock_binance.assert_called_once_with({
-            'apiKey': None,
-            'secret': None,
-            'enableRateLimit': True,
-            'rateLimit': 1000,
-            'hostname': 'global.binance.com',
-        })
+        mock_binance.assert_called_once_with(
+            {
+                "apiKey": None,
+                "secret": None,
+                "enableRateLimit": True,
+                "rateLimit": 1000,
+                "hostname": "global.binance.com",
+            }
+        )
 
     @patch("definitions.ccxt_manager.is_port_open")
     @patch("definitions.ccxt_manager.getattr")
@@ -139,7 +130,10 @@ class TestCCXTManager:
         self.mock_cm.ccxt_log.error.assert_called_once()
 
     @pytest.mark.asyncio
-    @patch("definitions.ccxt_manager.CCXTManager._ccxt_blocking_call_with_retry", new_callable=AsyncMock)
+    @patch(
+        "definitions.ccxt_manager.CCXTManager._ccxt_blocking_call_with_retry",
+        new_callable=AsyncMock,
+    )
     async def test_fetch_order_book_with_rate_limit(self, mock_retry):
         mock_retry.return_value = {"bids": [], "asks": []}
         mock_ccxt = MagicMock()
@@ -148,7 +142,10 @@ class TestCCXTManager:
         assert result == mock_retry.return_value
 
     @pytest.mark.asyncio
-    @patch("definitions.ccxt_manager.CCXTManager._ccxt_blocking_call_with_retry", new_callable=AsyncMock)
+    @patch(
+        "definitions.ccxt_manager.CCXTManager._ccxt_blocking_call_with_retry",
+        new_callable=AsyncMock,
+    )
     async def test_fetch_free_balance(self, mock_retry):
         mock_retry.return_value = {"BTC": 1.5}
         mock_ccxt = MagicMock()
@@ -157,23 +154,27 @@ class TestCCXTManager:
 
     @pytest.mark.asyncio
     @patch("definitions.ccxt_manager.rpc_call", new_callable=AsyncMock)
-    @patch("definitions.ccxt_manager.CCXTManager._start_proxy")
-    async def test_fetch_tickers_with_proxy(self, mock_start_proxy, mock_rpc_call):
+    async def test_fetch_tickers_with_proxy(self, mock_rpc_call):
         mock_rpc_call.return_value = {}
         mock_ccxt = MagicMock()
-        # Set port closed to trigger proxy start, then open to use it
-        with patch("definitions.ccxt_manager.is_port_open", side_effect=[False, True]):
-            result = await self.manager.ccxt_call_fetch_tickers(mock_ccxt, ["BTC/USDT"])
-            mock_start_proxy.assert_called_once()
+        # Mock proxy_manager.ensure_running to avoid actually starting proxy
+        with (
+            patch.object(self.manager.proxy_manager, "ensure_running"),
+            patch("definitions.ccxt_manager.is_port_open", return_value=True),
+        ):
+            await self.manager.ccxt_call_fetch_tickers(mock_ccxt, ["BTC/USDT"])
             mock_rpc_call.assert_awaited_once()
 
     def test_start_proxy_handles_process_creation_failure(self):
-        with patch("definitions.ccxt_manager.AsyncPriceService", side_effect=OSError("Process error")):
-            self.manager._start_proxy()
-            CCXTManager._proxy_logger.error.assert_called()
+        proxy = ProxyManager()
+        with patch(
+            "definitions.proxy_manager.AsyncPriceService",
+            side_effect=OSError("Process error"),
+        ):
+            proxy.ensure_running()
             # Verify the proxy process is set to None after failure
-            assert CCXTManager._proxy_service_instance is None
-            assert CCXTManager._proxy_service_thread is None
+            assert proxy._service_instance is None
+            assert proxy._service_thread is None
 
     @patch("definitions.ccxt_manager.logging.Formatter")
     @patch("definitions.ccxt_manager.logging.StreamHandler")
@@ -182,7 +183,7 @@ class TestCCXTManager:
             (1, [], 0, 0),  # Level 1: no logging
             (2, ["function_name", "params"], 1, 0),  # Level 2: info log
             (3, ["function_name", "params"], 1, 0),  # Level 3: info with params
-            (4, ["function_name", "params"], 1, 1)  # Level 4: info + debug
+            (4, ["function_name", "params"], 1, 1),  # Level 4: info + debug
         ]
 
         for level, params, expected_info_calls, expected_debug_calls in test_cases:
@@ -197,7 +198,7 @@ class TestCCXTManager:
     async def test_ccxt_blocking_retry(self, mock_loop):
         # Setup a mock function that fails then succeeds
         future1 = asyncio.Future()
-        future1.set_exception(Exception('Transient'))
+        future1.set_exception(Exception("Transient"))
         future2 = asyncio.Future()
         future2.set_result("Success")
         mock_loop.return_value.run_in_executor.side_effect = [future1, future2]
