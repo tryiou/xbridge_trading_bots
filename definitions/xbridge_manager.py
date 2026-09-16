@@ -101,13 +101,17 @@ class XBridgeManager:
             else XBridgeManager._rpc_semaphore
         )
 
-        # Check if RPC port is open (synchronous check)
+        # Check if RPC port is open (synchronous TCP probe only; a green
+        # result means the port accepts connections, not that RPC auth or
+        # dx* dispatch succeeded — see startup RPC calls for real validation)
         if not is_port_open("127.0.0.1", self.blocknet_port_rpc):
             self.logger.error(
                 f"Blocknet RPC port {self.blocknet_port_rpc} is not open. Will not be able to connect to Blocknet Core."
             )
         else:
-            self.logger.info(f"Blocknet RPC port {self.blocknet_port_rpc} is open.")
+            self.logger.info(
+                f"Blocknet RPC port {self.blocknet_port_rpc} is open (TCP probe; RPC not yet verified)."
+            )
 
         # Only run test if port is actually open and we're not in main thread
         if threading.current_thread() is not threading.main_thread() and is_port_open(

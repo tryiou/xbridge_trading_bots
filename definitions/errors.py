@@ -112,6 +112,24 @@ class NetworkTimeoutError(TransientError):
     pass
 
 
+class RpcHttpError(OperationalError):
+    """HTTP status error from the RPC endpoint (e.g. 401 auth, 404 method).
+
+    Distinct from NetworkTimeoutError: the server was reachable and answered,
+    but rejected the request. Carries the HTTP status so logs do not
+    misreport a 404/401 as a timeout.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        context: dict[str, Any] | None = None,
+        status: int | None = None,
+    ) -> None:
+        super().__init__(message, context)
+        self.status = status
+
+
 class ProtocolError(OperationalError):
     """Errors in RPC/API protocol handling"""
 
@@ -144,6 +162,18 @@ def convert_exception(e: Exception) -> AppError:
     try:
         import aiohttp
 
+        if isinstance(e, aiohttp.ClientResponseError):
+            status = getattr(e, "status", None)
+            url = getattr(e, "request_info", None)
+            url_str = str(getattr(url, "url", "")) if url is not None else ""
+            detail = f" ({url_str})" if url_str else ""
+            exc = RpcHttpError(
+                f"HTTP {status}: {e.message}{detail}",
+                context={"http_status": status, "url": url_str},
+                status=status,
+            )
+            exc.__cause__ = e
+            return exc
         if isinstance(e, aiohttp.ClientError):
             return _wrap_exception(e, NetworkTimeoutError)
     except ImportError:
