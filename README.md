@@ -1,6 +1,7 @@
 # XBridge Trading Bots
 
-Automated trading bots for Blocknet's XBridge decentralized exchange protocol, enabling cross-chain cryptocurrency trading.
+Automated trading bots for Blocknet's XBridge decentralized exchange protocol, enabling cross-chain cryptocurrency
+trading.
 
 [![Python Version](https://img.shields.io/badge/python-3.10+-blue.svg)](https://python.org)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
@@ -16,11 +17,11 @@ Automated trading bots for Blocknet's XBridge decentralized exchange protocol, e
 - **Blocknet Core** - Must be running and synchronized
 - **Tkinter** (GUI components):
 
-| Platform | Status | Installation |
-|----------|--------|--------------|
-| Windows  | Pre-installed | Included with Python 3 |
-| macOS    | Required | [Installation Guide](https://www.pythonguis.com/installation/install-tkinter-mac/) |
-| Linux    | Required | [Installation Guide](https://www.pythonguis.com/installation/install-tkinter-linux/) |
+| Platform | Status        | Installation                                                                         |
+|----------|---------------|--------------------------------------------------------------------------------------|
+| Windows  | Pre-installed | Included with Python 3                                                               |
+| macOS    | Required      | [Installation Guide](https://www.pythonguis.com/installation/install-tkinter-mac/)   |
+| Linux    | Required      | [Installation Guide](https://www.pythonguis.com/installation/install-tkinter-linux/) |
 
 ## Quick Start
 
@@ -68,12 +69,12 @@ pip install -r requirements.txt
 python prepare_configs.py
 ```
 
-| Template File | Purpose | Used By |
-|---------------|---------|---------|
-| `config_pingpong.yaml` | Trading pairs and parameters | PingPong Bot |
-| `config_ccxt.yaml` | Exchange API configuration | PingPong & BasicSeller |
-| `config_coins.yaml` | Static USD prices (optional) | All Bots |
-| `config_xbridge.yaml` | XBridge fees and monitoring | All Bots |
+| Template File          | Purpose                      | Used By                |
+|------------------------|------------------------------|------------------------|
+| `config_pingpong.yaml` | Trading pairs and parameters | PingPong Bot           |
+| `config_ccxt.yaml`     | Exchange API configuration   | PingPong & BasicSeller |
+| `config_coins.yaml`    | Static USD prices (optional) | All Bots               |
+| `config_xbridge.yaml`  | XBridge fees and monitoring  | All Bots               |
 
 ## Usage
 
@@ -107,6 +108,7 @@ python main_basic_seller.py  # BasicSeller strategy
 3. **Profit:** Earn spread percentage per cycle
 
 **Example:** $100 PING sale, 2% spread
+
 - PONG buy executes at $98
 - Profit = $2 per cycle
 
@@ -143,16 +145,17 @@ python main_gui.py
 #### Pricing Rules
 
 Orders use the **better** of:
+
 1. `min_sell_price_usd` (floor price)
 2. Current USD price + `sell_price_offset`
 
 #### Order Behavior
 
-| Market Condition | Order Price |
-|------------------|-------------|
-| TokenA price ≥ floor | Market price + offset |
-| TokenA price < floor | Floor price |
-| TokenA price recovers | Auto-adjusts upward |
+| Market Condition      | Order Price           |
+|-----------------------|-----------------------|
+| TokenA price ≥ floor  | Market price + offset |
+| TokenA price < floor  | Floor price           |
+| TokenA price recovers | Auto-adjusts upward   |
 
 #### Configuration
 
@@ -162,30 +165,33 @@ Orders use the **better** of:
 #### Usage
 
 **View all options:**
+
 ```bash
 python main_basic_seller.py --help
 ```
 
 **Basic example:**
+
 ```bash
 python main_basic_seller.py -tts BLOCK -ttb PIVX -atts 200 -mup 0.33 -spu 0.015
 ```
 
 **Partial sell example:**
+
 ```bash
 python main_basic_seller.py -tts BLOCK -ttb PIVX -atts 200 -mup 0.33 -spu 0.015 --partial 0.5
 ```
 
 #### Command Line Parameters
 
-| Parameter | Short | Required | Type | Description |
-|-----------|-------|----------|------|-------------|
-| `--TokenToSell` | `-tts` | ✅ | string | Token to sell (e.g., BLOCK, LTC) |
-| `--TokenToBuy` | `-ttb` | ✅ | string | Token to receive (e.g., PIVX, BTC) |
-| `--AmountTokenToSell` | `-atts` | ✅ | float | Quantity to sell |
-| `--MinUsdPrice` | `-mup` | ✅ | float | Minimum USD price per token |
-| `--SellPriceUpscale` | `-spu` | ❌ | float | Price markup % (default: 0.015 = 1.5%) |
-| `--partial` | `-p` | ❌ | float | Partial sell ratio (0.001-0.999) |
+| Parameter             | Short   | Required | Type   | Description                            |
+|-----------------------|---------|----------|--------|----------------------------------------|
+| `--TokenToSell`       | `-tts`  | ✅        | string | Token to sell (e.g., BLOCK, LTC)       |
+| `--TokenToBuy`        | `-ttb`  | ✅        | string | Token to receive (e.g., PIVX, BTC)     |
+| `--AmountTokenToSell` | `-atts` | ✅        | float  | Quantity to sell                       |
+| `--MinUsdPrice`       | `-mup`  | ✅        | float  | Minimum USD price per token            |
+| `--SellPriceUpscale`  | `-spu`  | ❌        | float  | Price markup % (default: 0.015 = 1.5%) |
+| `--partial`           | `-p`    | ❌        | float  | Partial sell ratio (0.001-0.999)       |
 
 #### Parameter Details
 
@@ -197,15 +203,18 @@ python main_basic_seller.py -tts BLOCK -ttb PIVX -atts 200 -mup 0.33 -spu 0.015 
 ### Common Issues
 
 **Connection Problems:**
+
 - Verify Blocknet Core is running, synchronized, unlocked
 - Check RPC credentials in `blocknet.conf`
 - Ensure firewall allows local RPC connections
 
 **GUI Issues:**
+
 - Install Tkinter using platform-specific guides
 - Use console version if GUI fails to start
 
 **Configuration Errors:**
+
 - Verify YAML syntax in config files
 - Ensure all required parameters are specified
 - Confirm coin symbols match XBridge supported assets
@@ -241,4 +250,5 @@ Contributions welcome. Submit issues, feature requests, or pull requests.
 
 ## Disclaimer
 
-**Use at your own risk.** Cryptocurrency trading involves substantial risk of loss. These bots are provided as-is without warranty. Test with small amounts first.
+**Use at your own risk.** Cryptocurrency trading involves substantial risk of loss. These bots are provided as-is
+without warranty. Test with small amounts first.

@@ -1,5 +1,4 @@
 debug_level: 2
-ttk_theme: darkly
 pair_configs:
 
   - name: LTC_BLOCK_1

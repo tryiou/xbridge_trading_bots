@@ -3,9 +3,9 @@ import os
 import threading
 import tkinter as tk
 from tkinter import ttk
-from typing import TYPE_CHECKING, Any, Dict
+from typing import TYPE_CHECKING, Any
 
-from ruamel.yaml import YAML
+from definitions.yaml_utils import save_config
 
 if TYPE_CHECKING:
     from gui.frames.base_frames import BaseStrategyFrame
@@ -16,9 +16,9 @@ class BaseConfigWindow:
 
     def __init__(self, parent: "BaseStrategyFrame"):
         self.parent = parent
-        strategy_title = parent.strategy_name.replace('_', ' ').title()
+        strategy_title = parent.strategy_name.replace("_", " ").title()
         self.title_text = f"Configure {strategy_title} Bot"
-        self.config_file_path = f'./config/config_{parent.strategy_name}.yaml'
+        self.config_file_path = f"./config/config_{parent.strategy_name}.yaml"
         self.config_window: tk.Toplevel | None = None
         self.status_var = tk.StringVar()
         self.status_label: ttk.Label | None = None
@@ -41,7 +41,7 @@ class BaseConfigWindow:
         self.config_window.protocol("WM_DELETE_WINDOW", self.on_close)
 
         main_frame = ttk.Frame(self.config_window)
-        main_frame.pack(fill='both', expand=True, padx=10, pady=10)
+        main_frame.pack(fill="both", expand=True, padx=10, pady=10)
         main_frame.grid_rowconfigure(0, weight=1)
         main_frame.grid_columnconfigure(0, weight=1)
 
@@ -62,15 +62,17 @@ class BaseConfigWindow:
     def _create_save_button(self, parent_frame: ttk.Frame) -> None:
         """Creates the save button for the configuration window."""
         save_button = ttk.Button(parent_frame, text="Save", command=self.save_config)
-        save_button.grid(row=2, column=0, pady=10, sticky='ew')
+        save_button.grid(row=2, column=0, pady=10, sticky="ew")
 
     def _create_status_bar(self, parent_frame: ttk.Frame) -> None:
         """Creates the status bar at the bottom of the configuration window."""
         status_frame = ttk.Frame(parent_frame)
-        status_frame.grid(row=3, column=0, pady=5, sticky='ew')
+        status_frame.grid(row=3, column=0, pady=5, sticky="ew")
         self.status_var.set("Ready")
-        self.status_label = ttk.Label(status_frame, textvariable=self.status_var, anchor='w')
-        self.status_label.pack(fill='x')
+        self.status_label = ttk.Label(
+            status_frame, textvariable=self.status_var, anchor="w"
+        )
+        self.status_label.pack(fill="x")
 
     def _set_window_geometry(self):
         """Placeholder for subclass to set window size."""
@@ -101,21 +103,16 @@ class BaseConfigWindow:
             self.active_dialog = None
         return dialog
 
-    def _atomic_save(self, new_config: Dict[str, Any]) -> bool:
+    def _atomic_save(self, new_config: dict[str, Any]) -> bool:
         """
         Performs a safe configuration save using a temporary file and atomic replace.
         """
-        yaml_writer = YAML()
-        yaml_writer.default_flow_style = False
-        yaml_writer.indent(mapping=2, sequence=4, offset=2)
-
         temp_path = f"{self.config_file_path}.tmp"
         try:
-            with open(temp_path, 'w') as f:
-                yaml_writer.dump(new_config, f)
+            save_config(temp_path, new_config)
             os.replace(temp_path, self.config_file_path)
             return True
-        except Exception as e:
+        except Exception:
             if os.path.exists(temp_path):
                 os.remove(temp_path)
             raise
@@ -128,23 +125,24 @@ class BaseConfigWindow:
                 # Status already set by _get_config_data_to_save, so we don't overwrite it
                 return
 
-            self.update_status("Saving configuration...", 'blue')
+            self.update_status("Saving configuration...", "blue")
 
             # Start a new thread for saving
-            save_thread = threading.Thread(target=self._async_save_worker, args=(new_config,))
+            save_thread = threading.Thread(
+                target=self._async_save_worker, args=(new_config,)
+            )
             save_thread.daemon = True
             save_thread.name = "SaveWorker"  # Set name for easier identification
             save_thread.start()
 
         except Exception as e:
-            self.update_status(f"Failed to initiate save: {e}", 'lightcoral')
+            self.update_status(f"Failed to initiate save: {e}", "lightcoral")
             if self.parent.config_manager:
                 self.parent.config_manager.error_handler.handle(
-                    e,
-                    context={"stage": "initiate_config_save"}
+                    e, context={"stage": "initiate_config_save"}
                 )
 
-    def _async_save_worker(self, new_config: Dict[str, Any]):
+    def _async_save_worker(self, new_config: dict[str, Any]):
         """Worker function for asynchronous configuration saving."""
         try:
             self._atomic_save(new_config)
@@ -153,28 +151,34 @@ class BaseConfigWindow:
                 self.parent.master_config_manager.load_configs()
 
             # Schedule GUI update on the main thread
-            self.parent.main_app.root.after(0,
-                                            lambda: self.update_status("Configuration saved and reloaded successfully.",
-                                                                       'lightgreen'))
+            self.parent.main_app.root.after(
+                0,
+                lambda: self.update_status(
+                    "Configuration saved and reloaded successfully.", "lightgreen"
+                ),
+            )
 
             # Now, reload the strategy frame's specific configuration from the master.
-            self.parent.main_app.root.after(0, lambda: self.parent.reload_configuration(loadxbridgeconf=True))
+            self.parent.main_app.root.after(
+                0, lambda: self.parent.reload_configuration(loadxbridgeconf=True)
+            )
 
         except Exception as e:
             error_msg = f"Failed to save configuration: {e}"
             # Schedule GUI update on the main thread
-            self.parent.main_app.root.after(0, lambda: self.update_status(error_msg, 'lightcoral'))
+            self.parent.main_app.root.after(
+                0, lambda: self.update_status(error_msg, "lightcoral")
+            )
             if self.parent.config_manager:
                 self.parent.config_manager.error_handler.handle(
-                    e,
-                    context={"stage": "async_save_worker"}
+                    e, context={"stage": "async_save_worker"}
                 )
 
-    def _get_config_data_to_save(self) -> Dict[str, Any] | None:
+    def _get_config_data_to_save(self) -> dict[str, Any] | None:
         """Placeholder for subclass to return the config dictionary to be saved."""
         raise NotImplementedError
 
-    def update_status(self, message: str, color: str = 'black') -> None:
+    def update_status(self, message: str, color: str = "black") -> None:
         """Updates the status bar message and color."""
         if self.status_label:
             self.status_var.set(message)

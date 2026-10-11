@@ -48,12 +48,13 @@ class GUIShutdownCoordinator:
             error_msg = f"Error disabling GUI interaction: {e}"
             logger.error(error_msg, exc_info=True)
             self.master_config_manager.error_handler.handle(
-                e,
-                context={"stage": "shutdown_init"}
+                e, context={"stage": "shutdown_init"}
             )
 
         # Start shutdown in a separate thread to keep GUI responsive
-        shutdown_thread = threading.Thread(target=self._perform_shutdown_tasks, daemon=True)
+        shutdown_thread = threading.Thread(
+            target=self._perform_shutdown_tasks, daemon=True
+        )
         shutdown_thread.start()
 
     def _perform_shutdown_tasks(self):
@@ -61,9 +62,12 @@ class GUIShutdownCoordinator:
         try:
             # 1. Stop GUI-specific background tasks like balance updater
             logger.info("Stopping balance updater thread...")
-            if hasattr(self.main_app, 'balance_stop_event'):
+            if hasattr(self.main_app, "balance_stop_event"):
                 self.main_app.balance_stop_event.set()
-            if hasattr(self.main_app, 'balance_updater_thread') and self.main_app.balance_updater_thread.is_alive():
+            if (
+                hasattr(self.main_app, "balance_updater_thread")
+                and self.main_app.balance_updater_thread.is_alive()
+            ):
                 self.main_app.balance_updater_thread.join(2.0)
             logger.info("Balance updater stopped.")
 
@@ -86,8 +90,7 @@ class GUIShutdownCoordinator:
             error_msg = f"Critical error during GUI shutdown: {e}"
             logger.critical(error_msg, exc_info=True)
             self.master_config_manager.error_handler.handle(
-                e,
-                context={"stage": "shutdown"}
+                e, context={"stage": "shutdown"}
             )
         finally:
             # Brief pause to allow in-flight operations to settle/terminate
@@ -110,9 +113,9 @@ class GUIShutdownCoordinator:
             error_msg = f"Error during GUI finalization: {e}"
             logger.critical(error_msg, exc_info=True)
             self.master_config_manager.error_handler.handle(
-                e,
-                context={"stage": "shutdown_finalize"}
+                e, context={"stage": "shutdown_finalize"}
             )
             # Attempt to exit the application
             import sys
+
             sys.exit(1)

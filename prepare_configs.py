@@ -22,7 +22,7 @@ def prepare_configurations():
         print(f"Creating configuration directory at {CONFIG_DIR}")
         os.makedirs(CONFIG_DIR)
 
-    templates = [f for f in os.listdir(TEMPLATE_DIR) if f.endswith('.template')]
+    templates = [f for f in os.listdir(TEMPLATE_DIR) if f.endswith(".template")]
 
     if not templates:
         print("No template files found.")
@@ -37,7 +37,7 @@ def prepare_configurations():
             shutil.copy(template_path, target_path)
             print(f"✅ Created '{target_name}' from template.")
         else:
-            print(f"ℹ️  '{target_name}' already exists. Skipping.")
+            print(f"[i] '{target_name}' already exists. Skipping.")
 
     print("\n--- Configuration setup complete ---")
 

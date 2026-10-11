@@ -1,6 +1,9 @@
 # XBridge Taker Fee in BLOCK, paid to service nodes for matching an order.
 taker_fee_block: 0.015
 
+# RPC timeout in seconds for Blocknet daemon JSON-RPC calls. Increase on slow boxes.
+rpc_timeout: 120
+
 # Monitoring settings for XBridge order execution loops
 monitoring:
   # Timeout in seconds for waiting for an XBridge order to complete.
